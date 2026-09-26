@@ -354,6 +354,9 @@ PyInstaller 6.22 onedir(`packaging/dpg.spec`), `build` 의존성 그룹(pyinstal
 **D-077 배포 워크플로**
 `release.yml`: `v*` 태그 → macos-14(Apple Silicon)·windows-latest에서 태그=버전 확인 → 테스트 → 라이선스 검사 → 빌드+자가 진단 → 아티팩트 → 체크섬 합치고 `sha256sum -c` → `attest-build-provenance`(빌드 출처 증명) → **초안(draft)** 릴리스(사람이 확인 후 공개). 모든 액션을 전체 커밋 SHA로 고정(checkout v7.0.1, setup-uv v10.2.0, upload-artifact v7.0.1, download-artifact v8.0.1, attest-build-provenance v4.2.2, action-gh-release v3.0.3 — 각 action.yml에서 입력 호환 확인), 체크아웃 자격 증명 비보존, 릴리스 잡만 쓰기 권한. ci.yml도 같은 SHA로 고정(Phase 0에서 미룬 항목). 「도움말 → 새 버전 확인」은 브라우저로 Releases 페이지를 열 뿐 앱이 직접 확인하지 않음(`dpg.REPOSITORY_URL`, 저장소 생성 후 설정).
 
+**D-078 크롬 확장 프로그램 계획 (사용자 요청, 2026-09-26)**
+암호화된 보관 파일을 크롬에서 메모리로만 풀어 확장 프로그램 전용 창에서 보고, 필요 시 저장·다시 암호화. 가능성 검토 결과 가능(7-Zip WASM, WebCrypto로 복구 키 비밀번호 계산, chrome.identity + Drive API). 한계: 키체인 접근 불가(비밀번호·복구 키 입력), 메모리 전용의 OS 수준 한계, 한글 뷰어는 내용 확인용. 사용자 결정: **무료 배포(개발자 모드, GitHub Releases zip)**, **한글·엑셀 우선**. 상세는 `docs/EXTENSION_PLAN.md`. 구현은 Phase 8 마무리 후 E0 검증부터.
+
 ---
 
 ## H. SPEC 11장 검증 기록

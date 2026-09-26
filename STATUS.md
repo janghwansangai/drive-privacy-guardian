@@ -199,6 +199,13 @@ uv run dpg logout
 - [x] 한국어 문서: INSTALL_KO(미서명 앱 실행·체크섬 확인·삭제), USER_GUIDE_KO 전면 개정, README
 - [x] GitHub 공개 저장소 https://github.com/janghwansangai/drive-privacy-guardian (사용자 승인 2026-09-26), v0.1.0 태그 → release 워크플로 성공: macOS-arm64 .dmg/.zip, Windows-x64 .zip, SHA256SUMS, 빌드 출처 증명, **초안 릴리스**
 - [x] 첫 CI에서 찾은 Windows 전용 문제 수정: 합성 PDF 줄바꿈(.gitattributes), 기록 삭제 로그 순서, 콘솔 UTF-8(빌드·CI), 잠긴 남의 임시 파일(유출 테스트) → CI 3개 OS 모두 녹색
+- [x] (사용자 확인 2026-09-26) Mac: 릴리스 파일로 설치 확인
+- [ ] Windows 설치 확인 (사용자 PC)
+- [ ] 릴리스 공개 (사용자가 직접 또는 승인)
 - [ ] 완료 기준: GitHub Release에 Mac·Windows 설치 파일 + 체크섬 + 라이선스 고지 + 한국어 가이드, 깨끗한 PC에서 설치→설정→감사 (사용자 확인)
 
 로컬 빌드 결과(macOS arm64): 앱 108MB, zip 42.9MB, dmg 48.9MB, 빌드된 앱 자가 진단 7/7 정상, QtNetwork 미포함. Windows 빌드는 GitHub Actions에서 빌드·자가 진단 통과.
+
+## 다음 계획 — 크롬 확장 프로그램 (계획만, 구현 전)
+- [x] 계획서 `docs/EXTENSION_PLAN.md` (사용자 결정: 무료 개발자 모드 배포, 한글·엑셀 우선) — D-078
+- [ ] E0 검증 → E1 보기 → E2 저장·형식 확장 → E3 다시 암호화 → E4 다듬기
