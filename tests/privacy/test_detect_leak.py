@@ -26,10 +26,14 @@ ME = "teacher@school.example"
 
 
 def _files_since(root: Path, since: float) -> list[Path]:
+    """Readable files touched since `since`. Other processes' files that are locked (Windows
+    CI) cannot be ours: the app creates no temp files at all, which is asserted separately."""
     out = []
     for p in root.rglob("*"):
         try:
             if p.is_file() and p.stat().st_mtime >= since:
+                with p.open("rb"):
+                    pass
                 out.append(p)
         except OSError:
             continue

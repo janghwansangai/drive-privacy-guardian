@@ -191,13 +191,14 @@ uv run dpg logout
 
 로컬 실행 결과: pytest 372개 통과(3회) / ruff·mypy 통과 / 라이선스 0 / pip-audit 0
 
-## Phase 8 — 빌드·배포 🟡 (로컬 빌드 완료, GitHub 저장소·릴리스와 사용자 설치 확인 대기)
+## Phase 8 — 빌드·배포 🟡 (초안 릴리스 생성 완료, 사용자 설치 확인·공개 대기)
 - [x] V13·V14·V15 확인 → DECISIONS.md
 - [x] PyInstaller onedir(`packaging/dpg.spec`, `tools/build.py`), 빌드된 앱 자가 진단(`--selftest`), .dmg/.zip, SHA256SUMS
 - [x] 라이선스 고지(THIRD_PARTY_LICENSES, NOTICE_KO, LGPL/GPL 전문), 상표 고지, 「새 버전 확인」
 - [x] `.github/workflows/release.yml`(태그 → Mac·Windows 빌드, 체크섬, 빌드 출처 증명, 초안 릴리스), 모든 액션 SHA 고정
 - [x] 한국어 문서: INSTALL_KO(미서명 앱 실행·체크섬 확인·삭제), USER_GUIDE_KO 전면 개정, README
-- [ ] GitHub 공개 저장소 생성·첫 푸시·태그 (사용자 승인 필요)
+- [x] GitHub 공개 저장소 https://github.com/janghwansangai/drive-privacy-guardian (사용자 승인 2026-09-26), v0.1.0 태그 → release 워크플로 성공: macOS-arm64 .dmg/.zip, Windows-x64 .zip, SHA256SUMS, 빌드 출처 증명, **초안 릴리스**
+- [x] 첫 CI에서 찾은 Windows 전용 문제 수정: 합성 PDF 줄바꿈(.gitattributes), 기록 삭제 로그 순서, 빌드 콘솔 UTF-8, 잠긴 남의 임시 파일(유출 테스트)
 - [ ] 완료 기준: GitHub Release에 Mac·Windows 설치 파일 + 체크섬 + 라이선스 고지 + 한국어 가이드, 깨끗한 PC에서 설치→설정→감사 (사용자 확인)
 
-로컬 빌드 결과(macOS arm64): 앱 108MB, zip 42.9MB, dmg 48.9MB, 빌드된 앱 자가 진단 7/7 정상, QtNetwork 미포함. Windows 빌드는 GitHub Actions에서 처음 확인됨.
+로컬 빌드 결과(macOS arm64): 앱 108MB, zip 42.9MB, dmg 48.9MB, 빌드된 앱 자가 진단 7/7 정상, QtNetwork 미포함. Windows 빌드는 GitHub Actions에서 빌드·자가 진단 통과.
