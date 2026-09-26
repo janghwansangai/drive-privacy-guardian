@@ -109,17 +109,47 @@ export async function openArchive(bytes, password) {
   return out;
 }
 
-/** 7z AES-256 with header encryption (E3 re-encryption; also used by tests). */
+/** 7z AES-256 with header encryption (same format as the desktop app). Folder names are kept. */
 export async function create7z(files, password) {
+  if (!password) throw new ArchiveError("비밀번호가 없습니다");
   const sz = await newSevenZip();
   sz.FS.mkdir("/in");
   const names = [];
   for (const [name, data] of files) {
-    const n = safeName(name).replace(/\//g, "_");
+    const n = safeName(name);
+    const parts = n.split("/");
+    let dir = "/in";
+    for (const part of parts.slice(0, -1)) {
+      dir += `/${part}`;
+      if (!sz.FS.analyzePath(dir).exists) sz.FS.mkdir(dir);
+    }
     const s = sz.FS.open(`/in/${n}`, "w+"); sz.FS.write(s, data, 0, data.length); sz.FS.close(s);
-    names.push(`/in/${n}`);
+    if (!names.includes(parts[0])) names.push(parts[0]);
   }
+  sz.FS.chdir("/in"); // relative names → the archive keeps "folder/file" paths
   const code = sz.callMain(["a", "/out.7z", ...names, `-p${password}`, "-mhe=on", "-mx=7", "-bso0", "-bsp0"]);
   if (code !== 0) throw new ArchiveError("암호화에 실패했습니다");
   return sz.FS.readFile("/out.7z");
+}
+
+export async function sha256hex(bytes) {
+  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Decrypt `blob` again and compare every file (SHA-256) with the originals, like the desktop app. */
+export async function verifyArchive(blob, password, originals) {
+  let back;
+  try { back = await openArchive(blob, password); } catch { return false; }
+  if (back.size !== originals.size) return false;
+  for (const [name, data] of originals) {
+    if (!back.has(name) || (await sha256hex(back.get(name))) !== (await sha256hex(data))) return false;
+  }
+  return true;
+}
+
+/** A neutral name like the desktop app's: 보관_YYYY-MM-DD_xxxxxxxx.7z (local date, random tag). */
+export function newArchiveName(now = new Date()) {
+  const tag = [...crypto.getRandomValues(new Uint8Array(4))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const d = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return `보관_${d}_${tag}.7z`;
 }

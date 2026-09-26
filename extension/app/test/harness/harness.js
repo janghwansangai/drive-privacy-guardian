@@ -2,7 +2,7 @@
 // that serves the synthetic fixture archives. No network, no Google account. Not shipped.
 const FIX = "../fixtures/";
 const FILES = [
-  { id: "f7z", name: "보관_2026-09-27_0a1b2c3d.7z", size: "50000", createdTime: "2026-09-27T00:00:00Z" },
+  { id: "f7z", parents: ["folderA"], name: "보관_2026-09-27_0a1b2c3d.7z", size: "50000", createdTime: "2026-09-27T00:00:00Z" },
   { id: "fzip", name: "보관_2026-09-27_4e5f6a7b.zip", size: "50000", createdTime: "2026-09-26T00:00:00Z" },
   // E2 formats: built in the page with the extension's own 7z writer (recovery-key password)
   { id: "fe2", name: "보관_2026-09-27_9c8d7e6f.7z", size: "90000", createdTime: "2026-09-25T00:00:00Z" },
@@ -42,14 +42,33 @@ globalThis.chrome = {
 };
 const realFetch = window.fetch.bind(window);
 window.harnessCalls = [];
+window.harnessUploads = 0;
 window.fetch = async (input, init) => {
   const url = new URL(String(input), location.href);
   if (url.hostname === "www.googleapis.com") {
-    window.harnessCalls.push(url.pathname + url.search);
+    window.harnessCalls.push(`${init?.method || "GET"} ${url.pathname}`);
+    if (url.pathname.startsWith("/upload/") && init?.method === "POST") {
+      const meta = JSON.parse(init.body);
+      const id = `up${++window.harnessUploads}`;
+      FILES.unshift({ id, name: meta.name, parents: meta.parents, size: "0", createdTime: new Date().toISOString() });
+      return new Response("{}", { headers: { Location: `https://www.googleapis.com/upload/drive/v3/files?upload_id=${id}` } });
+    }
+    if (url.pathname.startsWith("/upload/") && init?.method === "PUT") {
+      const id = url.searchParams.get("upload_id");
+      built[id] = new Uint8Array(init.body);
+      FILES.find((f) => f.id === id).size = String(built[id].length);
+      return new Response(JSON.stringify({ id }), { headers: { "content-type": "application/json" } });
+    }
+    if (init?.method === "PATCH") {
+      const id = decodeURIComponent(/\/files\/([^/?]+)/.exec(url.pathname)[1]);
+      FILES.splice(FILES.findIndex((f) => f.id === id), 1);
+      return new Response(JSON.stringify({ id, trashed: true }), { headers: { "content-type": "application/json" } });
+    }
     const m = /\/files\/([^/?]+)$/.exec(url.pathname);
     if (m && url.searchParams.get("alt") === "media") {
       const f = FILES.find((x) => x.id === decodeURIComponent(m[1]));
       if (f.id === "fe2") return new Response(await e2Archive());
+      if (built[f.id]) return new Response(built[f.id]);
       return realFetch(FIX + encodeURIComponent(f.name));
     }
     return new Response(JSON.stringify({ files: FILES }), { headers: { "content-type": "application/json" } });

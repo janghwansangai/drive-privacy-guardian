@@ -7,6 +7,7 @@ import * as drive from "./lib/drive.js";
 import { openArchive, passwordFor, parseRecoveryKey, tagFromName, WrongPassword, ArchiveError } from "./lib/vault.js";
 import { viewModel } from "./lib/view.js";
 import { renderModel } from "./lib/render.js";
+import { planMembers, reencrypt, ReencryptFailed } from "./lib/reencrypt.js";
 
 const $ = (id) => document.getElementById(id);
 const IDLE_MS = 10 * 60 * 1000;
@@ -28,7 +29,7 @@ const parseXml = (text) => {
   return doc;
 };
 
-function message(text) { $("message").textContent = text || ""; }
+function message(text, ok = false) { $("message").textContent = text || ""; $("message").classList.toggle("ok", ok); }
 
 function forget() {
   encrypted = null;
@@ -38,6 +39,7 @@ function forget() {
   }
   current = null;
   release();
+  closeReenc();
   $("view").replaceChildren();
   $("members").replaceChildren();
   $("notice").textContent = "";
@@ -138,18 +140,22 @@ async function unlock(typed) {
   message("받는 중… (메모리에만)");
   try {
     let password;
+    let secret; // kept while the archive is open, for re-encryption (E3)
     if (typed === null) {
       const { derivePassword } = await import("./lib/vault.js");
       password = await derivePassword(rememberedKey, tagFromName(file.name));
+      secret = { raw: rememberedKey };
     } else {
       password = await passwordFor(file.name, typed);
-      if ($("remember").checked) rememberedKey = await parseRecoveryKey(typed);
+      const raw = tagFromName(file.name) ? await parseRecoveryKey(typed) : null;
+      secret = raw ? { raw } : { password: typed };
+      if ($("remember").checked && raw) rememberedKey = raw;
     }
     $("password").value = "";
     if (!encrypted || encrypted.id !== file.id) encrypted = { id: file.id, bytes: await drive.download(file) };
     message("푸는 중…");
     const members = await openArchive(encrypted.bytes, password);
-    current = { file, members };
+    current = { file, members, secret };
     showOpened();
     message("");
   } catch (e) {
@@ -206,3 +212,121 @@ $("saveOk").onclick = () => {
 
 $("close").onclick = () => { forget(); $("unlock").hidden = !selected; };
 touch();
+
+// -- E3: re-encrypt and upload -----------------------------------------------------------------
+let reenc = null; // { mode: "edit"|"new", existing: Map, picked: [{name, bytes}], removed: Set }
+
+function closeReenc() {
+  if (reenc) for (const p of reenc.picked) p.bytes.fill(0);
+  reenc = null;
+  $("reenc").hidden = true;
+  $("pick").value = "";
+  $("newSecret").value = "";
+  $("newSecret2").value = "";
+  $("reencStatus").textContent = "";
+}
+
+function openReenc(mode) {
+  closeReenc();
+  message("");
+  reenc = { mode, existing: mode === "edit" ? current.members : new Map(), picked: [], removed: new Set() };
+  $("reenc").hidden = false;
+  $("reencGo").disabled = false;
+  $("reencTitle").textContent = mode === "edit" ? `다시 암호화: ${current.file.name}` : "새 파일 암호화해 올리기";
+  $("secretStep").hidden = mode === "edit";
+  $("trashStep").hidden = mode !== "edit";
+  $("secretInfo").hidden = mode !== "edit";
+  if (mode === "edit") {
+    $("secretInfo").textContent = current.secret.raw
+      ? "비밀번호: 복구 키로 새 파일의 비밀번호를 만듭니다 (데스크톱 앱에서도 복구 키로 열림)."
+      : "비밀번호: 이 파일을 열 때 넣은 비밀번호를 그대로 씁니다.";
+    $("whereInfo").textContent = "새 보관 파일은 예전 파일과 같은 폴더에 올립니다 (안 되면 내 드라이브 맨 위).";
+  } else {
+    $("whereInfo").textContent = "새 보관 파일은 내 드라이브 맨 위에 올립니다. 데스크톱 앱의 「폴더로 옮기기」로 옮길 수 있습니다.";
+  }
+  drawRows();
+  $("reenc").scrollIntoView({ behavior: "smooth" });
+}
+
+function drawRows() {
+  const { rows } = planMembers(reenc.existing, reenc.picked, reenc.removed);
+  const t = $("reencRows");
+  t.replaceChildren();
+  if (!rows.length) {
+    const tr = document.createElement("tr");
+    const td = Object.assign(document.createElement("td"), { className: "muted", textContent: "파일을 골라 주세요" });
+    tr.append(td); t.append(tr);
+  }
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    const tdName = Object.assign(document.createElement("td"), { textContent: r.name });
+    const tdState = Object.assign(document.createElement("td"), { className: `state ${r.state}`, textContent: r.state });
+    const tdX = document.createElement("td");
+    if (r.state === "그대로" || r.state === "뺌") {
+      const cb = Object.assign(document.createElement("input"), { type: "checkbox", checked: r.state === "뺌", title: "빼기" });
+      cb.onchange = () => { cb.checked ? reenc.removed.add(r.name) : reenc.removed.delete(r.name); drawRows(); };
+      tdX.append(cb);
+    }
+    tr.append(tdName, tdState, tdX);
+    t.append(tr);
+  }
+}
+
+$("reencBtn").onclick = () => current && openReenc("edit");
+$("newArchive").onclick = () => {
+  if (!drive.signedIn()) { message("먼저 구글 로그인을 해 주세요."); return; }
+  forget();
+  $("unlock").hidden = true;
+  openReenc("new");
+};
+$("reencCancel").onclick = closeReenc;
+$("pick").onchange = async () => {
+  if (!reenc) return;
+  for (const f of $("pick").files) {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    reenc.picked = reenc.picked.filter((p) => p.name !== f.name).concat([{ name: f.name, bytes }]);
+  }
+  $("pick").value = "";
+  try { drawRows(); } catch (e) { $("reencStatus").textContent = e.message; }
+};
+
+async function newSecret() {
+  const typed = $("newSecret").value;
+  const raw = await parseRecoveryKey(typed);
+  if (raw) return { raw };
+  if (typed.length < 8) throw new ReencryptFailed("복구 키가 아니면 8자 이상 비밀번호를 넣어 주세요 (복구 키는 35자, 오타 확인)");
+  if (typed !== $("newSecret2").value) throw new ReencryptFailed("비밀번호 확인이 다릅니다");
+  return { password: typed };
+}
+
+$("reencGo").onclick = async () => {
+  if (!reenc) return;
+  const status = (t) => { $("reencStatus").textContent = t; };
+  $("reencGo").disabled = true;
+  try {
+    const { files } = planMembers(reenc.existing, reenc.picked, reenc.removed);
+    const secret = reenc.mode === "edit" ? current.secret : await newSecret();
+    const old = reenc.mode === "edit" ? current.file : null;
+    const result = await reencrypt({
+      files, secret,
+      parent: old?.parents?.[0] || null,
+      oldId: old?.id, trashOld: !!old && $("trashOld").checked,
+      drive, onStep: status,
+    });
+    const lines = [`✓ 완료: ${result.name} (풀어서 비교 확인됨)`];
+    lines.push(result.uploadVerified ? "✓ 올린 파일을 다시 받아 확인했습니다." : "⚠ 올린 파일 확인에 실패했습니다 — 예전 보관 파일은 지우지 않았습니다. 새 파일을 열어 확인해 보세요.");
+    if (result.parentFallback) lines.push("ℹ 원래 폴더에 올릴 권한이 없어 내 드라이브 맨 위에 올렸습니다.");
+    if (old && $("trashOld").checked && result.trashedOld) lines.push("🗑 예전 보관 파일을 휴지통으로 옮겼습니다 (30일 안에 복원 가능).");
+    if (secret.password && reenc.mode === "new") lines.push("⚠ 직접 정한 비밀번호는 저장되지 않습니다. 잊으면 열 수 없습니다.");
+    if (reenc.picked.length) lines.push("🧹 이 컴퓨터에서 고른 파일(암호 없음)은 다 썼으면 휴지통에 버리고 비우세요.");
+    const keep = lines.join("\n");
+    closeReenc();
+    forget();
+    selected = null;
+    await refresh();
+    message(keep, true);
+  } catch (e) {
+    status(e instanceof ReencryptFailed ? e.message : `실패: ${e.message || "알 수 없는 오류"} — 예전 보관 파일은 그대로입니다.`);
+    $("reencGo").disabled = false;
+  }
+};

@@ -28,6 +28,7 @@
   <main>
     <aside>
       <div class="asideHead"><h2>암호화된 파일</h2><button id="refresh">새로고침</button></div>
+      <button id="newArchive" class="wide">➕ 새 파일 암호화해 올리기</button>
       <ul id="files"><li class="muted">로그인하면 목록이 보입니다</li></ul>
     </aside>
     <section id="panel">
@@ -44,11 +45,29 @@
         <div class="openedHead">
           <h2 id="openedName"></h2>
           <button id="save" hidden>💾 이 파일 저장</button>
+          <button id="reencBtn">🔒 고친 파일로 다시 암호화</button>
           <button id="close">닫기 (메모리에서 지우기)</button>
         </div>
         <ul id="members"></ul>
         <p id="notice" class="notice"></p>
         <div id="view"></div>
+      </div>
+      <div id="reenc" hidden>
+        <h2 id="reencTitle"></h2>
+        <ol class="steps">
+          <li>이 컴퓨터에서 <b>고친 파일(또는 넣을 파일)</b>을 고릅니다. 이름이 같은 파일은 바뀌고, 없는 이름은 추가됩니다.
+            <input id="pick" type="file" multiple></li>
+          <li>새 보관 파일에 들어갈 내용을 확인합니다. <span class="muted">(빼려면 체크)</span>
+            <table id="reencRows" class="grid"></table></li>
+          <li id="secretStep" hidden>비밀번호: <b>복구 키(35자)</b>를 넣으면 이 키로 새 비밀번호를 만듭니다(권장). 직접 정한 비밀번호도 됩니다(8자 이상, 두 번).
+            <div><input id="newSecret" type="password" size="44" autocomplete="off" placeholder="복구 키 또는 새 비밀번호">
+            <input id="newSecret2" type="password" size="24" autocomplete="off" placeholder="비밀번호 확인 (복구 키면 비워 둠)"></div></li>
+          <li id="secretInfo"></li>
+          <li id="trashStep"><label><input id="trashOld" type="checkbox" checked> 확인이 끝나면 <b>예전 보관 파일을 휴지통으로</b> (30일 안에 복원 가능)</label></li>
+        </ol>
+        <p class="muted" id="whereInfo"></p>
+        <button id="reencGo" class="primaryBlue">🔒 암호화해서 드라이브에 올리기</button> <button id="reencCancel">취소</button>
+        <p id="reencStatus" class="notice"></p>
       </div>
       <p id="message" class="message"></p>
     </section>

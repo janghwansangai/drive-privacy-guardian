@@ -90,3 +90,12 @@ test("vendored pdf.js is the verified build; GPL fonts and the scripting engine 
   assert.match(pdf, /isEvalSupported: false/);
   assert.match(pdf, /enableXfa: false/);
 });
+
+test("E3 writes: upload and trash only — no permanent delete, trash only after both checks", () => {
+  const d = src("lib/drive.js");
+  assert.doesNotMatch(d, /method:\s*"DELETE"|emptyTrash/);
+  assert.match(d, /JSON\.stringify\(\{ trashed: true \}\)/);
+  const r = src("lib/reencrypt.js");
+  assert.match(r, /if \(trashOld && oldId && uploadVerified\)/);
+  assert.ok(r.indexOf("verifyArchive(") < r.indexOf("drive.upload("), "verify before upload");
+});

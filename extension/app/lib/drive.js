@@ -1,9 +1,11 @@
-// Google sign-in (launchWebAuthFlow + the user's own web client) and Drive reads.
+// Google sign-in (launchWebAuthFlow + the user's own web client), Drive reads, and the E3 writes:
+// upload a new encrypted archive, move a replaced archive to the trash (never a permanent delete).
 // Scope: drive.file only (E0: the desktop app's archives are visible with it).
 // The access token lives only in this module's memory.
 
 export const SCOPE_FILE = "https://www.googleapis.com/auth/drive.file";
 const API = "https://www.googleapis.com/drive/v3/files";
+const UPLOAD = "https://www.googleapis.com/upload/drive/v3/files";
 const VAULT_NAME = /^보관_\d{4}-\d{2}-\d{2}_(?:[0-9a-f]{4}|[0-9a-f]{8})\.(7z|zip)$/;
 const MAX_DOWNLOAD = 1024 * 1024 * 1024;
 
@@ -47,7 +49,11 @@ async function authed(url, init = {}) {
     await signIn({ interactive: true, prompt: "" });
     res = await fetch(url, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` } });
   }
-  if (!res.ok) throw new Error(`구글 드라이브 오류 (${res.status})`);
+  if (!res.ok) {
+    const err = new Error(`구글 드라이브 오류 (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
   return res;
 }
 
@@ -73,4 +79,23 @@ export async function download(file) {
   if (Number(file.size || 0) > MAX_DOWNLOAD) throw new Error("파일이 너무 큽니다 (1GB 초과)");
   const url = `${API}/${encodeURIComponent(file.id)}?alt=media&supportsAllDrives=true`;
   return new Uint8Array(await (await authed(url)).arrayBuffer());
+}
+
+/** Upload a new file (resumable session, one PUT). `parent` may be null = the top of My Drive. */
+export async function upload(name, parent, bytes, mimeType = "application/x-7z-compressed") {
+  const url = `${UPLOAD}?uploadType=resumable&supportsAllDrives=true&fields=id,name,size,parents`;
+  const start = await authed(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=UTF-8", "X-Upload-Content-Type": mimeType, "X-Upload-Content-Length": String(bytes.length) },
+    body: JSON.stringify({ name, mimeType, ...(parent ? { parents: [parent] } : {}) }),
+  });
+  const session = start.headers.get("Location");
+  if (!session || !session.startsWith(UPLOAD)) throw new Error("업로드를 시작하지 못했습니다");
+  return (await authed(session, { method: "PUT", headers: { "Content-Type": mimeType }, body: bytes })).json();
+}
+
+/** Move to the Drive trash (restorable for 30 days). There is no permanent delete. */
+export async function trash(id) {
+  const url = `${API}/${encodeURIComponent(id)}?supportsAllDrives=true&fields=id,trashed`;
+  return (await authed(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trashed: true }) })).json();
 }

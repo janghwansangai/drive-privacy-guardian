@@ -40,3 +40,13 @@ dialog#saveDialog h2 { color: #b00; margin-top: 0; }
 .dialogButtons { text-align: right; }
 button.primary { background: #b00; color: #fff; border: 0; padding: 6px 14px; border-radius: 4px; }
 @media (max-width: 800px) { main { grid-template-columns: 1fr; } aside { border-right: 0; border-bottom: 1px solid var(--line); } }
+
+/* E3: re-encrypt */
+button.wide { width: 100%; margin: 4px 0 8px; }
+#reenc .steps li { margin: 10px 0; }
+#reenc input[type=file] { display: block; margin-top: 6px; }
+#reencRows td.state { font-weight: 600; }
+#reencRows td.state.바꿈 { color: #b06000; } #reencRows td.state.추가 { color: #137333; } #reencRows td.state.뺌 { color: #999; text-decoration: line-through; }
+button.primaryBlue { background: var(--blue); color: #fff; border: 0; padding: 7px 16px; border-radius: 4px; }
+button.primaryBlue:disabled { opacity: .5; }
+.message { white-space: pre-wrap; } .message.ok { color: #137333; }
