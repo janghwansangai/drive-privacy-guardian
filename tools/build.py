@@ -153,6 +153,11 @@ def checksums(files: list[Path]) -> Path:
 
 
 def main() -> int:
+    # Windows CI consoles default to cp1252; the self-test report is Korean.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
     skip_keychain = "--no-keychain" in sys.argv  # CI runners may lack an unlocked keychain
     third_party_licenses()
     pyinstaller()

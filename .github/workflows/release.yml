@@ -44,6 +44,7 @@ jobs:
       - name: Build + self-test of the built app + package + checksums
         env:
           QT_QPA_PLATFORM: offscreen
+          PYTHONUTF8: "1"
         run: uv run --group build python tools/build.py
       - name: Name the checksum file per platform
         shell: bash
