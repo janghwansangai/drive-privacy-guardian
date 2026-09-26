@@ -23,7 +23,7 @@
 **완료 기준 결과**
 | 기준 | 결과 |
 |---|---|
-| CI 녹색 | ⚠️ 원격 저장소가 아직 없어 **로컬에서 CI와 같은 단계를 모두 실행해 통과**. GitHub 저장소 연결 후 첫 실행 확인 필요 |
+| CI 녹색 | ✅ GitHub Actions에서 Mac·Windows·Linux 테스트 + 보안(pip-audit·gitleaks) 모두 통과 (2026-09-26, 저장소 공개 후) |
 | 소켓 차단 테스트 동작 | ✅ pytest-socket 전역 차단 + 세션 NetGuard 차단 기록 0건 |
 | 합성 데이터에 실제 값 없음 | ✅ `test_committed_fixtures_are_synthetic`, `test_value_generators_are_fake_by_construction` 통과 |
 
@@ -31,7 +31,7 @@
 
 **Phase 0에서 미룬 것 (의도적)**
 - PDF·HWPX 합성 파일 생성기 → Phase 4 (추출기와 함께 만들어야 형식 검증이 의미 있음)
-- CI 액션을 커밋 SHA로 고정 → Phase 8 (현재는 태그)
+- CI 액션을 커밋 SHA로 고정 → Phase 8에서 완료
 - V8 (다운로드 리디렉션 호스트) 확정 → Phase 2에서 테스트 계정으로 확인
 
 ---
@@ -198,7 +198,7 @@ uv run dpg logout
 - [x] `.github/workflows/release.yml`(태그 → Mac·Windows 빌드, 체크섬, 빌드 출처 증명, 초안 릴리스), 모든 액션 SHA 고정
 - [x] 한국어 문서: INSTALL_KO(미서명 앱 실행·체크섬 확인·삭제), USER_GUIDE_KO 전면 개정, README
 - [x] GitHub 공개 저장소 https://github.com/janghwansangai/drive-privacy-guardian (사용자 승인 2026-09-26), v0.1.0 태그 → release 워크플로 성공: macOS-arm64 .dmg/.zip, Windows-x64 .zip, SHA256SUMS, 빌드 출처 증명, **초안 릴리스**
-- [x] 첫 CI에서 찾은 Windows 전용 문제 수정: 합성 PDF 줄바꿈(.gitattributes), 기록 삭제 로그 순서, 빌드 콘솔 UTF-8, 잠긴 남의 임시 파일(유출 테스트)
+- [x] 첫 CI에서 찾은 Windows 전용 문제 수정: 합성 PDF 줄바꿈(.gitattributes), 기록 삭제 로그 순서, 콘솔 UTF-8(빌드·CI), 잠긴 남의 임시 파일(유출 테스트) → CI 3개 OS 모두 녹색
 - [ ] 완료 기준: GitHub Release에 Mac·Windows 설치 파일 + 체크섬 + 라이선스 고지 + 한국어 가이드, 깨끗한 PC에서 설치→설정→감사 (사용자 확인)
 
 로컬 빌드 결과(macOS arm64): 앱 108MB, zip 42.9MB, dmg 48.9MB, 빌드된 앱 자가 진단 7/7 정상, QtNetwork 미포함. Windows 빌드는 GitHub Actions에서 빌드·자가 진단 통과.
