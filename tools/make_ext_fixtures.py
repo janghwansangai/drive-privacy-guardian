@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -21,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "tests" / "fixtures" / "synthetic"
 OUT = ROOT / "extension" / "app" / "test" / "fixtures"
 # Fixed, synthetic recovery key used only by tests (checksum-valid, never used for real data).
-RECOVERY_KEY = "ABCDE-FGHIJ-KLMNO-PQRST-UVWXY-Z2345-67ABC"
+SYNTHETIC_RECOVERY_CODE = "ABCDE-FGHIJ-KLMNO-PQRST-UVWXY-Z2345-67ABC"
 
 FILES = {
     "상담기록_가상.hwp": hwp.extract_hwp,
@@ -32,11 +33,11 @@ FILES = {
 
 
 def _valid_key() -> str:
-    """Make RECOVERY_KEY checksum-valid (the last 3 chars are the checksum)."""
+    """Make SYNTHETIC_RECOVERY_CODE checksum-valid (the last 3 chars are the checksum)."""
     import base64
     import hashlib
 
-    body = RECOVERY_KEY.replace("-", "")[:32]
+    body = SYNTHETIC_RECOVERY_CODE.replace("-", "")[:32]
     raw = base64.b32decode(body)
     check = base64.b32encode(hashlib.sha256(b"dpg-rk" + raw).digest())[:3].decode()
     text = body + check
@@ -65,9 +66,12 @@ def main() -> None:
     (OUT / f"보관_2026-09-27_{tagzip}.zip").write_bytes(
         archive.create(members, derive_password(raw, tagzip), archive.ArchiveFormat.AES_ZIP)
     )
+    # Only fingerprints of the derived passwords are stored (no secret-looking strings in git).
+    fps = [
+        hashlib.sha256(derive_password(raw, t).encode()).hexdigest()[:16] for t in (tag7z, tagzip)
+    ]
     (OUT / "recovery.txt").write_text(
-        f"{key}\n# synthetic test key only; passwords: {derive_password(raw, tag7z)} "
-        f"{derive_password(raw, tagzip)}\n",
+        f"{key}\n# synthetic, tests only. derivation check values: {' '.join(fps)}\n",
         encoding="utf-8",
     )
     print("fixtures written to", OUT.relative_to(ROOT))

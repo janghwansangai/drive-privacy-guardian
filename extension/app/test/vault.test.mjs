@@ -29,9 +29,11 @@ test("recovery key: same derivation as the desktop app, typo detection", async (
   const raw = await parseRecoveryKey(key);
   assert.ok(raw);
   const pwLine = fs.readFileSync(path.join(FIX, "recovery.txt"), "utf8").split("\n")[1];
-  const pythonPasswords = pwLine.replace(/^.*passwords: /, "").trim().split(" ");
-  assert.equal(await derivePassword(raw, "0a1b2c3d"), pythonPasswords[0]);
-  assert.equal(await derivePassword(raw, "4e5f6a7b"), pythonPasswords[1]);
+  const pythonFingerprints = pwLine.replace(/^.*check values: /, "").trim().split(" ");
+  const { createHash } = await import("node:crypto");
+  const fp = (s) => createHash("sha256").update(s).digest("hex").slice(0, 16);
+  assert.equal(fp(await derivePassword(raw, "0a1b2c3d")), pythonFingerprints[0]);
+  assert.equal(fp(await derivePassword(raw, "4e5f6a7b")), pythonFingerprints[1]);
   const typo = key.slice(0, 3) + (key[3] === "A" ? "B" : "A") + key.slice(4);
   assert.equal(await parseRecoveryKey(typo), null);
   assert.equal(await passwordFor("보관_2026-09-27_0a1b2c3d.7z", "plain-password"), "plain-password");

@@ -2,3 +2,18 @@
 # so nothing is allow-listed here on purpose: if gitleaks fires, investigate — do not bypass.
 [extend]
 useDefault = true
+
+# The ONE exception (investigated 2026-09-27, DECISIONS D-081): the Chrome extension manifest's
+# "key" is an RSA *public* key that pins the extension ID (the OAuth redirect depends on it).
+# It is public by design and the private key was never stored. Matched by its exact value only.
+[[allowlists]]
+description = "Chrome extension manifest public key (not a secret)"
+paths = ['''^extension/app/manifest\.json$''']
+regexes = ['''MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt61UYZPQDwodE5tF''']
+
+# Commit 0bb9e875dd8e90c3e66e27e6dba691fab27af777 (pushed 2026-09-27) contains the SYNTHETIC test recovery code and the test
+# passwords derived from it (extension fixtures). They protect nothing; later commits store
+# only short check values. Investigated in DECISIONS D-081 — this commit only.
+[[allowlists]]
+description = "Synthetic extension test fixture values in one earlier commit"
+commits = ["0bb9e875dd8e90c3e66e27e6dba691fab27af777"]
