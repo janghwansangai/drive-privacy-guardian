@@ -16,6 +16,8 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: "1" # tools print Korean; Windows consoles default to cp1252
     strategy:
       fail-fast: false
       matrix:
