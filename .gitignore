@@ -1,0 +1,44 @@
+# --- Secrets: never commit (SPEC 5.6, 9) ---------------------------------------------------
+# OAuth client JSON, tokens and any other JSON by default. Safe JSON paths are re-included below.
+*.json
+!tests/fixtures/**/*.json
+!.github/**/*.json
+client_secret*
+*credentials*
+token*
+*.pem
+*.key
+*.p12
+.env
+.env.*
+
+# --- Local data produced by the app -----------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+reports/
+# Audit reports contain file names / e-mails (SPEC 5.5)
+*.csv
+*.xlsx
+!tests/fixtures/**/*.csv
+!tests/fixtures/**/*.xlsx
+*.log
+*.7z
+!tests/fixtures/**/*.7z
+
+# --- Python / tooling -------------------------------------------------------------------------
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.spec
+!packaging/*.spec
+.DS_Store

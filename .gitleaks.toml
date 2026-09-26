@@ -1,0 +1,4 @@
+# Extends the default ruleset. Synthetic fixtures contain fake personal data but no secrets,
+# so nothing is allow-listed here on purpose: if gitleaks fires, investigate — do not bypass.
+[extend]
+useDefault = true

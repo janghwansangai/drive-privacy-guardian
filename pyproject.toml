@@ -1,0 +1,107 @@
+[project]
+name = "drive-privacy-guardian"
+version = "0.1.0"
+description = "로컬에서만 동작하는 구글 드라이브 공유 권한·개인정보 점검 도구"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12,<3.13"
+authors = [{ name = "Drive Privacy Guardian contributors" }]
+dependencies = [
+    "cryptography>=43",
+    # Drive API client. Used from Phase 1; tests/fakes/fake_drive.py raises its HttpError already.
+    "defusedxml>=0.7",
+    "google-api-python-client>=2.150",
+    "google-auth>=2.35",
+    "google-auth-httplib2>=0.2",
+    "httplib2>=0.22",
+    "keyring>=25",
+    "olefile>=0.47",
+    "openpyxl>=3.1",
+    "py7zr>=1.1.3",
+    "pypdf>=5",
+    "pyside6-essentials>=6.8",
+    "python-docx>=1.1",
+    "pyzipper>=0.4.0",
+]
+
+[project.urls]
+Repository = "https://github.com/janghwansangai/drive-privacy-guardian"
+Releases = "https://github.com/janghwansangai/drive-privacy-guardian/releases"
+
+[project.scripts]
+dpg = "dpg.cli.main:main"
+
+[project.gui-scripts]
+dpg-gui = "dpg.gui.app:main"
+
+[dependency-groups]
+build = [
+    "pip-licenses>=5",
+    "pyinstaller>=6.10",
+]
+dev = [
+    "pytest>=8.3",
+    "pytest-socket>=0.7",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "pre-commit>=4.0",
+    # Synthetic fixture writers (tools/gen_synthetic.py). Become runtime deps in Phase 4 (extract/).
+    "pytest-qt>=4.4",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dpg"]
+
+[tool.uv]
+# Hash-pinned lock file; CI installs with `uv sync --locked`.
+required-version = ">=0.5"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+# Principle 1: the entire suite runs with sockets disabled (pytest-socket).
+# A test that needs a loopback socket must opt in with @pytest.mark.enable_socket.
+addopts = "-ra --strict-markers --disable-socket --allow-unix-socket"
+markers = [
+    "slow: long-running scenarios (e.g. 10k-file audits)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "."]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "PT", "BLE"]
+ignore = [
+    "RUF001", "RUF002", "RUF003",  # Korean text / dashes in strings and comments are intentional
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dpg", "tests", "tools"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S311"]
+# Synthetic data generator: `random` is correct here (reproducible fake data, not secrets).
+"tools/gen_synthetic.py" = ["S311"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+mypy_path = "src"
+packages = ["dpg"]
+
+[[tool.mypy.overrides]]
+module = ["googleapiclient.*", "httplib2.*", "google_auth_httplib2", "docx.*", "openpyxl.*", "defusedxml.*", "olefile.*", "pyzipper.*", "py7zr.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# google-auth's Credentials / refresh are not annotated.
+module = ["dpg.core.auth.manager"]
+disallow_untyped_calls = false

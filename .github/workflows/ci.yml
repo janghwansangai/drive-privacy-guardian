@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      # Actions are pinned to full commit SHAs (supply-chain hardening, SPEC 5.6).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+      - name: Qt system libraries (Linux, headless GUI tests)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 fonts-noto-cjk
+      - name: Install (locked, hash-verified)
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Type check
+        run: uv run mypy src
+      - name: Tests (sockets disabled via pytest-socket; GUI offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run pytest
+      - name: Privacy tests (explicit gate)
+        run: uv run pytest tests/privacy -q
+      - name: Synthetic fixtures are reproducible and fake
+        run: uv run python tools/gen_synthetic.py --out ${{ runner.temp }}/synthetic
+      - name: Detection precision/recall on synthetic data (SPEC 6.3 targets)
+        run: uv run python tools/measure_detection.py --check
+      - name: License check (no GPL/AGPL)
+        run: uv run python tools/check_licenses.py
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Dependency vulnerability audit
+        run: |
+          uv export --locked --no-emit-project --format requirements-txt > "$RUNNER_TEMP/req.txt"
+          uvx pip-audit --strict --require-hashes --disable-pip -r "$RUNNER_TEMP/req.txt"
+      - name: Secret scan
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 \
+            git /repo --no-banner --redact --verbose

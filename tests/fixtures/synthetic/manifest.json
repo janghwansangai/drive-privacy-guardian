@@ -1,0 +1,56 @@
+{
+  "seed": 20260926,
+  "generator_version": 2,
+  "files": {
+    "6-2_학생_연락처.csv": {
+      "address": 30,
+      "mobile": 30,
+      "rrn": 30,
+      "student_roster": 1
+    },
+    "6-2_학생_연락처.xlsx": {
+      "address": 30,
+      "mobile": 30,
+      "rrn": 30,
+      "student_roster": 1
+    },
+    "negatives.txt": {},
+    "가정통신문_체험학습.docx": {
+      "account": 3,
+      "email": 1,
+      "landline": 1,
+      "mobile": 1
+    },
+    "보호자_안내문.pdf": {
+      "account": 2,
+      "address": 1,
+      "mobile": 1
+    },
+    "상담기록_가상.hwp": {
+      "mobile": 7,
+      "rrn": 1,
+      "sensitive_suspect": 1,
+      "student_roster": 1
+    },
+    "업무메모.txt": {
+      "address": 1,
+      "card": 1,
+      "driver_license": 1,
+      "passport": 2,
+      "rrn": 2,
+      "rrn_suspect": 1,
+      "sensitive_suspect": 1
+    },
+    "학생명단_가상.hwpx": {
+      "address": 8,
+      "email": 1,
+      "rrn": 8,
+      "student_roster": 1
+    }
+  },
+  "unscannable": {
+    "배포용_가상.hwp": "distribution",
+    "스캔_가상.pdf": "image_only",
+    "암호_가상.hwp": "encrypted"
+  }
+}
