@@ -5,6 +5,7 @@
 ### 받을 파일
 - **Mac (Apple 칩)**: `DrivePrivacyGuardian-*-macOS-arm64.dmg`
 - **Windows 10/11 (64비트)**: `DrivePrivacyGuardian-*-Windows-x64.zip`
+- **크롬 확장 프로그램(선택)**: `DrivePrivacyGuardian-Extension-*.zip` — 암호화된 파일을 크롬에서 메모리로만 풀어 보기(한글·엑셀 등). 설치: `docs/EXTENSION_SETUP_KO.md`
 - `SHA256SUMS.txt`: 파일 확인용 체크섬
 
 ### 처음 실행할 때 (코드 서명 없음)

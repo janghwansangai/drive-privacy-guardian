@@ -364,6 +364,11 @@ PyInstaller 6.22 onedir(`packaging/dpg.spec`), `build` 의존성 그룹(pyinstal
 - **권한:** [Drive 범위](https://developers.google.com/workspace/drive/api/guides/api-specific-auth): `drive.file` 비민감(앱이 만들거나 연 파일만), `drive.readonly`·`drive` 제한. → 같은 구글 프로젝트의 데스크톱 앱이 만든 보관 파일이 `drive.file`로 보이는지 실계정으로 확인(보이면 확장 프로그램은 `drive.file`만 사용).
 - **SheetJS:** npm의 `xlsx@0.18.5`는 오래되어 알려진 취약점 있음(SheetJS는 자체 CDN으로 배포) → E1에서 SheetJS 최신 CE를 받아 고정하거나, zip.js + XML로 직접 해석 중 결정. pdf.js Apache-2.0, zip.js BSD-3, mammoth BSD-2, hwp.js Apache-2.0(0.0.3, 오래됨 → HWP는 앱 파서를 옮기는 쪽이 유력).
 - 시험용 확장 프로그램 `extension/probe` + 안내 `docs/EXTENSION_E0_TEST_KO.md`.
+- **실계정 결과(2026-09-27):** WASM 성공, 로그인 성공, `drive.file` 2개 = `drive.readonly` 2개 → 같은 프로젝트의 데스크톱 앱이 만든 파일이 `drive.file`로 보임. **확장 프로그램 권한은 `drive.file`(비민감)만 사용**, 제한 범위는 요청하지 않음.
+
+**D-080 확장 프로그램 E1 (2026-09-27)**
+`extension/app`(MV3, 빌드 단계 없음, ES 모듈). 로그인 `launchWebAuthFlow` + 사용자 웹 클라이언트, 권한 `drive.file`만, 토큰은 메모리. 목록은 이름 규칙으로 보관 파일만. 복호화는 7-Zip WASM(작업마다 새 인스턴스, 메모리 파일 시스템), 비밀번호 칸에 복구 키(35자)를 넣으면 WebCrypto로 해당 파일 비밀번호 계산, "기억"은 창이 열린 동안 메모리에만. 뷰어: **HWP 5.0**(데스크톱 파서의 규칙을 옮김 + 셀 병합 반영, 자체 CFB 리더), **HWPX**(OWPML, cellAddr/cellSpan), **XLSX**(공유·인라인 문자열, 날짜 서식, 병합 셀, 5000행·200열 제한), CSV/TSV(UTF-8→EUC-KR), TXT. zip·inflate는 브라우저 기본 `DecompressionStream`으로 직접 구현(외부 라이브러리 없음, 압축 폭탄 제한). 렌더링은 `textContent`만(문서 내용이 HTML로 해석되지 않음). 닫기·10분 무입력·탭 종료 시 해제(바이트 0으로 덮어쓰기 시도). 잘못된 비밀번호 재시도 시 암호화된 다운로드를 재사용.
+테스트(`npm test`, node:test 19개): 데스크톱 앱 추출기와 **같은 문단·표**(HWP·HWPX·XLSX·CSV, `tools/make_ext_fixtures.py`가 만든 기대값), 데스크톱 앱이 만든 7z·AES-ZIP을 **합성 복구 키**로 해제, 복구 키 비밀번호 파이썬과 일치, 확장 프로그램이 만든 7z 왕복, 개인정보 규칙 정적 검사(접속 대상, 권한, innerHTML·eval 금지, 저장소엔 클라이언트 ID만, drive.file만, HWP 고지, 7-Zip WASM 해시·라이선스). 실제 브라우저 엔진(가짜 chrome API·가짜 Drive 하네스, `test/harness`)에서 로그인→목록→복구 키로 해제→CSV·XLSX·HWP·HWPX 표시→닫기→틀린 비밀번호→기억된 키로 두 번째 파일 열기 확인, 콘솔 오류 0. 테스트 전용 의존성 `@xmldom/xmldom@0.9.12`(MIT, 취약점 없는 버전 고정). CI에 확장 프로그램 잡(`setup-node` SHA 고정), 릴리스에 확장 프로그램 zip(`tools/build_extension.py`, 고정 타임스탬프) 추가. E0 시험용 `extension/probe` 삭제.
 
 ---
 

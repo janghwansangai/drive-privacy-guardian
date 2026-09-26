@@ -29,14 +29,18 @@ def _files_since(root: Path, since: float) -> list[Path]:
     """Readable files touched since `since`. Other processes' files that are locked (Windows
     CI) cannot be ours: the app creates no temp files at all, which is asserted separately."""
     out = []
-    for p in root.rglob("*"):
-        try:
-            if p.is_file() and p.stat().st_mtime >= since:
-                with p.open("rb"):
-                    pass
-                out.append(p)
-        except OSError:
-            continue
+    # os.walk with onerror=None skips directories that cannot be listed (e.g. macOS
+    # AppTranslocation mounts, other users' folders) instead of aborting the scan.
+    for dirpath, _dirs, names in os.walk(root, onerror=None):
+        for name in names:
+            p = Path(dirpath) / name
+            try:
+                if p.is_file() and p.stat().st_mtime >= since:
+                    with p.open("rb"):
+                        pass
+                    out.append(p)
+            except OSError:
+                continue
     return out
 
 

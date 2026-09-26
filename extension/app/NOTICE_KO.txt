@@ -1,0 +1,11 @@
+Drive Privacy Guardian 뷰어 (크롬 확장 프로그램) — 고지
+
+1. MIT 라이선스로 배포됩니다 (저장소의 LICENSE).
+2. vendor/7z-wasm: 7-Zip 24.09 (Igor Pavlov)을 WebAssembly로 빌드한 7z-wasm 1.2.0.
+   GNU LGPL 2.1 이상 + unRAR 제한 (vendor/7z-wasm/License.txt, unRarLicense.txt).
+   unRAR 코드는 RAR(WinRAR) 호환 압축 프로그램을 만드는 데 사용할 수 없습니다.
+   7-Zip 소스: https://www.7-zip.org/ · 7z-wasm 소스: https://github.com/use-strict/7z-wasm
+   사용자는 vendor/7z-wasm의 파일을 같은 인터페이스의 다른(수정한) 빌드로 바꿔 쓸 수 있습니다.
+3. 본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
+4. Google Drive는 Google LLC의 상표입니다. 이 확장 프로그램은 Google과 제휴하거나
+   Google의 보증을 받은 제품이 아닙니다.

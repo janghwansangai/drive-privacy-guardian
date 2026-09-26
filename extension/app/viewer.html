@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
+  <title>🔐 암호화된 파일 보기</title>
+  <link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+  <header>
+    <h1>🔐 암호화된 파일 보기 <small>Drive Privacy Guardian</small></h1>
+    <div class="account">
+      <span id="status">로그인 전</span>
+      <button id="login">구글 로그인</button>
+      <button id="logout" hidden>로그아웃</button>
+      <button id="settingsBtn" title="설정">⚙ 설정</button>
+    </div>
+  </header>
+  <p class="memory">풀린 내용은 <b>이 창의 메모리에만</b> 있고, 파일로 저장하지 않습니다. 창을 닫거나 10분 동안 쓰지 않으면 지워집니다.</p>
+
+  <section id="settings" hidden>
+    <h2>설정</h2>
+    <p>이 확장 프로그램의 리디렉션 주소 (구글 콘솔의 웹 애플리케이션 클라이언트에 등록): <code id="redirect"></code></p>
+    <label>OAuth 클라이언트 ID <input id="client" size="72" placeholder="1234-abc.apps.googleusercontent.com"></label>
+    <button id="saveClient">저장</button> <span id="clientSaved"></span>
+  </section>
+
+  <main>
+    <aside>
+      <div class="asideHead"><h2>암호화된 파일</h2><button id="refresh">새로고침</button></div>
+      <ul id="files"><li class="muted">로그인하면 목록이 보입니다</li></ul>
+    </aside>
+    <section id="panel">
+      <div id="unlock" hidden>
+        <h2 id="unlockName"></h2>
+        <form id="unlockForm" autocomplete="off">
+          <input id="password" type="password" size="44" placeholder="비밀번호 또는 복구 키(35자)" autocomplete="off">
+          <button type="submit">열기</button>
+          <label class="remember"><input id="remember" type="checkbox"> 복구 키를 이 창이 열려 있는 동안만 기억</label>
+        </form>
+        <p class="muted">복구 키로 만든 파일은 종이에 적어 둔 복구 키(35자)를 넣어도 열립니다.</p>
+      </div>
+      <div id="opened" hidden>
+        <div class="openedHead">
+          <h2 id="openedName"></h2>
+          <button id="close">닫기 (메모리에서 지우기)</button>
+        </div>
+        <ul id="members"></ul>
+        <p id="notice" class="notice"></p>
+        <div id="view"></div>
+      </div>
+      <p id="message" class="message"></p>
+    </section>
+  </main>
+  <footer>본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다. · 한글 뷰어는 내용 확인용이며 원본 모양과 다를 수 있습니다.</footer>
+  <script type="module" src="viewer.js"></script>
+</body>
+</html>

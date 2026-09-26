@@ -3,6 +3,11 @@
 *.json
 !tests/fixtures/**/*.json
 !.github/**/*.json
+# Chrome extension: manifests / package files and synthetic test fixtures are safe to track.
+!extension/*/manifest.json
+!extension/*/package.json
+!extension/*/package-lock.json
+!extension/*/test/fixtures/**
 client_secret*
 *credentials*
 token*
@@ -23,10 +28,12 @@ reports/
 *.csv
 *.xlsx
 !tests/fixtures/**/*.csv
+!extension/*/test/fixtures/**/*.csv
 !tests/fixtures/**/*.xlsx
 *.log
 *.7z
 !tests/fixtures/**/*.7z
+!extension/*/test/fixtures/**/*.7z
 
 # --- Python / tooling -------------------------------------------------------------------------
 .venv/
@@ -42,3 +49,6 @@ dist/
 *.spec
 !packaging/*.spec
 .DS_Store
+
+# extension dev dependencies
+extension/*/node_modules/

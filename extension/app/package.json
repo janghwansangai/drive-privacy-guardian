@@ -1,0 +1,12 @@
+{
+  "name": "dpg-extension",
+  "private": true,
+  "type": "module",
+  "description": "Drive Privacy Guardian Chrome extension (tests only — the extension itself needs no build step)",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@xmldom/xmldom": "0.9.12"
+  }
+}

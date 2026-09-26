@@ -75,6 +75,14 @@ jobs:
           pattern: dist-*
           path: dist
           merge-multiple: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Chrome extension — test and package
+        run: |
+          (cd extension/app && npm ci --no-audit --no-fund && npm test)
+          python3 tools/build_extension.py
+          (cd dist && sha256sum DrivePrivacyGuardian-Extension-*.zip > SHA256SUMS-Extension.txt)
       - name: One checksum file for everything
         run: |
           cat dist/SHA256SUMS-*.txt | sort -k2 > dist/SHA256SUMS.txt

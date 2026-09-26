@@ -64,3 +64,8 @@
 - 설치 파일: `uv run --group build python tools/build.py` → `dist/`. 빌드된 앱에서 `--selftest`가 실패하면 빌드가 멈춘다. 새 런타임 의존성이나 데이터 파일을 추가하면 `packaging/dpg.spec`와 `dpg.selftest`를 함께 확인.
 - 번들에 QtNetwork·Qt 네트워크 플러그인을 넣지 마라(spec의 `_DROP_BINARIES`).
 - 워크플로의 액션은 전체 커밋 SHA로만 고정한다. 릴리스는 초안으로 만들어 사람이 공개한다.
+
+## 저장소 메모 (확장 프로그램)
+- `extension/app`은 빌드 단계가 없다. 테스트: `cd extension/app && npm ci && npm test`. 뷰어 화면 확인은 `.claude/launch.json`의 `extension-harness`(가짜 chrome API·가짜 Drive, `test/harness/index.html`).
+- 확장 프로그램 코드는 `textContent`만 쓰고(innerHTML 금지), 접속은 googleapis.com만, 저장소에는 클라이언트 ID만 — `test/security.test.mjs`가 검사한다.
+- 파서를 바꾸면 `uv run python tools/make_ext_fixtures.py`로 기대값을 다시 만들고 데스크톱 앱과 같은 결과인지 확인한다.
