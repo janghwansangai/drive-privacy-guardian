@@ -45,7 +45,16 @@ test("nothing decrypted is persisted: storage holds only the client ID, no downl
     }
     assert.doesNotMatch(s, /chrome\.downloads|localStorage|sessionStorage|indexedDB|caches\.open/, f);
   }
-  assert.ok(!manifest.permissions.includes("downloads")); // saving arrives in E2, on request only
+  assert.ok(!manifest.permissions.includes("downloads")); // saving uses a one-off <a download> link
+});
+
+test("saving happens only from the confirmed dialog button", () => {
+  const s = src("viewer.js");
+  const saves = [...s.matchAll(/download:/g)];
+  assert.equal(saves.length, 1);
+  const block = s.slice(s.indexOf('$("saveOk").onclick'), s.indexOf("URL.revokeObjectURL(url), 10_000"));
+  assert.match(block, /download:/, "the only download link is built inside the dialog's confirm handler");
+  assert.match(src("viewer.html"), /<dialog id="saveDialog">[\s\S]*다운로드 폴더/);
 });
 
 test("drive.file scope only (no restricted Drive scopes)", () => {
@@ -66,4 +75,18 @@ test("vendored 7-Zip WASM is the verified build, with its licence files", async 
   assert.equal(sha("7zz.wasm"), "e16c6997e2eaa89575c0dd1f305074be629c3f4d87246244d37fd19debc8a285");
   assert.ok(fs.existsSync(path.join(ROOT, "vendor/7z-wasm/License.txt")));
   assert.ok(fs.existsSync(path.join(ROOT, "vendor/7z-wasm/unRarLicense.txt")));
+});
+
+test("vendored pdf.js is the verified build; GPL fonts and the scripting engine are left out", async () => {
+  const { createHash } = await import("node:crypto");
+  const dir = path.join(ROOT, "vendor/pdfjs");
+  const sha = (f) => createHash("sha256").update(fs.readFileSync(path.join(dir, f))).digest("hex");
+  assert.equal(sha("pdf.min.mjs"), "f80490490320511e5df18c580b9edd6b5db8058dceebaf6f161992e0a964b9e2");
+  assert.equal(sha("pdf.worker.min.mjs"), "8ab0e5e30031b4a06ecfddd5ae9562f0227f830ee7ec9ed1a968b134243d2386");
+  assert.ok(fs.existsSync(path.join(dir, "LICENSE")));
+  const all = fs.readdirSync(dir, { recursive: true }).map(String);
+  assert.ok(!all.some((f) => /Liberation|quickjs|sandbox|\.map$/i.test(f)), "no GPL fonts, no JS engine, no source maps");
+  const pdf = src("lib/pdf.js");
+  assert.match(pdf, /isEvalSupported: false/);
+  assert.match(pdf, /enableXfa: false/);
 });

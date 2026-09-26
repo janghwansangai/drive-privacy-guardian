@@ -2,6 +2,7 @@
 //   { kind: "doc", blocks: [{ type: "p", text } | Table], truncated }
 //   { kind: "sheets", sheets: [{ name, table: Table }], truncated }
 //   { kind: "text", text, truncated }
+//   { kind: "image", mime, bytes } · { kind: "pdf", bytes }   (drawn by render.js / pdf.js)
 //   { kind: "unsupported", reason }
 // Table = { type: "table", rows, cols, cells: [{ row, col, rowSpan, colSpan, text }] }
 

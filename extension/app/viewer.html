@@ -16,7 +16,7 @@
       <button id="settingsBtn" title="설정">⚙ 설정</button>
     </div>
   </header>
-  <p class="memory">풀린 내용은 <b>이 창의 메모리에만</b> 있고, 파일로 저장하지 않습니다. 창을 닫거나 10분 동안 쓰지 않으면 지워집니다.</p>
+  <p class="memory">풀린 내용은 <b>이 창의 메모리에만</b> 있고, 「💾 저장」을 누를 때만 파일로 저장합니다. 창을 닫거나 10분 동안 쓰지 않으면 지워집니다.</p>
 
   <section id="settings" hidden>
     <h2>설정</h2>
@@ -43,6 +43,7 @@
       <div id="opened" hidden>
         <div class="openedHead">
           <h2 id="openedName"></h2>
+          <button id="save" hidden>💾 이 파일 저장</button>
           <button id="close">닫기 (메모리에서 지우기)</button>
         </div>
         <ul id="members"></ul>
@@ -52,6 +53,15 @@
       <p id="message" class="message"></p>
     </section>
   </main>
+  <dialog id="saveDialog">
+    <h2>풀린 파일을 이 컴퓨터에 저장할까요?</h2>
+    <ul>
+      <li>암호가 <b>없는</b> 파일이 <b>다운로드 폴더</b>에 생깁니다. 누구나 열 수 있습니다.</li>
+      <li>크롬 다운로드 목록에도 파일 이름이 남습니다.</li>
+      <li>다 쓰면 파일을 휴지통에 버리고 <b>휴지통도 비우세요</b>. 공용 PC에서는 저장하지 마세요.</li>
+    </ul>
+    <div class="dialogButtons"><button id="saveCancel">취소</button> <button id="saveOk" class="primary">저장</button></div>
+  </dialog>
   <footer>본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다. · 한글 뷰어는 내용 확인용이며 원본 모양과 다를 수 있습니다.</footer>
   <script type="module" src="viewer.js"></script>
 </body>

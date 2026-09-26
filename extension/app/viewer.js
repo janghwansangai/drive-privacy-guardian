@@ -1,4 +1,5 @@
-// Viewer page: sign in → list encrypted files → unlock in memory → view HWP/HWPX/XLSX/CSV/TXT.
+// Viewer page: sign in → list encrypted files → unlock in memory → view HWP/HWPX/XLSX/DOCX/
+// PDF/images/CSV/TXT → save a copy only when the user asks (with a warning).
 // Decrypted bytes and parsed content live only in variables of this page and are dropped on
 // close, after 10 idle minutes, and when the tab goes away.
 
@@ -13,6 +14,13 @@ const IDLE_MS = 10 * 60 * 1000;
 let current = null; // { file, members: Map<name, Uint8Array> }
 let rememberedKey = null; // raw recovery key bytes, memory only, if the user asked
 let idleTimer = null;
+let shown = null; // name of the member on screen
+let handles = []; // things to release on close (object URLs, PDF documents)
+
+function release() {
+  for (const h of handles) { try { h.destroy(); } catch { /* already gone */ } }
+  handles = [];
+}
 
 const parseXml = (text) => {
   const doc = new DOMParser().parseFromString(text, "application/xml");
@@ -29,10 +37,13 @@ function forget() {
     current.members.clear();
   }
   current = null;
+  release();
   $("view").replaceChildren();
   $("members").replaceChildren();
   $("notice").textContent = "";
   $("opened").hidden = true;
+  $("save").hidden = true;
+  shown = null;
 }
 
 function touch() {
@@ -170,11 +181,28 @@ async function show(name, btn) {
   document.querySelectorAll("#members button").forEach((b) => b.classList.remove("on"));
   btn.classList.add("on");
   $("notice").textContent = "";
+  release();
+  shown = name;
+  $("save").hidden = false;
   $("view").replaceChildren(Object.assign(document.createElement("p"), { className: "muted", textContent: "여는 중…" }));
   const model = await viewModel(name, current.members.get(name), parseXml);
-  if (!current) return; // closed meanwhile
-  $("view").replaceChildren(renderModel(model, (t) => { $("notice").textContent = t; }));
+  if (!current || shown !== name) return; // closed or switched meanwhile
+  const track = (h) => { if (current && shown === name) handles.push(h); else h.destroy(); };
+  $("view").replaceChildren(renderModel(model, (t) => { $("notice").textContent = t; }, track));
 }
+
+// -- save (only when asked) -------------------------------------------------------------------
+$("save").onclick = () => $("saveDialog").showModal();
+$("saveCancel").onclick = () => $("saveDialog").close();
+$("saveOk").onclick = () => {
+  $("saveDialog").close();
+  if (!current || !shown) return;
+  const url = URL.createObjectURL(new Blob([current.members.get(shown)], { type: "application/octet-stream" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: shown.split("/").pop() });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  message(`「${a.download}」을(를) 다운로드 폴더에 저장했습니다. 다 쓰면 휴지통에 버리고 휴지통도 비우세요.`);
+};
 
 $("close").onclick = () => { forget(); $("unlock").hidden = !selected; };
 touch();

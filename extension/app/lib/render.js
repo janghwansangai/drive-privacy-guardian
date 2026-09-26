@@ -30,7 +30,8 @@ export function renderTable(table) {
   return t;
 }
 
-export function renderModel(model, onNotice) {
+/** `track(handle)` receives { destroy } for anything that must be released on close. */
+export function renderModel(model, onNotice, track) {
   const box = el("div", "doc");
   if (model.kind === "doc") {
     for (const b of model.blocks) box.append(b.type === "p" ? el("p", "", b.text) : renderTable(b));
@@ -50,6 +51,17 @@ export function renderModel(model, onNotice) {
     body.append(renderTable(model.sheets[0].table));
     if (model.sheets.length > 1) box.append(tabs);
     box.append(body);
+  } else if (model.kind === "image") {
+    const url = URL.createObjectURL(new Blob([model.bytes], { type: model.mime }));
+    track?.({ destroy: () => URL.revokeObjectURL(url) });
+    const img = el("img", "picture");
+    img.alt = "";
+    img.onerror = () => img.replaceWith(el("p", "unsupported", "사진을 읽지 못했습니다"));
+    img.src = url;
+    box.append(img);
+  } else if (model.kind === "pdf") {
+    box.classList.add("pdf");
+    import("./pdf.js").then(async ({ renderPdf }) => track?.(await renderPdf(model.bytes, box, onNotice)));
   } else if (model.kind === "text") {
     box.append(el("pre", "text", model.text));
   } else {

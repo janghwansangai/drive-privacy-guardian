@@ -4,7 +4,30 @@ const FIX = "../fixtures/";
 const FILES = [
   { id: "f7z", name: "보관_2026-09-27_0a1b2c3d.7z", size: "50000", createdTime: "2026-09-27T00:00:00Z" },
   { id: "fzip", name: "보관_2026-09-27_4e5f6a7b.zip", size: "50000", createdTime: "2026-09-26T00:00:00Z" },
+  // E2 formats: built in the page with the extension's own 7z writer (recovery-key password)
+  { id: "fe2", name: "보관_2026-09-27_9c8d7e6f.7z", size: "90000", createdTime: "2026-09-25T00:00:00Z" },
 ];
+const built = {};
+async function e2Archive() {
+  if (built.fe2) return built.fe2;
+  const { create7z, parseRecoveryKey, derivePassword } = await import("../../lib/vault.js");
+  const get = async (p) => new Uint8Array(await (await realFetch(p)).arrayBuffer());
+  const SYN = "/tests/fixtures/synthetic/"; // the harness server serves the repository root
+  const c = Object.assign(document.createElement("canvas"), { width: 320, height: 200 });
+  const g = c.getContext("2d");
+  g.fillStyle = "#2a6"; g.fillRect(0, 0, 320, 200); g.fillStyle = "#fff"; g.font = "28px sans-serif";
+  g.fillText("합성 사진", 90, 110);
+  const png = new Uint8Array(await (await new Promise((r) => c.toBlob(r, "image/png"))).arrayBuffer());
+  const members = {
+    "보호자_안내문.pdf": await get(SYN + encodeURIComponent("보호자_안내문.pdf")),
+    "가정통신문_체험학습.docx": await get(SYN + encodeURIComponent("가정통신문_체험학습.docx")),
+    "표병합_가상.docx": await get(FIX + encodeURIComponent("표병합_가상.docx")),
+    "사진.png": png,
+  };
+  const raw = await parseRecoveryKey(window.harnessKey);
+  built.fe2 = await create7z(Object.entries(members), await derivePassword(raw, "9c8d7e6f"));
+  return built.fe2;
+}
 const store = { clientId: "123-harness.apps.googleusercontent.com" };
 globalThis.chrome = {
   storage: { local: { get: async (k) => ({ [k]: store[k] }), set: async (o) => Object.assign(store, o) } },
@@ -26,6 +49,7 @@ window.fetch = async (input, init) => {
     const m = /\/files\/([^/?]+)$/.exec(url.pathname);
     if (m && url.searchParams.get("alt") === "media") {
       const f = FILES.find((x) => x.id === decodeURIComponent(m[1]));
+      if (f.id === "fe2") return new Response(await e2Archive());
       return realFetch(FIX + encodeURIComponent(f.name));
     }
     return new Response(JSON.stringify({ files: FILES }), { headers: { "content-type": "application/json" } });

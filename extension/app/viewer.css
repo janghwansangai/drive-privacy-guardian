@@ -30,3 +30,13 @@ pre.text { white-space: pre-wrap; font-family: inherit; }
 .remember { font-size: 13px; color: var(--muted); margin-left: 8px; }
 footer { border-top: 1px solid var(--line); padding: 6px 18px; font-size: 11px; color: var(--muted); }
 button { cursor: pointer; }
+
+/* E2: pictures, PDF pages, save dialog */
+img.picture { max-width: 100%; height: auto; display: block; background: #fff; }
+.doc.pdf { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+canvas.pdfPage { max-width: 100%; height: auto; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+dialog#saveDialog { max-width: 520px; border: 1px solid #c33; border-radius: 8px; }
+dialog#saveDialog h2 { color: #b00; margin-top: 0; }
+.dialogButtons { text-align: right; }
+button.primary { background: #b00; color: #fff; border: 0; padding: 6px 14px; border-radius: 4px; }
+@media (max-width: 800px) { main { grid-template-columns: 1fr; } aside { border-right: 0; border-bottom: 1px solid var(--line); } }
