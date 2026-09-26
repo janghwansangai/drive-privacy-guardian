@@ -66,6 +66,8 @@
 - 워크플로의 액션은 전체 커밋 SHA로만 고정한다. 릴리스는 초안으로 만들어 사람이 공개한다.
 
 ## 저장소 메모 (확장 프로그램)
-- `extension/app`은 빌드 단계가 없다. 테스트: `cd extension/app && npm ci && npm test`. 뷰어 화면 확인은 `.claude/launch.json`의 `extension-harness`(가짜 chrome API·가짜 Drive, `test/harness/index.html`).
+- `extension/app`은 빌드 단계가 없다. 테스트: `cd extension/app && npm ci && npm test`. 뷰어 화면 확인은 `.claude/launch.json`의 `extension-harness`(저장소 루트를 서빙: `/extension/app/test/harness/index.html`, 가짜 chrome API·가짜 Drive·가짜 업로드/휴지통). 모듈이 캐시되면 `127.0.0.1`/`localhost`를 바꿔 연다.
 - 확장 프로그램 코드는 `textContent`만 쓰고(innerHTML 금지), 접속은 googleapis.com만, 저장소에는 클라이언트 ID만 — `test/security.test.mjs`가 검사한다.
 - 파서를 바꾸면 `uv run python tools/make_ext_fixtures.py`로 기대값을 다시 만들고 데스크톱 앱과 같은 결과인지 확인한다.
+- 확장 프로그램의 7z 쓰기를 바꾸면 `node test/make_interop.mjs`로 상호 호환 픽스처를 다시 만들고 `uv run pytest tests/unit/test_extension_interop.py`로 데스크톱 앱이 여는지 확인한다.
+- 드라이브 쓰기는 `lib/drive.js`의 `upload`·`trash`만(영구 삭제 없음). 예전 보관 파일 휴지통은 `lib/reencrypt.js`에서 두 번의 확인 뒤에만.
