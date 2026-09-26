@@ -357,6 +357,14 @@ PyInstaller 6.22 onedir(`packaging/dpg.spec`), `build` 의존성 그룹(pyinstal
 **D-078 크롬 확장 프로그램 계획 (사용자 요청, 2026-09-26)**
 암호화된 보관 파일을 크롬에서 메모리로만 풀어 확장 프로그램 전용 창에서 보고, 필요 시 저장·다시 암호화. 가능성 검토 결과 가능(7-Zip WASM, WebCrypto로 복구 키 비밀번호 계산, chrome.identity + Drive API). 한계: 키체인 접근 불가(비밀번호·복구 키 입력), 메모리 전용의 OS 수준 한계, 한글 뷰어는 내용 확인용. 사용자 결정: **무료 배포(개발자 모드, GitHub Releases zip)**, **한글·엑셀 우선**. 상세는 `docs/EXTENSION_PLAN.md`. 구현은 Phase 8 마무리 후 E0 검증부터.
 
+**D-079 확장 프로그램 E0 검증 (2026-09-26)**
+- **7-Zip WASM:** npm `7z-wasm@1.2.0`(7-Zip 24.09) — GNU LGPL-2.1+ **+ unRAR restriction**(RAR 압축기 제작 금지, 문서·소스에 그 사실을 명시하면 배포 가능; GPL 아님 → 허용). 파일 해시 고정(extension/probe/README.md). **상호 호환 실험(Node)**: 데스크톱 앱(py7zr)이 만든 7z(AES-256+헤더 암호화)·AES-ZIP을 7-Zip WASM이 메모리 파일 시스템에서 해제, 틀린 비밀번호 거부(7z는 예외를 던지므로 작업마다 새 인스턴스·try/catch 필요). WASM으로 만든 `-mhe=on` 7z를 앱이 해제, 파일명 비노출. **WebCrypto HMAC-SHA512로 계산한 복구 키 비밀번호가 파이썬과 동일**.
+- **CSP:** [MV3 CSP](https://developer.chrome.com/docs/extensions/reference/manifest/content-security-policy) 최소 정책 `script-src 'self' 'wasm-unsafe-eval'; object-src 'self'` → WASM 허용, 원격 스크립트·unsafe-eval 불가. 우리 정책: + `connect-src 'self' https://www.googleapis.com`(자기 wasm 파일과 Drive API만), `base-uri 'none'`.
+- **로그인:** [chrome.identity](https://developer.chrome.com/docs/extensions/reference/api/identity) — `getAuthToken`은 manifest에 클라이언트 ID를 고정하고 크롬 프로필 계정을 쓰므로 BYO(사용자별 클라이언트)와 맞지 않음. → `launchWebAuthFlow` + 사용자의 **웹 애플리케이션** 클라이언트(리디렉션 `https://<ID>.chromiumapp.org/`) + 토큰 응답(클라이언트 보안 비밀 불필요, state 검증). ID는 manifest `key`(공개키)로 고정 `gjlomabldjleleakkeffjojhjdgeekgj`, 개인키는 보관하지 않음. 실계정 확인 대기.
+- **권한:** [Drive 범위](https://developers.google.com/workspace/drive/api/guides/api-specific-auth): `drive.file` 비민감(앱이 만들거나 연 파일만), `drive.readonly`·`drive` 제한. → 같은 구글 프로젝트의 데스크톱 앱이 만든 보관 파일이 `drive.file`로 보이는지 실계정으로 확인(보이면 확장 프로그램은 `drive.file`만 사용).
+- **SheetJS:** npm의 `xlsx@0.18.5`는 오래되어 알려진 취약점 있음(SheetJS는 자체 CDN으로 배포) → E1에서 SheetJS 최신 CE를 받아 고정하거나, zip.js + XML로 직접 해석 중 결정. pdf.js Apache-2.0, zip.js BSD-3, mammoth BSD-2, hwp.js Apache-2.0(0.0.3, 오래됨 → HWP는 앱 파서를 옮기는 쪽이 유력).
+- 시험용 확장 프로그램 `extension/probe` + 안내 `docs/EXTENSION_E0_TEST_KO.md`.
+
 ---
 
 ## H. SPEC 11장 검증 기록

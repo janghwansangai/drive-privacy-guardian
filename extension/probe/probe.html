@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>DPG 확장 프로그램 E0 시험</title>
+  <link rel="stylesheet" href="probe.css">
+</head>
+<body>
+  <h1>Drive Privacy Guardian — 확장 프로그램 E0 시험</h1>
+  <p class="note">이 시험은 드라이브를 <b>읽기만</b> 합니다. 파일 내용은 받지 않고 이름과 개수만 확인합니다.
+    토큰은 이 탭의 메모리에만 있고, 탭을 닫으면 사라집니다.</p>
+
+  <section>
+    <h2>① 준비</h2>
+    <p>이 확장 프로그램의 리디렉션 주소 (구글 콘솔에 등록):</p>
+    <code id="redirect"></code> <button id="copy">복사</button>
+    <p><label>OAuth 클라이언트 ID (웹 애플리케이션 유형)<br>
+      <input id="client" size="80" placeholder="1234-abc.apps.googleusercontent.com"></label>
+      <button id="save">저장</button> <span id="saved"></span></p>
+  </section>
+
+  <section>
+    <h2>② 7-Zip WebAssembly 실행 확인</h2>
+    <button id="wasm">실행</button> <span id="wasmResult"></span>
+  </section>
+
+  <section>
+    <h2>③ 좁은 권한(drive.file)으로 암호화된 파일 찾기</h2>
+    <button id="narrow">로그인하고 찾기</button>
+    <div id="narrowResult" class="result"></div>
+  </section>
+
+  <section>
+    <h2>④ 넓은 권한(drive.readonly)으로 찾기 — ③에서 0개일 때만</h2>
+    <button id="wide">로그인하고 찾기</button>
+    <div id="wideResult" class="result"></div>
+  </section>
+
+  <section>
+    <h2>결과 알려 주기</h2>
+    <p>②·③·④ 각각 <b>성공/실패와 찾은 개수</b>만 알려 주세요. 파일 이름·토큰·클라이언트 ID는 붙여 넣지 마세요.</p>
+  </section>
+  <script type="module" src="probe.js"></script>
+</body>
+</html>

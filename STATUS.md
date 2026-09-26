@@ -208,4 +208,9 @@ uv run dpg logout
 
 ## 다음 계획 — 크롬 확장 프로그램 (계획만, 구현 전)
 - [x] 계획서 `docs/EXTENSION_PLAN.md` (사용자 결정: 무료 개발자 모드 배포, 한글·엑셀 우선) — D-078
-- [ ] E0 검증 → E1 보기 → E2 저장·형식 확장 → E3 다시 암호화 → E4 다듬기
+- [ ] **E0 검증** — 문서·라이선스·상호 호환(Node) 완료 (D-079), **실계정 시험 대기**: `extension/probe` + `docs/EXTENSION_E0_TEST_KO.md`
+  - [x] 7-Zip WASM ↔ 데스크톱 앱 7z·AES-ZIP 상호 해제, 복구 키 비밀번호 WebCrypto 일치
+  - [x] MV3 CSP에서 WASM 허용 확인(문서), 연결 대상은 자기 파일·googleapis.com만
+  - [ ] 크롬에서 로그인(launchWebAuthFlow + 웹 클라이언트), drive.file로 보관 파일이 보이는지, WASM 실제 실행
+- [ ] E1 보기 → E2 저장·형식 확장 → E3 다시 암호화 → E4 다듬기
+- 방침: 데스크톱 앱 v0.1.0은 초안 유지, 확장 프로그램까지 끝나면 v0.2.0으로 함께 공개 (사용자 결정 2026-09-26)

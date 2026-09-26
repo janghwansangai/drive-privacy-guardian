@@ -1,0 +1,9 @@
+body { font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; max-width: 860px; margin: 24px auto; padding: 0 16px; line-height: 1.5; }
+section { border: 1px solid #dadce0; border-left: 6px solid #1a73e8; border-radius: 8px; padding: 8px 16px; margin: 14px 0; }
+h2 { font-size: 17px; color: #1a73e8; }
+.note { color: #5f6368; }
+code { background: #f1f3f4; padding: 2px 6px; border-radius: 4px; }
+.result { margin-top: 8px; white-space: pre-wrap; }
+.ok { color: #188038; font-weight: bold; }
+.bad { color: #c5221f; font-weight: bold; }
+button { padding: 4px 12px; }
