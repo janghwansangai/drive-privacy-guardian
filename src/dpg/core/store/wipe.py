@@ -51,6 +51,9 @@ def wipe_local_records(secrets: SecretStore, *, include_vault_passwords: bool) -
     opened by this computer's keychain (they may still be written down elsewhere).
     """
     report = WipeReport()
+    # Log first: afterwards the log files themselves are removed (or emptied on Windows,
+    # where the open log file cannot be deleted), so nothing about the wipe is left behind.
+    log.info("wiping local records (vault passwords: %s)", include_vault_passwords)
     data = app_data_dir() / "data"
     if data.is_dir():
         for db in sorted(data.glob("*.db")):
@@ -78,10 +81,4 @@ def wipe_local_records(secrets: SecretStore, *, include_vault_passwords: bool) -
         if secrets.get(RECOVERY_KEY_NAME):
             secrets.delete(RECOVERY_KEY_NAME)
             report.recovery_key = True
-    log.info(
-        "local records wiped dbs=%s logs=%s vault=%s",
-        report.databases,
-        report.logs,
-        report.vault_passwords,
-    )
     return report

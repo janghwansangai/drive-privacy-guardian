@@ -1,0 +1,7 @@
+# Synthetic fixtures are byte-exact (tests compare them with freshly generated files):
+# never convert line endings, even for text-looking formats such as PDF or CSV.
+tests/fixtures/** -text
+*.pdf binary
+*.hwp binary
+*.hwpx binary
+*.7z binary
