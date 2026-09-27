@@ -313,12 +313,12 @@ class UnpackDialog(QDialog):
 def recovery_card_html(password: str, today: dt.date | None = None) -> str:
     today = today or dt.date.today()
     return (
-        "<h2>Drive Privacy Guardian — 보관 파일 복구 카드</h2>"
+        "<h2>개인정보 보안관 — 보관 파일 복구 카드</h2>"
         f"<p>작성일: {today.isoformat()}</p>"
         f"<p style='font-family:monospace;font-size:20pt'>{password}</p>"
         "<p>보관 파일 이름: ______________________</p>"
         "<p>이 카드를 가진 사람은 보관 파일을 열 수 있습니다. 잠금 보관하세요.</p>"
-        "<p>여는 방법: Drive Privacy Guardian → 파일 → 보관 파일 풀기, "
+        "<p>여는 방법: 개인정보 보안관(Drive Privacy Guardian) → 파일 → 보관 파일 풀기, "
         "또는 7-Zip·반디집·Keka</p>"
     )
 
@@ -635,7 +635,7 @@ class ExclusionsDialog(QDialog):
 def recovery_key_html(key: str, fp: str, today: dt.date | None = None) -> str:
     today = today or dt.date.today()
     return (
-        "<h2>Drive Privacy Guardian — 복구 키</h2>"
+        "<h2>개인정보 보안관 — 복구 키</h2>"
         f"<p>작성일: {today.isoformat()} · 지문: {fp}</p>"
         f"<p style='font-family:monospace;font-size:20pt'>{key}</p>"
         "<p>이 키가 있으면 이 키로 만든 <b>모든</b> 암호화 보관 파일을 열 수 있습니다. "

@@ -182,7 +182,7 @@ def folder_id_from(text: str) -> str:
 
 
 ABOUT_TEXT = (
-    f"Drive Privacy Guardian {__version__}\n\n"
+    f"개인정보 보안관 (Drive Privacy Guardian) {__version__}\n\n"
     "구글 드라이브 공유 권한과 개인정보 포함 파일을 "
     "이 컴퓨터 안에서만 점검하는 무료 프로그램입니다. "
     "구글 외 어떤 서버와도 통신하지 않습니다.\n\n"
@@ -496,7 +496,7 @@ class MainWindow(QMainWindow):
         self._auto_run = False
         self._live_token: str | None = None
         self._live_check: Task | None = None  # a callable to start once the current task is done
-        self.setWindowTitle(f"Drive Privacy Guardian {__version__}")
+        self.setWindowTitle(f"개인정보 보안관 {__version__}")
         self.resize(1200, 760)
         self._build_menu()
         self._build_ui()
@@ -2227,7 +2227,7 @@ class MainWindow(QMainWindow):
         self.ctx.prefs.save()
 
     def show_about(self) -> None:
-        self.ctx.notify(self, "Drive Privacy Guardian 정보", ABOUT_TEXT)
+        self.ctx.notify(self, "개인정보 보안관 정보", ABOUT_TEXT)
 
     # -- lifecycle ------------------------------------------------------------------------------
 

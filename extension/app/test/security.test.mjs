@@ -77,14 +77,14 @@ test("saving happens only from the confirmed dialog button", () => {
   assert.match(src("viewer.html"), /<dialog id="saveDialog">[\s\S]*다운로드 폴더/);
 });
 
-test("drive.file by default; the full drive scope only on the user's explicit request (D-086)", () => {
+test("one sign-in asks for everything (D-095); no restricted metadata/readonly scopes", () => {
   const s = src("lib/drive.js");
   assert.match(s, /auth\/drive\.file"/);
   assert.doesNotMatch(s, /auth\/drive\.readonly|auth\/drive\.metadata/);
-  assert.match(s, /let wantFull = false;/);
-  assert.equal((s.match(/wantFull = true/g) || []).length, 1, "only requestFullAccess() turns it on");
-  const req = s.slice(s.indexOf("export async function requestFullAccess"), s.indexOf("async function authed"));
-  assert.match(req, /wantFull = true/);
+  assert.match(s, /let wantFull = true;/);
+  assert.match(s, /scope: wantFull \? `\$\{SCOPE_FILE\} \$\{SCOPE_FULL\}` : SCOPE_FILE/);
+  // renewing never opens a window unless Google requires it
+  assert.match(s, /signIn\(\{ interactive: false, prompt: "none" \}\)/);
   assert.match(src("viewer.js"), /requestFullAccess\(\)/);
 });
 

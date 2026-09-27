@@ -111,7 +111,7 @@ CHECKS: list[Check] = [
 def run(print_fn: Callable[[str], None] = print, *, skip: set[str] | None = None) -> int:
     from dpg import __version__
 
-    print_fn(f"Drive Privacy Guardian {__version__} 자가 진단")
+    print_fn(f"개인정보 보안관 (Drive Privacy Guardian) {__version__} 자가 진단")
     failed = 0
     for name, fn in CHECKS:
         if skip and name in skip:

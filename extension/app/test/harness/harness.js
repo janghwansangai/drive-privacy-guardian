@@ -82,8 +82,9 @@ globalThis.chrome = {
   })(),
   identity: {
     getRedirectURL: () => "https://gjlomabldjleleakkeffjojhjdgeekgj.chromiumapp.org/",
-    launchWebAuthFlow: async ({ url }) => {
+    launchWebAuthFlow: async ({ url, interactive }) => {
       const u = new URL(url);
+      window.harnessAuth = (window.harnessAuth || []).concat(interactive ? `window:${u.searchParams.get("prompt") || "-"}` : "silent");
       if ((u.searchParams.get("scope") || "").split(" ").includes("https://www.googleapis.com/auth/drive")) window.harnessFull = true;
       const p = new URLSearchParams({ access_token: "fake-token", expires_in: "3600", state: u.searchParams.get("state"), scope: u.searchParams.get("scope") });
       return `${u.searchParams.get("redirect_uri")}#${p}`;

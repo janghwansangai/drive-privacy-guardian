@@ -1,4 +1,4 @@
-# Drive Privacy Guardian 사용 안내
+# 개인정보 보안관 (Drive Privacy Guardian) 사용 안내
 
 구글 드라이브의 **공유 권한**과 **개인정보가 든 파일**을 내 컴퓨터 안에서만 점검하고, 필요하면 공유를 줄이거나 암호화해 보관하는 프로그램입니다. 설치 방법은 [INSTALL_KO.md](INSTALL_KO.md)를 보세요.
 

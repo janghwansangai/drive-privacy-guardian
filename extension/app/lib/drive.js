@@ -1,10 +1,11 @@
 // Google sign-in (launchWebAuthFlow + the user's own web client), Drive reads, and the E3 writes:
 // upload a new encrypted archive, move a replaced archive to the trash (never a permanent delete).
-// Scope: drive.file for viewing (E0: the desktop app's archives are visible with it). The full
-// `drive` scope is requested only when the user encrypts files chosen in Drive (D-086).
+// Scope (D-095): one sign-in asks for everything the three main features need — the full `drive`
+// scope (공유 점검, 개인정보 점검, 드라이브 파일 암호화) plus drive.file — so no feature asks again.
+// If the user leaves the Drive box unchecked, requestFullAccess() asks when a feature needs it.
 // The access token lives in memory and in chrome.storage.session (memory only, cleared when the
-// browser closes, not readable by content scripts) so the side panel, the large view and the tab
-// share one sign-in (D-088).
+// browser closes, not readable by content scripts); every view (side panel, large view, tab)
+// follows changes to it, and an expired token is renewed silently when Google allows it.
 
 export const SCOPE_FILE = "https://www.googleapis.com/auth/drive.file";
 export const SCOPE_FULL = "https://www.googleapis.com/auth/drive";
@@ -16,8 +17,16 @@ const MAX_DOWNLOAD = 1024 * 1024 * 1024;
 
 let token = null;
 let tokenExpiry = 0;
-let wantFull = false; // once the user agreed to the full scope, later silent refreshes keep it
+let wantFull = true; // D-095: sign-in asks for the full scope too (one consent screen)
 let granted = new Set();
+
+function adopt(a) { token = a.token; tokenExpiry = a.expiry; granted = new Set(a.granted || []); }
+// Another view signed in, got more permissions or signed out → follow it (no second login).
+globalThis.chrome?.storage?.onChanged?.addListener?.((changes, area) => {
+  if (area !== "session" || !("auth" in changes)) return;
+  const a = changes.auth.newValue;
+  if (a) adopt(a); else { token = null; tokenExpiry = 0; granted = new Set(); }
+});
 
 export async function clientId() {
   return (await chrome.storage.local.get("clientId")).clientId || "";
@@ -28,18 +37,21 @@ export async function setClientId(value) {
 }
 
 export function signOut() {
-  token = null; tokenExpiry = 0; granted = new Set(); wantFull = false;
+  token = null; tokenExpiry = 0; granted = new Set();
   chrome.storage.session?.remove("auth").catch?.(() => {});
 }
 
-/** Pick up a sign-in made in another view of this extension (same browser session). */
+/** Use the newest sign-in of this browser session (another view may have renewed it or got the
+ *  full scope). Returns whether we are signed in. */
 export async function restore() {
-  if (signedIn()) return true;
   const a = (await chrome.storage.session?.get("auth"))?.auth;
-  if (!a || Date.now() >= a.expiry) return false;
-  token = a.token; tokenExpiry = a.expiry; granted = new Set(a.granted || []);
-  wantFull = granted.has(SCOPE_FULL);
-  return true;
+  if (a && Date.now() < a.expiry && (!signedIn() || a.expiry > tokenExpiry || (a.granted || []).length > granted.size)) adopt(a);
+  return signedIn();
+}
+
+/** Renew without any window when Google allows it (signed in to Google, consent already given). */
+async function renewSilently() {
+  try { await signIn({ interactive: false, prompt: "none" }); return true; } catch { return false; }
 }
 export function hasFullAccess() { return signedIn() && granted.has(SCOPE_FULL); }
 export function signedIn() { return !!token && Date.now() < tokenExpiry; }
@@ -64,25 +76,31 @@ export async function signIn({ interactive = true, prompt = "select_account" } =
   await chrome.storage.session?.set({ auth: { token, expiry: tokenExpiry, granted: [...granted] } });
 }
 
-/** Ask for the full Drive scope (only when encrypting files chosen in Drive). */
+/** Make sure the full Drive scope is there: usually it already is (sign-in asked for it), or it
+ *  comes back silently; the consent screen shows only if the user never granted it. */
 export async function requestFullAccess() {
+  await restore();
   if (hasFullAccess()) return;
   wantFull = true;
-  try {
-    await signIn({ interactive: true, prompt: "consent" });
-  } catch (e) { wantFull = false; throw e; }
+  if ((await renewSilently()) && hasFullAccess()) return;
+  await signIn({ interactive: true, prompt: "consent" });
   if (!granted.has(SCOPE_FULL)) {
-    wantFull = false;
-    throw new Error("드라이브 파일을 암호화하려면 권한 화면에서 '드라이브의 모든 파일 보기·수정…' 항목도 체크해 주세요");
+    throw new Error("이 기능은 권한 화면에서 '드라이브의 모든 파일 보기·수정…' 항목도 체크해야 합니다");
   }
 }
 
+async function ensureToken() {
+  if (await restore()) return;
+  if (await renewSilently()) return;
+  await signIn({ interactive: true, prompt: "" });
+}
+
 async function authed(url, init = {}) {
-  if (!signedIn() && !(await restore())) await signIn({ interactive: true, prompt: "" });
+  await ensureToken();
   let res = await fetch(url, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` } });
   if (res.status === 401) {
-    signOut();
-    await signIn({ interactive: true, prompt: "" });
+    token = null; tokenExpiry = 0;
+    if (!(await renewSilently())) await signIn({ interactive: true, prompt: "" });
     res = await fetch(url, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` } });
   }
   if (!res.ok) {

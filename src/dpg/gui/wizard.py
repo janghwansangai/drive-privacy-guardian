@@ -332,7 +332,7 @@ class SetupWizard(QWizard):
         self, ctx: AppContext, parent: QWidget | None = None, level: AccessLevel = AccessLevel.AUDIT
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Drive Privacy Guardian — 설정")
+        self.setWindowTitle("개인정보 보안관 — 설정")
         self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
         self.setMinimumSize(640, 520)
         self.setButtonText(QWizard.WizardButton.NextButton, "다음")
