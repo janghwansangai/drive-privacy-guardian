@@ -7,6 +7,33 @@ const el = (tag, cls, text) => {
   return e;
 };
 
+const ALIGNS = new Set(["left", "right", "center", "justify"]);
+
+function readable(color) {
+  if (!/^#[0-9a-f]{6}$/.test(color || "")) return null;
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16));
+  return 0.299 * r + 0.587 * g + 0.114 * b > 225 ? null : color; // skip white-ish text on white
+}
+
+/** A paragraph with styled runs; styles are set as properties (never markup). */
+export function renderParagraph(b) {
+  const p = el("p");
+  if (ALIGNS.has(b.align)) p.style.textAlign = b.align;
+  if (!b.runs?.length) { p.textContent = b.text; return p; }
+  for (const r of b.runs) {
+    const span = el("span", "", r.text);
+    if (r.b) span.style.fontWeight = "bold";
+    if (r.i) span.style.fontStyle = "italic";
+    const deco = [r.u && "underline", r.s && "line-through"].filter(Boolean).join(" ");
+    if (deco) span.style.textDecoration = deco;
+    if (r.size > 0) span.style.fontSize = `${Math.min(Math.max(r.size, 7), 40)}pt`;
+    const c = readable(r.color);
+    if (c && c !== "#000000") span.style.color = c;
+    p.append(span);
+  }
+  return p;
+}
+
 export function renderTable(table) {
   const t = el("table", "grid");
   const covered = new Set();
@@ -34,7 +61,7 @@ export function renderTable(table) {
 export function renderModel(model, onNotice, track) {
   const box = el("div", "doc");
   if (model.kind === "doc") {
-    for (const b of model.blocks) box.append(b.type === "p" ? el("p", "", b.text) : renderTable(b));
+    for (const b of model.blocks) box.append(b.type === "p" ? renderParagraph(b) : renderTable(b));
     if (!model.blocks.length) box.append(el("p", "muted", "(내용이 없습니다)"));
   } else if (model.kind === "sheets") {
     const tabs = el("div", "tabs");

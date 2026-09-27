@@ -2,7 +2,7 @@
 // including merged cells (gridSpan / vMerge).
 
 import { openZip } from "./zip.js";
-import { MAX_BLOCKS, Unviewable } from "./model.js";
+import { MAX_BLOCKS, Unviewable, pushRunLines } from "./model.js";
 
 const local = (n) => (n.localName || n.nodeName || "").replace(/^.*:/, "");
 const kids = (n) => Array.from(n.childNodes || []).filter((c) => c.nodeType === 1);
@@ -23,6 +23,45 @@ function paraText(p) {
   };
   walk(p);
   return out;
+}
+
+const JC = { left: "left", start: "left", right: "right", end: "right", center: "center", both: "justify", distribute: "justify" };
+const on = (n) => !!n && !["0", "false", "off"].includes(attr(n, "val") ?? "");
+
+/** Direct run formatting (w:rPr): bold, italic, underline, strike, size (half-points), colour. */
+function runStyle(r) {
+  const pr = child(r, "rPr");
+  if (!pr) return {};
+  const u = child(pr, "u");
+  const sz = child(pr, "sz");
+  const color = child(pr, "color") && attr(child(pr, "color"), "val");
+  return {
+    b: on(child(pr, "b")), i: on(child(pr, "i")),
+    u: !!u && (attr(u, "val") || "single") !== "none",
+    s: on(child(pr, "strike")) || on(child(pr, "dstrike")),
+    ...(sz ? { size: Number(attr(sz, "val")) / 2 || undefined } : {}),
+    ...(color && /^[0-9a-f]{6}$/i.test(color) ? { color: `#${color.toLowerCase()}` } : {}),
+  };
+}
+
+function paraRuns(p) {
+  const runs = [];
+  const walk = (n) => {
+    for (const c of kids(n)) {
+      const tag = local(c);
+      if (tag === "r") runs.push({ text: paraText(c), ...runStyle(c) });
+      else if (tag === "tbl" || tag === "del" || tag === "pPr") continue;
+      else walk(c);
+    }
+  };
+  walk(p);
+  return runs.filter((r) => r.text);
+}
+
+function paraAlign(p) {
+  const pr = child(p, "pPr");
+  const jc = pr && child(pr, "jc");
+  return jc ? JC[attr(jc, "val")] : undefined;
 }
 
 function cellText(tc) {
@@ -93,7 +132,7 @@ function walkBody(node, blocks) {
     if (blocks.length > MAX_BLOCKS) return;
     const tag = local(c);
     if (tag === "p") {
-      for (const line of paraText(c).split("\n")) if (line.trim()) blocks.push({ type: "p", text: line.trim() });
+      pushRunLines(blocks, paraRuns(c), paraAlign(c));
     } else if (tag === "tbl") {
       blocks.push(table(c));
     } else if (tag === "sdt" || tag === "sdtContent" || tag === "customXml" || tag === "ins") {

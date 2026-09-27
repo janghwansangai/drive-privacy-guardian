@@ -2,7 +2,7 @@
 // including merged cells (cellAddr / cellSpan).
 
 import { openZip } from "./zip.js";
-import { MAX_BLOCKS, Unviewable } from "./model.js";
+import { MAX_BLOCKS, Unviewable, pushRunLines } from "./model.js";
 
 const local = (n) => (n.localName || n.nodeName || "").replace(/^.*:/, "");
 const kids = (n) => Array.from(n.childNodes || []).filter((c) => c.nodeType === 1);
@@ -59,12 +59,49 @@ function table(tbl) {
   return { type: "table", rows, cols, cells };
 }
 
-function walkSection(node, blocks) {
+const ALIGN = { JUSTIFY: "justify", LEFT: "left", RIGHT: "right", CENTER: "center", DISTRIBUTE: "justify", DISTRIBUTE_SPACE: "justify" };
+
+/** header.xml → { chars: Map(id → style), paras: Map(id → align) }. */
+export function readHeader(doc) {
+  const chars = new Map();
+  const paras = new Map();
+  const all = (n, name) => Array.from(n.getElementsByTagName("*")).filter((e) => local(e) === name);
+  for (const cp of all(doc, "charPr")) {
+    const has = (name) => kids(cp).find((k) => local(k) === name);
+    const u = has("underline");
+    const st = has("strikeout");
+    const color = cp.getAttribute("textColor");
+    chars.set(cp.getAttribute("id"), {
+      size: Number(cp.getAttribute("height")) / 100 || undefined,
+      b: !!has("bold"), i: !!has("italic"),
+      u: !!u && (u.getAttribute("type") || "NONE") !== "NONE",
+      s: !!st && (st.getAttribute("shape") || "NONE") !== "NONE",
+      ...(color && /^#[0-9a-f]{6}$/i.test(color) ? { color: color.toLowerCase() } : {}),
+    });
+  }
+  for (const pp of all(doc, "paraPr")) {
+    const a = all(pp, "align")[0];
+    const h = a && ALIGN[a.getAttribute("horizontal")];
+    if (h) paras.set(pp.getAttribute("id"), h);
+  }
+  return { chars, paras };
+}
+
+function paraRuns(p, header) {
+  const runs = [];
+  for (const r of kids(p)) {
+    if (local(r) !== "run") continue;
+    const text = textOf(r, true);
+    if (text) runs.push({ text, ...(header.chars.get(r.getAttribute("charPrIDRef")) || {}) });
+  }
+  return runs;
+}
+
+function walkSection(node, blocks, header) {
   for (const c of kids(node)) {
     if (blocks.length > MAX_BLOCKS) return;
     if (local(c) === "p") {
-      const text = textOf(c, true).trim();
-      for (const line of text ? text.split("\n") : []) if (line.trim()) blocks.push({ type: "p", text: line.trim() });
+      pushRunLines(blocks, paraRuns(c, header), header.paras.get(c.getAttribute("paraPrIDRef")));
       const tables = [];
       const find = (n) => {
         for (const k of kids(n)) {
@@ -75,7 +112,7 @@ function walkSection(node, blocks) {
       find(c);
       for (const t of tables) blocks.push(table(t));
     } else {
-      walkSection(c, blocks);
+      walkSection(c, blocks, header);
     }
   }
 }
@@ -93,9 +130,14 @@ export async function parseHwpx(bytes, parseXml) {
     .sort((a, b) => Number(a[1]) - Number(b[1]))
     .map((m) => m[0]);
   if (!sections.length) throw new Unviewable("한글(HWPX) 파일이 아닙니다");
+  let header = { chars: new Map(), paras: new Map() };
+  const headerName = names.find((n) => n.toLowerCase() === "contents/header.xml");
+  if (headerName) {
+    try { header = readHeader(parseXml(await zip.text(headerName))); } catch { /* plain text */ }
+  }
   const blocks = [];
   for (const name of sections) {
-    walkSection(parseXml(await zip.text(name)).documentElement, blocks);
+    walkSection(parseXml(await zip.text(name)).documentElement, blocks, header);
   }
   return { kind: "doc", blocks, truncated: blocks.length > MAX_BLOCKS };
 }

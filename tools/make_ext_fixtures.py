@@ -67,6 +67,27 @@ def _merged_docx() -> bytes:
     return buf.getvalue()
 
 
+def _styled_docx() -> bytes:
+    """A small synthetic DOCX with bold / size / colour / italic-underline and alignment."""
+    import io
+
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Pt, RGBColor
+
+    d = Document()
+    p = d.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r = p.add_run("서식 시험 (합성 데이터)")
+    r.bold, r.font.size, r.font.color.rgb = True, Pt(16), RGBColor(0xFF, 0, 0)
+    p = d.add_paragraph("보통 ")
+    r = p.add_run("기울임 밑줄")
+    r.italic, r.underline = True, True
+    buf = io.BytesIO()
+    d.save(buf)
+    return buf.getvalue()
+
+
 def main() -> None:
     (OUT / "expected").mkdir(parents=True, exist_ok=True)
     for name, fn in {**FILES, **EXPECTED_ONLY}.items():
@@ -79,6 +100,14 @@ def main() -> None:
             ),
             encoding="utf-8",
         )
+    sys.path.insert(0, str(ROOT))
+    from tools.doc_writers import build_styled_hwp, build_styled_hwpx
+
+    (OUT / "서식_가상.hwp").write_bytes(build_styled_hwp())  # deterministic (no timestamps)
+    (OUT / "서식_가상.hwpx").write_bytes(build_styled_hwpx())
+    styled_docx = OUT / "서식_가상.docx"
+    if not styled_docx.exists():
+        styled_docx.write_bytes(_styled_docx())
     merged = OUT / "표병합_가상.docx"
     if not merged.exists():  # keep the committed file stable (python-docx embeds timestamps)
         merged.write_bytes(_merged_docx())

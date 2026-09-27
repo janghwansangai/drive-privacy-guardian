@@ -23,6 +23,9 @@ async function e2Archive() {
     "가정통신문_체험학습.docx": await get(SYN + encodeURIComponent("가정통신문_체험학습.docx")),
     "표병합_가상.docx": await get(FIX + encodeURIComponent("표병합_가상.docx")),
     "사진.png": png,
+    "서식_가상.hwp": await get(FIX + encodeURIComponent("서식_가상.hwp")),
+    "서식_가상.hwpx": await get(FIX + encodeURIComponent("서식_가상.hwpx")),
+    "서식_가상.docx": await get(FIX + encodeURIComponent("서식_가상.docx")),
   };
   const raw = await parseRecoveryKey(window.harnessKey);
   built.fe2 = await create7z(Object.entries(members), await derivePassword(raw, "9c8d7e6f"));

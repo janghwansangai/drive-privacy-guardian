@@ -62,6 +62,7 @@ window.addEventListener("pagehide", () => { forget(); rememberedKey = null; driv
 // -- settings --------------------------------------------------------------------------------
 $("redirect").textContent = chrome.identity.getRedirectURL();
 $("settingsBtn").onclick = () => { $("settings").hidden = !$("settings").hidden; };
+$("helpBtn").onclick = () => { $("help").hidden = !$("help").hidden; };
 drive.clientId().then((id) => {
   $("client").value = id;
   if (!id) { $("settings").hidden = false; message("처음 한 번 설정에서 클라이언트 ID를 저장해 주세요."); }
@@ -152,7 +153,13 @@ async function unlock(typed) {
       if ($("remember").checked && raw) rememberedKey = raw;
     }
     $("password").value = "";
-    if (!encrypted || encrypted.id !== file.id) encrypted = { id: file.id, bytes: await drive.download(file) };
+    const mb = (n) => (n / 1024 / 1024).toFixed(1);
+    if (Number(file.size || 0) > 300 * 1024 * 1024) message("큰 파일입니다. 받고 푸는 데 시간이 걸리고 메모리를 많이 씁니다…");
+    if (!encrypted || encrypted.id !== file.id) {
+      encrypted = { id: file.id, bytes: await drive.download(file, (done, total) => {
+        message(total ? `받는 중… ${mb(done)} / ${mb(total)} MB (메모리에만)` : `받는 중… ${mb(done)} MB (메모리에만)`);
+      }) };
+    }
     message("푸는 중…");
     const members = await openArchive(encrypted.bytes, password);
     current = { file, members, secret };

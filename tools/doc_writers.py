@@ -21,6 +21,9 @@ from tools.cfb_writer import build_cfb
 
 HWPTAG_BEGIN = 0x010
 TAG_DOCUMENT_PROPERTIES = HWPTAG_BEGIN
+TAG_CHAR_SHAPE = HWPTAG_BEGIN + 5
+TAG_PARA_SHAPE = HWPTAG_BEGIN + 9
+TAG_PARA_CHAR_SHAPE = HWPTAG_BEGIN + 52
 TAG_PARA_HEADER = HWPTAG_BEGIN + 50
 TAG_PARA_TEXT = HWPTAG_BEGIN + 51
 TAG_CTRL_HEADER = HWPTAG_BEGIN + 55
@@ -102,6 +105,59 @@ def build_hwp(
     )
 
 
+def _char_shape(
+    size_pt: int,
+    *,
+    bold: bool = False,
+    italic: bool = False,
+    underline: bool = False,
+    color: int = 0,
+) -> bytes:
+    """HWPTAG_CHAR_SHAPE (표 33): base size at 42 (1/100 pt), attributes at 46, colour at 52."""
+    attr = (1 if italic else 0) | (2 if bold else 0) | (4 if underline else 0)
+    head = b"\0" * 14 + bytes([100] * 7) + b"\0" * 7 + bytes([100] * 7) + b"\0" * 7
+    return head + struct.pack("<iIbbIIIIHI", size_pt * 100, attr, 0, 0, color, 0, 0, 0, 0, 0)
+
+
+def _para_shape(align: int) -> bytes:
+    """HWPTAG_PARA_SHAPE (표 43): attribute 1 bits 2-4 = alignment."""
+    return struct.pack("<I", align << 2) + b"\0" * 50
+
+
+def build_styled_hwp() -> bytes:
+    """A small synthetic HWP with character and paragraph shapes (for the extension viewer).
+
+    Char shapes: 0 = 10pt, 1 = 16pt bold red, 2 = 10pt italic underline.
+    Para shapes: 0 = justify, 1 = centre, 2 = right.
+    """
+    paras = [  # (para shape, [(text, char shape)])
+        (1, [("서식 시험 문서 (합성 데이터)", 1)]),
+        (0, [("보통 글자 ", 0), ("굵은 빨간 큰 글자", 1), (" 그리고 ", 0), ("기울임 밑줄", 2)]),
+        (2, [("오른쪽 정렬 문단", 0)]),
+    ]
+    section = b""
+    for shape, runs in paras:
+        text = "".join(t for t, _ in runs)
+        body = text.encode("utf-16-le") + struct.pack("<H", 13)
+        header = struct.pack("<IIHBBHHHIH", len(body) // 2, 0, shape, 0, 0, len(runs), 0, 1, 0, 0)
+        pos, pcs = 0, b""
+        for t, cs in runs:
+            pcs += struct.pack("<II", pos, cs)
+            pos += len(t)
+        section += _record(TAG_PARA_HEADER, 0, header) + _record(TAG_PARA_TEXT, 1, body)
+        section += _record(TAG_PARA_CHAR_SHAPE, 1, pcs)
+    docinfo = _record(TAG_DOCUMENT_PROPERTIES, 0, struct.pack("<H", 1) + b"\0" * 24)
+    docinfo += _record(TAG_CHAR_SHAPE, 1, _char_shape(10))
+    docinfo += _record(TAG_CHAR_SHAPE, 1, _char_shape(16, bold=True, color=0x0000FF))
+    docinfo += _record(TAG_CHAR_SHAPE, 1, _char_shape(10, italic=True, underline=True))
+    for align in (0, 3, 2):
+        docinfo += _record(TAG_PARA_SHAPE, 1, _para_shape(align))
+    header = b"HWP Document File".ljust(32, b"\0") + struct.pack("<II", 0x05000300, 0)
+    return build_cfb(
+        {"FileHeader": header.ljust(256, b"\0"), "DocInfo": docinfo, "BodyText/Section0": section}
+    )
+
+
 # --- HWPX ---------------------------------------------------------------------------------------
 
 _HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
@@ -146,6 +202,46 @@ def build_hwpx(blocks: list[str | list[list[str]]], *, encrypted: bool = False) 
         zf.writestr("META-INF/manifest.xml", manifest)
         zf.writestr("Contents/content.hpf", '<?xml version="1.0"?><opf:package xmlns:opf="x"/>')
         zf.writestr("Contents/section0.xml", section, compress_type=zipfile.ZIP_DEFLATED)
+    return buf.getvalue()
+
+
+def build_styled_hwpx() -> bytes:
+    """Synthetic HWPX with header.xml char/para properties (for the extension viewer)."""
+    hh = "http://www.hancom.co.kr/hwpml/2011/head"
+    header = (
+        f'<?xml version="1.0" encoding="UTF-8"?><hh:head xmlns:hh="{hh}"><hh:refList>'
+        '<hh:charProperties itemCnt="3">'
+        '<hh:charPr id="0" height="1000" textColor="#000000"><hh:underline type="NONE"/>'
+        '<hh:strikeout shape="NONE"/></hh:charPr>'
+        '<hh:charPr id="1" height="1600" textColor="#FF0000"><hh:bold/>'
+        '<hh:underline type="NONE"/></hh:charPr>'
+        '<hh:charPr id="2" height="1000" textColor="#000000"><hh:italic/>'
+        '<hh:underline type="BOTTOM"/></hh:charPr>'
+        "</hh:charProperties><hh:paraProperties>"
+        '<hh:paraPr id="0"><hh:align horizontal="JUSTIFY"/></hh:paraPr>'
+        '<hh:paraPr id="1"><hh:align horizontal="CENTER"/></hh:paraPr>'
+        "</hh:paraProperties></hh:refList></hh:head>"
+    )
+
+    def run(t: str, cs: int) -> str:
+        return f'<hp:run charPrIDRef="{cs}"><hp:t>{escape(t)}</hp:t></hp:run>'
+
+    body = (
+        f'<hp:p paraPrIDRef="1">{run("서식 시험 (합성 데이터)", 1)}</hp:p>'
+        f'<hp:p paraPrIDRef="0">{run("보통 ", 0)}{run("굵게", 1)}{run(" 기울임", 2)}</hp:p>'
+    )
+    section = (
+        f'<?xml version="1.0" encoding="UTF-8"?>'
+        f'<hs:sec xmlns:hs="{_HS}" xmlns:hp="{_HP}">{body}</hs:sec>'
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, data in [
+            ("mimetype", "application/hwp+zip"),
+            ("Contents/header.xml", header),
+            ("Contents/section0.xml", section),
+        ]:
+            zf.writestr(zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0)), data)
     return buf.getvalue()
 
 

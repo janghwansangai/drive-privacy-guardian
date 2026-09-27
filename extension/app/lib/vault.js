@@ -7,6 +7,7 @@ export class ArchiveError extends Error {}
 const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const MAX_MEMBERS_BYTES = 1024 * 1024 * 1024;
+const TOO_BIG = "파일이 너무 커서 브라우저 메모리로 열 수 없습니다 — 데스크톱 앱에서 푸세요";
 
 let loader = null;
 export function setLoader(fn) { loader = fn; } // tests inject a Node loader
@@ -86,7 +87,8 @@ export async function openArchive(bytes, password) {
   try {
     // -p is an argument to an in-memory function call, not a process command line.
     code = sz.callMain(["x", "/a", `-p${password}`, "-o/o", "-y", "-bso0", "-bsp0"]);
-  } catch {
+  } catch (e) {
+    if (e instanceof RangeError || /memory/i.test(String(e?.message))) throw new ArchiveError(TOO_BIG);
     throw new WrongPassword();
   }
   if (code !== 0) throw new WrongPassword();

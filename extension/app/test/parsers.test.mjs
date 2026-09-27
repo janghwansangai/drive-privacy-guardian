@@ -112,3 +112,32 @@ test("PDF and pictures are handed to the page renderer; unknown types say to sav
   assert.equal((await viewModel("그림.svg", new Uint8Array(4), parseXml)).kind, "unsupported"); // SVG not rendered
   assert.match((await viewModel("a.pptx", new Uint8Array(4), parseXml)).reason, /저장/);
 });
+
+const styledRuns = (m) => m.blocks.filter((b) => b.type === "p").map((b) => ({ align: b.align, runs: b.runs.map((r) => [r.text, !!r.b, !!r.i, !!r.u, r.size, r.color]) }));
+
+test("E4 HWP formatting: bold / italic / underline / size / colour and alignment (Hancom 표 33·43·61)", async () => {
+  const m = await parseHwp(read(path.join(FIX, "서식_가상.hwp")));
+  assert.deepEqual(styledRuns(m), [
+    { align: "center", runs: [["서식 시험 문서 (합성 데이터)", true, false, false, 16, "#ff0000"]] },
+    { align: "justify", runs: [
+      ["보통 글자 ", false, false, false, 10, "#000000"], ["굵은 빨간 큰 글자", true, false, false, 16, "#ff0000"],
+      [" 그리고 ", false, false, false, 10, "#000000"], ["기울임 밑줄", false, true, true, 10, "#000000"]] },
+    { align: "right", runs: [["오른쪽 정렬 문단", false, false, false, 10, "#000000"]] },
+  ]);
+});
+
+test("E4 HWPX formatting from header.xml (charPr / paraPr)", async () => {
+  const m = await parseHwpx(read(path.join(FIX, "서식_가상.hwpx")), parseXml);
+  assert.deepEqual(styledRuns(m), [
+    { align: "center", runs: [["서식 시험 (합성 데이터)", true, false, false, 16, "#ff0000"]] },
+    { align: "justify", runs: [["보통 ", false, false, false, 10, "#000000"], ["굵게", true, false, false, 16, "#ff0000"], [" 기울임", false, true, true, 10, "#000000"]] },
+  ]);
+});
+
+test("E4 DOCX direct formatting and alignment", async () => {
+  const m = await parseDocx(read(path.join(FIX, "서식_가상.docx")), parseXml);
+  assert.deepEqual(styledRuns(m), [
+    { align: "center", runs: [["서식 시험 (합성 데이터)", true, false, false, 16, "#ff0000"]] },
+    { align: undefined, runs: [["보통 ", false, false, false, undefined, undefined], ["기울임 밑줄", false, true, true, undefined, undefined]] },
+  ]);
+});

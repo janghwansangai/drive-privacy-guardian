@@ -75,10 +75,28 @@ export async function listVaultFiles() {
   return found.sort((a, b) => (b.createdTime || "").localeCompare(a.createdTime || ""));
 }
 
-export async function download(file) {
+/** Download into memory; `onProgress(done, total)` is called while it streams. */
+export async function download(file, onProgress) {
   if (Number(file.size || 0) > MAX_DOWNLOAD) throw new Error("파일이 너무 큽니다 (1GB 초과)");
   const url = `${API}/${encodeURIComponent(file.id)}?alt=media&supportsAllDrives=true`;
-  return new Uint8Array(await (await authed(url)).arrayBuffer());
+  const res = await authed(url);
+  const total = Number(res.headers.get("Content-Length") || file.size || 0);
+  if (!onProgress || !res.body) return new Uint8Array(await res.arrayBuffer());
+  const reader = res.body.getReader();
+  const parts = [];
+  let done = 0;
+  for (;;) {
+    const { value, done: end } = await reader.read();
+    if (end) break;
+    parts.push(value);
+    done += value.length;
+    if (done > MAX_DOWNLOAD) throw new Error("파일이 너무 큽니다 (1GB 초과)");
+    onProgress(done, total);
+  }
+  const out = new Uint8Array(done);
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
 }
 
 /** Upload a new file (resumable session, one PUT). `parent` may be null = the top of My Drive. */
