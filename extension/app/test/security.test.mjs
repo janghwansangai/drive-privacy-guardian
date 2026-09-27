@@ -150,3 +150,10 @@ test("Drive page watcher: file IDs to this extension, and only the large-view if
   assert.match(w, /if \(sender\.id !== chrome\.runtime\.id \|\| sender\.tab\) return;/);
   assert.match(src("background.js"), /if \(sender\.id !== chrome\.runtime\.id \|\| sender\.tab/);
 });
+
+test("the manual is static: no scripts, nothing loaded from the web, synthetic screenshots only", () => {
+  const g = src("guide.html");
+  assert.doesNotMatch(g, /<script|<iframe|https?:\/\//i);
+  const imgs = [...g.matchAll(/src="([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(imgs.length >= 7 && imgs.every((p) => /^guide\/\d\d-[a-z]+\.png$/.test(p) && fs.existsSync(path.join(ROOT, p))), imgs.join(","));
+});

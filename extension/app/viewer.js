@@ -719,14 +719,13 @@ let watcherSeen = 0; // time of the last message from drive_watch.js
 function showDriveLink(status) {
   const p = $("driveLink");
   if (!driveTabActive) { p.hidden = true; return; }
-  p.hidden = false;
   if (status) {
     watcherSeen = Date.now();
     // only problems are shown (less text): connected and working → nothing
     p.hidden = !(status.selected && !status.found);
     p.textContent = `드라이브에서 고른 ${status.selected}개를 알아보지 못했습니다 — 드라이브 탭을 새로고침해 주세요`;
   } else if (!watcherSeen) {
-    p.classList.add("off");
+    p.hidden = false;
     p.textContent = "드라이브와 연결 안 됨 — 드라이브 탭을 새로고침(F5, Mac은 ⌘R)해 주세요";
   }
 }

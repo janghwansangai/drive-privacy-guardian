@@ -187,3 +187,40 @@ document.body.innerHTML = new DOMParser().parseFromString(html, "text/html").bod
 document.querySelectorAll("script").forEach((s) => s.remove());
 window.harnessKey = (await (await realFetch(FIX + "recovery.txt")).text()).split("\n")[0].trim();
 await import("../../viewer.js");
+
+// ?demo=<scene> — scripted states for the manual's screenshots (synthetic data only).
+const demo = new URLSearchParams(location.search).get("demo");
+if (demo) {
+  const w = (ms) => new Promise((r) => setTimeout(r, ms));
+  const $ = (id) => document.getElementById(id);
+  const setup = async () => {
+    $("setupKey").value = window.harnessKey; $("setupPw").value = "demo-pass-1234"; $("setupPw2").value = "demo-pass-1234";
+    $("setupGo").click(); await w(2500);
+  };
+  window.harnessFull = true;
+  window.harnessWatcher = true;
+  (async () => {
+    await w(1200);
+    window.harnessFromDrive({ type: "driveStatus", items: 12, selected: 0, found: 0 }); // the Drive tab is connected
+    if (demo === "setup") return;
+    await setup();
+    if (demo === "vault") {
+      window.harnessFromDrive({ type: "driveStatus", items: 12, selected: 2, found: 2 });
+      window.harnessFromDrive({ type: "driveSelection", ids: ["plainDocx000000000000001", "folderClass0000000000001"] });
+      await w(800); $("scopeAll").click();
+    } else if (demo === "open") {
+      $("scopeAll").click(); await w(800);
+      [...document.querySelectorAll("#files li")].find((l) => l.title.includes("9c8d7e6f")).click(); await w(6000);
+      [...document.querySelectorAll("#members button")].find((b) => b.textContent === "서식_가상.hwp").click();
+    } else if (demo === "audit") {
+      $("auditBtn").click(); $("auditStart").click(); await w(1500); $("auditAll").click();
+    } else if (demo === "pii") {
+      window.harnessFromDrive({ type: "driveSelection", ids: ["folderClass0000000000001"] }); await w(1000);
+      $("piiBtn").click(); $("piiStart").click();
+    } else if (demo === "locked") {
+      $("lockNow").click();
+    }
+    await w(3000);
+    document.title = "READY";
+  })();
+}

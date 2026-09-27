@@ -26,7 +26,7 @@ INCLUDE = [
     "guide.css",
     "NOTICE_KO.txt",
 ]
-INCLUDE_DIRS = ["lib", "vendor"]
+INCLUDE_DIRS = ["lib", "vendor", "guide"]
 
 
 def main() -> int:
