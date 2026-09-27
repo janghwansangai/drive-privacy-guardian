@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 from dpg.core.extract import formats, hwp
@@ -85,7 +86,8 @@ def main() -> None:
     raw = parse_recovery_key(key)
     members = {n: (SRC / n).read_bytes() for n in FILES}
     tag7z, tagzip = "0a1b2c3d", "4e5f6a7b"
-    if (OUT / f"보관_2026-09-27_{tag7z}.7z").exists() and "--archives" not in __import__("sys").argv:
+    kept = (OUT / f"보관_2026-09-27_{tag7z}.7z").exists()
+    if kept and "--archives" not in sys.argv:
         print("archives kept (pass --archives to rebuild; the salt makes them differ each time)")
         return
     (OUT / f"보관_2026-09-27_{tag7z}.7z").write_bytes(
