@@ -162,7 +162,8 @@ window.fetch = async (input, init) => {
     const m = /\/files\/([^/?]+)$/.exec(url.pathname);
     if (m && url.searchParams.get("alt") !== "media") {
       const f = FILES.find((x) => x.id === decodeURIComponent(m[1]) && (!x.plain || window.harnessFull));
-      return f ? new Response(JSON.stringify(f), { headers: { "content-type": "application/json" } }) : new Response("{}", { status: 404 });
+      const out = f && { ...f, shared: (PERMS[f.id] || []).length > 1, permissions: PERMS[f.id] };
+      return f ? new Response(JSON.stringify(out), { headers: { "content-type": "application/json" } }) : new Response("{}", { status: 404 });
     }
     if (m && url.searchParams.get("alt") === "media") {
       const f = FILES.find((x) => x.id === decodeURIComponent(m[1]));

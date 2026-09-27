@@ -13,6 +13,7 @@ import { planMembers, reencrypt, ReencryptFailed } from "./lib/reencrypt.js";
 import { parseDriveUrl } from "./lib/driveurl.js";
 import { restoreToDrive, RestoreFailed } from "./lib/restore.js";
 import * as sharing from "./lib/sharing.js";
+import { buildAudit, summary as auditSummary, peopleLine } from "./lib/audit.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -498,7 +499,7 @@ $("bigBtn").onclick = async () => {
 };
 
 // Narrow side panel: show either the list or the open file (body.focus), with "← 목록" to go back.
-const focusTargets = ["unlock", "opened", "reenc", "share"].map($);
+const focusTargets = ["unlock", "opened", "reenc", "audit"].map($);
 const updateFocus = () => {
   const on = focusTargets.some((e) => !e.hidden);
   if (document.body.classList.contains("focus") === on) return; // setting `hidden` again would re-trigger
@@ -522,7 +523,6 @@ let busy = false; // an encryption / decryption is running: do not switch screen
 /** A new selection in Drive replaces whatever this panel was preparing (user request). */
 function leaveForSelection() {
   if (busy || OVERLAY) return;
-  if (!$("share").hidden) closeShare();
   if (!$("reenc").hidden || !$("unlock").hidden || !$("opened").hidden) {
     forget();
     closeReenc();
@@ -546,7 +546,6 @@ async function showSelection(ids) {
   if (!drive.signedIn()) {
     list.replaceChildren(li("로그인하면 선택한 파일이 보입니다", "muted"));
     $("selEncrypt").hidden = true;
-    $("selShare").hidden = true;
     return;
   }
   const metas = await Promise.all(ids.slice(0, 20).map((id) => drive.getFile(id).catch(() => null)));
@@ -568,7 +567,6 @@ async function showSelection(ids) {
     list.append(row);
   }
   if (ids.length > selFiles.length) list.append(li(`이름을 모르는 항목 ${ids.length - selFiles.length}개 — 「암호화하기」를 누르면 권한을 받은 뒤 보입니다`, "muted"));
-  $("selShare").hidden = false;
   $("selEncrypt").hidden = plain === 0;
   $("selEncrypt").textContent = plain === 1 ? "🔒 암호화하기" : `🔒 암호화하기 (${plain}개를 한 파일로)`;
   $("selInfo").textContent = plain ? "같은 폴더에 암호화 파일을 만들고, 확인이 끝나면 원래 파일은 휴지통으로 옮깁니다. 처음 한 번 드라이브 권한을 묻습니다." : "";
@@ -635,127 +633,156 @@ async function listenToDrive(win) {
   });
 }
 
-// -- sharing: audit and change permissions of what is selected in Drive (D-091) ----------------
-let share = null; // { me, internal, items: [{ file, views, exposure }], lastDone }
+// -- whole-Drive sharing audit (D-092) ------------------------------------------------------------
+const PAGE = 200;
+let audit = null; // { me, internal, items, filter, picked: Set, shown, lastDone, stopping }
 
-function closeShare() {
-  share = null;
-  $("share").hidden = true;
-  $("shareList").replaceChildren();
-  $("shareStatus").textContent = "";
-  $("sharePlan").textContent = "";
-  $("shareUndo").hidden = true;
+function auditVisible() {
+  return audit.items.filter((it) => audit.filter === null || it.exposure === audit.filter);
 }
 
-function drawShare() {
-  const box = $("shareList");
-  box.replaceChildren();
-  const risky = share.items.filter((it) => it.exposure > 0).length;
-  $("shareInfo").textContent = `${share.items.length}개 조사 · 공유된 것 ${risky}개 · 내 계정 ${share.me || "(알 수 없음)"}`
-    + (share.internal.size ? ` · 같은 학교로 보는 도메인: ${[...share.internal].join(", ")}` : " · 개인 계정이라 다른 계정은 모두 '외부'");
-  for (const it of share.items) {
-    const card = Object.assign(document.createElement("div"), { className: "shareItem" });
-    const head = Object.assign(document.createElement("div"), { className: "name", textContent: (it.file.mimeType === drive.FOLDER_MIME ? "📁 " : "") + (it.file.path || it.file.name) });
-    head.append(Object.assign(document.createElement("span"), { className: `exp e${it.exposure}`, textContent: sharing.EXPOSURE_LABEL[it.exposure] }));
-    card.append(head);
-    for (const v of it.views) {
-      const row = Object.assign(document.createElement("div"), { className: "perm", textContent: `${sharing.whoOf(v)} · ${sharing.ROLE_KO[v.role] || v.role}` });
-      if (v.external) row.append(Object.assign(document.createElement("span"), { className: "badge ext", textContent: "외부" }));
-      if (v.inherited) row.append(Object.assign(document.createElement("span"), { className: "badge", textContent: "상위 폴더에서" }));
-      if (v.me) row.append(Object.assign(document.createElement("span"), { className: "badge", textContent: "나" }));
-      card.append(row);
-    }
-    box.append(card);
+function drawAudit() {
+  const sum = auditSummary(audit.items);
+  const cards = $("auditCards");
+  cards.hidden = false;
+  cards.replaceChildren();
+  const card = (label, n, filter, cls = "") => {
+    const b = Object.assign(document.createElement("button"), { className: `${cls} ${audit.filter === filter ? "on" : ""}` });
+    b.append(Object.assign(document.createElement("b"), { textContent: n.toLocaleString() }), Object.assign(document.createElement("span"), { textContent: label }));
+    b.onclick = () => { audit.filter = filter; audit.shown = PAGE; drawAudit(); };
+    cards.append(b);
+  };
+  card("공유된 항목 전체", sum.total, null);
+  for (const e of [4, 3, 2, 1]) card(sharing.EXPOSURE_LABEL[e], sum.counts[e], e, `e${e}`);
+  const vis = auditVisible();
+  const list = $("auditList");
+  list.replaceChildren();
+  for (const it of vis.slice(0, audit.shown)) {
+    const row = document.createElement("li");
+    const cb = Object.assign(document.createElement("input"), { type: "checkbox", checked: audit.picked.has(it.file.id) });
+    cb.onchange = () => { cb.checked ? audit.picked.add(it.file.id) : audit.picked.delete(it.file.id); pickedChanged(); };
+    const mid = document.createElement("div");
+    const nm = Object.assign(document.createElement("div"), { className: "nm", textContent: (it.file.mimeType === drive.FOLDER_MIME ? "📁 " : "") + it.file.name });
+    nm.append(Object.assign(document.createElement("span"), { className: `exp e${it.exposure}`, textContent: sharing.EXPOSURE_LABEL[it.exposure] }));
+    mid.append(nm);
+    if (it.path) mid.append(Object.assign(document.createElement("div"), { className: "path", textContent: it.path }));
+    const who = Object.assign(document.createElement("div"), { className: "who", textContent: peopleLine(it.views) });
+    if (it.views.some((v) => v.likely)) who.append(Object.assign(document.createElement("span"), { className: "badge", textContent: "일부는 상위 폴더에서" }));
+    mid.append(who);
+    const open = Object.assign(document.createElement("a"), { textContent: "드라이브↗", href: `https://drive.google.com/open?id=${encodeURIComponent(it.file.id)}`, target: "_blank", rel: "noopener noreferrer", title: "드라이브에서 보기" });
+    row.append(cb, mid, open);
+    list.append(row);
   }
-  $("shareDeep").hidden = !share.items.some((it) => it.file.mimeType === drive.FOLDER_MIME && !it.deep);
-  planShare();
+  if (!vis.length) list.append(li(audit.items.length ? "이 칸에 해당하는 항목이 없습니다" : "공유된 항목이 없습니다 👍", "muted"));
+  $("auditMore").hidden = vis.length <= audit.shown;
+  $("auditMore").textContent = `더 보기 (${(vis.length - audit.shown).toLocaleString()}개 남음)`;
+  $("auditTools").hidden = !vis.length;
+  $("auditAll").checked = vis.length > 0 && vis.every((it) => audit.picked.has(it.file.id));
+  pickedChanged();
 }
 
-function planShare() {
-  const action = $("shareAction").value;
+function pickedChanged() {
+  const picked = audit.items.filter((it) => audit.picked.has(it.file.id));
+  $("auditPicked").textContent = picked.length ? `${picked.length.toLocaleString()}개 고름` : "";
+  $("auditDo").hidden = !audit.items.length;
   let n = 0;
   const reasons = new Map();
-  for (const it of share.items) {
-    const p = sharing.plan(it.views, action);
+  for (const it of picked) {
+    const p = sharing.plan(it.views, $("auditAction").value);
     n += p.changes.length;
     for (const sk of p.skips) reasons.set(sk.reason, (reasons.get(sk.reason) || 0) + 1);
   }
-  $("sharePlan").textContent = `바뀌는 권한 ${n}개` + [...reasons].map(([r, c]) => ` · 건너뜀 ${c}개(${r})`).join("")
-    + (n ? " · 알림 메일은 보내지 않습니다." : "");
-  $("shareGo").disabled = n === 0;
+  $("auditPlan").textContent = picked.length
+    ? `바뀌는 권한 ${n}개` + [...reasons].map(([r, c]) => ` · 건너뜀 ${c}개(${r})`).join("") + (n ? " · 알림 메일 없음" : "")
+    : "목록에서 바꿀 항목을 고르세요 (위의 칸을 누르면 그 종류만 보입니다).";
+  $("auditGo").disabled = n === 0;
 }
 
-async function loadShare(files) {
-  const items = [];
-  for (const [i, f] of files.entries()) {
-    $("shareStatus").textContent = `권한 읽는 중… ${i + 1}/${files.length}`;
-    const views = (f.permissions || (await drive.listPermissions(f.id))).map((p) => sharing.view(p, share.me, share.internal));
-    items.push({ file: f, views, exposure: sharing.exposureOf(views) });
-  }
-  $("shareStatus").textContent = "";
-  return items;
-}
-
-$("selShare").onclick = async () => {
+$("auditBtn").onclick = async () => {
+  if (!$("audit").hidden) { closeAudit(); return; }
   try {
     await drive.requestFullAccess();
-    forget();
-    closeReenc();
+    forget(); closeReenc();
     $("unlock").hidden = true;
-    const files = (await Promise.all(driveSel.slice(0, 20).map((id) => drive.getFile(id).catch(() => null)))).filter(Boolean);
-    if (!files.length) { message("선택한 항목을 읽지 못했습니다."); return; }
-    const me = await drive.myEmail().catch(() => "");
-    share = { me, internal: sharing.internalDomains(me), items: [] };
-    $("shareAction").replaceChildren(...Object.entries(sharing.ACTIONS).map(([k, label]) => Object.assign(document.createElement("option"), { value: k, textContent: label })));
-    $("share").hidden = false;
-    share.items = await loadShare(files);
-    drawShare();
+    if (!audit) {
+      const me = await drive.myEmail().catch(() => "");
+      audit = { me, internal: sharing.internalDomains(me), items: [], filter: null, picked: new Set(), shown: PAGE };
+      $("auditAction").replaceChildren(...Object.entries(sharing.ACTIONS).map(([k, label]) => Object.assign(document.createElement("option"), { value: k, textContent: label })));
+    }
+    $("audit").hidden = false;
+    toggle($("auditBtn"), true);
   } catch (e) { message(e.message); }
 };
-$("shareAction").onchange = () => share && planShare();
-$("shareClose").onclick = closeShare;
-$("shareDeep").onclick = async () => {
-  $("shareDeep").disabled = true;
-  try {
-    for (const it of share.items.filter((x) => x.file.mimeType === drive.FOLDER_MIME && !x.deep)) {
-      $("shareStatus").textContent = `「${it.file.name}」 안을 조사하는 중…`;
-      const { items, seen } = await drive.listSharedInFolder(it.file);
-      it.deep = true;
-      const inner = await loadShare(items.map((f) => ({ ...f, path: `${it.file.name}/${f.path}` })));
-      share.items.push(...inner);
-      $("shareStatus").textContent = `「${it.file.name}」 안 ${seen}개 중 공유된 ${items.length}개를 찾았습니다.`;
-    }
-    drawShare();
-  } catch (e) { $("shareStatus").textContent = e.message; } finally { $("shareDeep").disabled = false; }
+function closeAudit() { $("audit").hidden = true; toggle($("auditBtn"), false); }
+$("auditClose").onclick = closeAudit;
+$("auditMore").onclick = () => { audit.shown += PAGE; drawAudit(); };
+$("auditAll").onchange = () => {
+  for (const it of auditVisible()) $("auditAll").checked ? audit.picked.add(it.file.id) : audit.picked.delete(it.file.id);
+  drawAudit();
 };
-$("shareGo").onclick = async () => {
-  const action = $("shareAction").value;
-  const items = share.items.map((it) => ({ fileId: it.file.id, name: it.file.name, changes: sharing.plan(it.views, action).changes })).filter((x) => x.changes.length);
+$("auditAction").onchange = () => audit && pickedChanged();
+$("auditStop").onclick = () => { if (audit) audit.stopping = true; };
+$("auditStart").onclick = async () => {
+  audit.stopping = false;
+  $("auditStart").disabled = true;
+  $("auditStop").hidden = false;
+  busy = true;
+  try {
+    const r = await drive.scanMyFiles({
+      onProgress: (seen, shared) => { $("auditProgress").textContent = `파일 ${seen.toLocaleString()}개 확인 · 공유된 것 ${shared.toLocaleString()}개`; },
+      stop: () => audit.stopping,
+    });
+    audit.raw = r.files; // every shared file (also parents shared only inside the school, for paths)
+    audit.items = buildAudit(audit.raw, audit.me, audit.internal);
+    audit.picked = new Set();
+    audit.filter = null;
+    audit.shown = PAGE;
+    $("auditProgress").textContent = `${r.stopped ? "중지함 — 지금까지 " : "✓ "}파일 ${r.seen.toLocaleString()}개 확인 · 밖으로 공유된 것 ${audit.items.length.toLocaleString()}개`;
+    $("auditStart").textContent = "다시 점검";
+    drawAudit();
+  } catch (e) { $("auditStatus").textContent = e.message; } finally {
+    busy = false;
+    $("auditStart").disabled = false;
+    $("auditStop").hidden = true;
+  }
+};
+
+async function reloadAuditItems(ids) {
+  const fresh = (await Promise.all([...ids].map((id) => drive.refreshShared(id).catch(() => null)))).filter(Boolean);
+  audit.raw = [...audit.raw.filter((f) => !ids.has(f.id)), ...fresh];
+  audit.items = buildAudit(audit.raw, audit.me, audit.internal);
+  drawAudit();
+}
+
+$("auditGo").onclick = async () => {
+  const action = $("auditAction").value;
+  const items = audit.items.filter((it) => audit.picked.has(it.file.id))
+    .map((it) => ({ fileId: it.file.id, name: it.file.name, changes: sharing.plan(it.views, action).changes })).filter((x) => x.changes.length);
   const total = items.reduce((n, x) => n + x.changes.length, 0);
-  if (!confirm(`${sharing.ACTIONS[action]}\n\n권한 ${total}개를 바꿀까요? (알림 메일 없음, 「↩ 되돌리기」 가능)`)) return;
-  $("shareGo").disabled = true;
+  if (!confirm(`${sharing.ACTIONS[action]}\n\n${items.length}개 항목의 권한 ${total}개를 바꿀까요? (알림 메일 없음, 「↩ 되돌리기」 가능)`)) return;
+  $("auditGo").disabled = true;
   busy = true;
   try {
-    const r = await sharing.apply(items, drive, (t) => { $("shareStatus").textContent = t; });
-    share.lastDone = r.done;
-    $("shareUndo").hidden = !r.done.length;
+    const r = await sharing.apply(items, drive, (t) => { $("auditStatus").textContent = t; });
+    audit.lastDone = r.done;
+    $("auditUndo").hidden = !r.done.length;
     const text = `✓ ${r.done.length}개 바꿈` + (r.failed.length ? ` · ⚠ ${r.failed.length}개 실패(권한 없음 등): ${r.failed.slice(0, 3).map((f) => f.name).join(", ")}` : "");
-    share.items = await loadShare(share.items.map((it) => ({ ...it.file, permissions: undefined })));
-    drawShare();
-    $("shareStatus").textContent = text;
-  } catch (e) { $("shareStatus").textContent = e.message; } finally { busy = false; }
+    audit.picked = new Set();
+    await reloadAuditItems(new Set(items.map((x) => x.fileId)));
+    $("auditStatus").textContent = text;
+  } catch (e) { $("auditStatus").textContent = e.message; } finally { busy = false; }
 };
-$("shareUndo").onclick = async () => {
-  if (!share?.lastDone?.length) return;
+$("auditUndo").onclick = async () => {
+  if (!audit?.lastDone?.length) return;
   busy = true;
   try {
-    const r = await sharing.undo(share.lastDone, drive, (t) => { $("shareStatus").textContent = t; });
-    share.lastDone = null;
-    $("shareUndo").hidden = true;
-    share.items = await loadShare(share.items.map((it) => ({ ...it.file, permissions: undefined })));
-    drawShare();
-    $("shareStatus").textContent = r.failed.length ? `⚠ ${r.failed.length}개는 되돌리지 못했습니다` : "↩ 되돌렸습니다";
-  } catch (e) { $("shareStatus").textContent = e.message; } finally { busy = false; }
+    const done = audit.lastDone;
+    const r = await sharing.undo(done, drive, (t) => { $("auditStatus").textContent = t; });
+    audit.lastDone = null;
+    $("auditUndo").hidden = true;
+    await reloadAuditItems(new Set(done.map((d) => d.fileId)));
+    $("auditStatus").textContent = r.failed.length ? `⚠ ${r.failed.length}개는 되돌리지 못했습니다` : "↩ 되돌렸습니다";
+  } catch (e) { $("auditStatus").textContent = e.message; } finally { busy = false; }
 };
 
 // -- E3: re-encrypt and upload -----------------------------------------------------------------

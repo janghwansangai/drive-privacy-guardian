@@ -15,6 +15,7 @@
       <button id="login" class="filled">로그인</button>
       <button id="logout" class="text" hidden>로그아웃</button>
       <button id="openTab" class="icon" title="새 탭에서 크게 보기" aria-label="새 탭에서 크게 보기">↗</button>
+      <button id="auditBtn" class="icon" title="내 드라이브 공유 점검" aria-label="내 드라이브 공유 점검" aria-pressed="false">🛡</button>
       <button id="listBtn" class="icon" title="암호화 파일 목록" aria-label="암호화 파일 목록" aria-pressed="false">☰</button>
       <button id="helpBtn" class="icon" title="도움말" aria-label="도움말" aria-pressed="false">?</button>
       <button id="settingsBtn" class="icon" title="설정" aria-label="설정" aria-pressed="false">⚙</button>
@@ -102,7 +103,6 @@
         <div class="selHead"><b id="selTitle"></b></div>
         <ul id="selList"></ul>
         <button id="selEncrypt" class="filled wide" hidden>🔒 암호화하기</button>
-        <button id="selShare" class="tonal wide" hidden>👥 공유 권한 보기·바꾸기</button>
         <p id="selInfo" class="scopeInfo"></p>
       </div>
       <p id="scopeInfo" class="scopeInfo"></p>
@@ -134,18 +134,24 @@
         <p id="notice" class="notice"></p>
         <div id="view"></div>
       </div>
-      <div id="share" hidden>
-        <div class="openedHead"><h2>👥 공유 권한</h2><button id="shareClose" class="icon close" title="닫기" aria-label="닫기">✕</button></div>
-        <p id="shareInfo" class="small muted"></p>
-        <div id="shareList"></div>
-        <button id="shareDeep" class="tonal" hidden>📁 폴더 안 파일까지 조사</button>
-        <div class="shareDo">
-          <label class="small">할 일<select id="shareAction"></select></label>
-          <p id="sharePlan" class="small"></p>
-          <button id="shareGo" class="filled" disabled>변경 실행</button>
-          <button id="shareUndo" class="tonal" hidden>↩ 되돌리기</button>
+      <div id="audit" hidden>
+        <div class="openedHead"><h2>🛡 내 드라이브 공유 점검</h2><button id="auditClose" class="icon close" title="닫기" aria-label="닫기">✕</button></div>
+        <p class="small muted">내가 소유한 모든 파일·폴더의 공유 상태를 확인합니다. 파일 내용은 받지 않고 이름·권한 정보만 읽으며, 결과는 이 화면에만 있습니다(저장 안 함).</p>
+        <div class="auditRun"><button id="auditStart" class="filled">점검 시작</button> <button id="auditStop" class="text" hidden>중지</button> <span id="auditProgress" class="small"></span></div>
+        <div id="auditCards" class="auditCards" hidden></div>
+        <div id="auditTools" hidden>
+          <label class="small allBox"><input type="checkbox" id="auditAll"> 보이는 것 모두 선택</label>
+          <span id="auditPicked" class="small muted"></span>
         </div>
-        <p id="shareStatus" class="notice"></p>
+        <ul id="auditList" class="auditList"></ul>
+        <button id="auditMore" class="text" hidden>더 보기</button>
+        <div class="shareDo" id="auditDo" hidden>
+          <label class="small">고른 항목에 할 일<select id="auditAction"></select></label>
+          <p id="auditPlan" class="small"></p>
+          <button id="auditGo" class="filled" disabled>변경 실행</button>
+          <button id="auditUndo" class="tonal" hidden>↩ 되돌리기</button>
+        </div>
+        <p id="auditStatus" class="notice"></p>
       </div>
       <div id="reenc" hidden>
         <h2 id="reencTitle"></h2>
