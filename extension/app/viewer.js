@@ -14,6 +14,8 @@ import { parseDriveUrl } from "./lib/driveurl.js";
 import { restoreToDrive, RestoreFailed } from "./lib/restore.js";
 import * as sharing from "./lib/sharing.js";
 import { buildAudit, summary as auditSummary, peopleLine } from "./lib/audit.js";
+import { scanFile } from "./lib/scan.js";
+import { KIND_LABEL, CONFIDENCE_LABEL } from "./lib/detect.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -499,7 +501,7 @@ $("bigBtn").onclick = async () => {
 };
 
 // Narrow side panel: show either the list or the open file (body.focus), with "← 목록" to go back.
-const focusTargets = ["unlock", "opened", "reenc", "audit"].map($);
+const focusTargets = ["unlock", "opened", "reenc", "audit", "pii"].map($);
 const updateFocus = () => {
   const on = focusTargets.some((e) => !e.hidden);
   if (document.body.classList.contains("focus") === on) return; // setting `hidden` again would re-trigger
@@ -523,6 +525,7 @@ let busy = false; // an encryption / decryption is running: do not switch screen
 /** A new selection in Drive replaces whatever this panel was preparing (user request). */
 function leaveForSelection() {
   if (busy || OVERLAY) return;
+  if (!$("pii").hidden && !pii?.running) closePii();
   if (!$("reenc").hidden || !$("unlock").hidden || !$("opened").hidden) {
     forget();
     closeReenc();
@@ -546,6 +549,7 @@ async function showSelection(ids) {
   if (!drive.signedIn()) {
     list.replaceChildren(li("로그인하면 선택한 파일이 보입니다", "muted"));
     $("selEncrypt").hidden = true;
+    $("selScan").hidden = true;
     return;
   }
   const metas = await Promise.all(ids.slice(0, 20).map((id) => drive.getFile(id).catch(() => null)));
@@ -567,6 +571,7 @@ async function showSelection(ids) {
     list.append(row);
   }
   if (ids.length > selFiles.length) list.append(li(`이름을 모르는 항목 ${ids.length - selFiles.length}개 — 「암호화하기」를 누르면 권한을 받은 뒤 보입니다`, "muted"));
+  $("selScan").hidden = plain === 0;
   $("selEncrypt").hidden = plain === 0;
   $("selEncrypt").textContent = plain === 1 ? "🔒 암호화하기" : `🔒 암호화하기 (${plain}개를 한 파일로)`;
   $("selInfo").textContent = plain ? "같은 폴더에 암호화 파일을 만들고, 확인이 끝나면 원래 파일은 휴지통으로 옮깁니다. 처음 한 번 드라이브 권한을 묻습니다." : "";
@@ -632,6 +637,75 @@ async function listenToDrive(win) {
     if (msg?.type === "driveSelection" && Array.isArray(msg.ids)) showSelection(msg.ids.filter(ok).slice(0, 50)).catch((e) => message(e.message));
   });
 }
+
+// -- personal-data check of the Drive selection (D-093) -------------------------------------------
+const PII_MAX_FILES = 500;
+let pii = null; // { results: [], stopping, running }
+
+function closePii() { pii = null; $("pii").hidden = true; $("piiList").replaceChildren(); $("piiEncrypt").hidden = true; }
+$("piiClose").onclick = () => { if (pii) pii.stopping = true; closePii(); };
+$("piiStop").onclick = () => { if (pii) pii.stopping = true; };
+
+function drawPiiRow(r) {
+  const row = document.createElement("li");
+  row.append(Object.assign(document.createElement("div"), { className: "nm", textContent: r.file.path || r.file.name }));
+  const kinds = Object.assign(document.createElement("div"), { className: "kinds" });
+  const entries = Object.entries(r.kinds).filter(([k]) => r.status !== "none" || k === "filename_hint");
+  for (const [k, v] of entries) {
+    kinds.append(Object.assign(document.createElement("span"), {
+      className: `kind c${v.confidence}`,
+      textContent: `${KIND_LABEL[k] || k} ${v.count}건 · ${CONFIDENCE_LABEL[v.confidence]}`,
+      title: v.locations.join(", "),
+    }));
+  }
+  if (r.status === "none") kinds.append(Object.assign(document.createElement("span"), { className: "kind none", textContent: "찾지 못함" }));
+  if (r.status === "unscannable") kinds.append(Object.assign(document.createElement("span"), { className: "kind skip", textContent: `검사 불가: ${r.reason}` }));
+  row.append(kinds);
+  return row;
+}
+
+$("selScan").onclick = async () => {
+  try {
+    await drive.requestFullAccess();
+    forget(); closeReenc(); closePii();
+    $("unlock").hidden = true;
+    const chosen = (await Promise.all(driveSel.map((id) => drive.getFile(id).catch(() => null)))).filter((f) => f && !drive.isVaultName(f.name));
+    pii = { results: [], stopping: false, running: true };
+    $("pii").hidden = false;
+    $("piiStop").hidden = false;
+    // folders → every file inside (with its path)
+    const files = [];
+    for (const f of chosen) {
+      if (f.mimeType === drive.FOLDER_MIME) {
+        $("piiProgress").textContent = `「${f.name}」 폴더 안을 살펴보는 중…`;
+        const tree = await drive.listFolderTree(f, { files: PII_MAX_FILES, bytes: Infinity });
+        files.push(...tree.files.map((t) => ({ ...t, path: `${f.name}/${t.path}` })));
+      } else files.push(f);
+    }
+    const { pdfTextPages } = await import("./lib/pdf.js");
+    for (const [i, f] of files.slice(0, PII_MAX_FILES).entries()) {
+      if (!pii || pii.stopping) break;
+      $("piiProgress").textContent = `검사 중… ${i + 1}/${files.length} (메모리에서만)`;
+      const r = await scanFile(f, { fetch: drive.fetchContent, parseXml, pdfText: pdfTextPages });
+      if (!pii) return;
+      pii.results.push(r);
+      $("piiList").append(drawPiiRow(r));
+    }
+    const found = pii.results.filter((r) => r.status === "found");
+    const skipped = pii.results.filter((r) => r.status === "unscannable").length;
+    $("piiProgress").textContent = `${pii.stopping ? "중지함 — " : "✓ "}${pii.results.length}개 검사 · 개인정보 있음 ${found.length}개 · 검사 불가 ${skipped}개`;
+    $("piiEncrypt").hidden = !found.length;
+    $("piiEncrypt").textContent = `🔒 개인정보가 있는 파일 암호화 (${found.length}개를 한 파일로)`;
+  } catch (e) { message(e.message); } finally {
+    if (pii) pii.running = false;
+    $("piiStop").hidden = true;
+  }
+};
+$("piiEncrypt").onclick = () => {
+  const files = pii.results.filter((r) => r.status === "found").map((r) => r.file);
+  closePii();
+  openReenc("drive", files);
+};
 
 // -- whole-Drive sharing audit (D-092) ------------------------------------------------------------
 const PAGE = 200;

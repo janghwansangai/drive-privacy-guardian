@@ -8,6 +8,8 @@ const FILES = [
   // ordinary Drive files (visible only after the full scope is granted)
   { id: "plainDocx000000000000001", plain: true, parents: ["folderA123456"], name: "가정통신문_체험학습.docx", mimeType: "application/octet-stream", size: "9000", createdTime: "2026-09-20T00:00:00Z" },
   { id: "googleDoc000000000000002", plain: true, parents: ["folderA123456"], name: "회의록", mimeType: "application/vnd.google-apps.document", createdTime: "2026-09-21T00:00:00Z" },
+  { id: "plainPdf0000000000000001", plain: true, parents: ["folderA123456"], name: "보호자_안내문.pdf", mimeType: "application/pdf", size: "3000", createdTime: "2026-09-20T00:00:00Z" },
+  { id: "scanPdf00000000000000001", plain: true, parents: ["folderA123456"], name: "스캔_가상.pdf", mimeType: "application/pdf", size: "3000", createdTime: "2026-09-20T00:00:00Z" },
   // a folder with a sub-folder (folder encryption)
   { id: "folderClass0000000000001", plain: true, parents: ["folderA123456"], name: "학급자료", mimeType: "application/vnd.google-apps.folder", createdTime: "2026-09-22T00:00:00Z" },
   { id: "childCsv000000000000001", plain: true, parents: ["folderClass0000000000001"], name: "6-2_학생_연락처.csv", mimeType: "text/csv", size: "800", createdTime: "2026-09-22T00:00:00Z" },

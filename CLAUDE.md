@@ -73,3 +73,4 @@
 - 파서를 바꾸면 `uv run python tools/make_ext_fixtures.py`로 기대값을 다시 만들고 데스크톱 앱과 같은 결과인지 확인한다.
 - 확장 프로그램의 7z 쓰기를 바꾸면 `node test/make_interop.mjs`로 상호 호환 픽스처를 다시 만들고 `uv run pytest tests/unit/test_extension_interop.py`로 데스크톱 앱이 여는지 확인한다.
 - 드라이브 쓰기는 `lib/drive.js`의 `upload`·`trash`만(영구 삭제 없음). 예전 보관 파일 휴지통은 `lib/reencrypt.js`에서 두 번의 확인 뒤에만.
+- 확장 프로그램의 개인정보 규칙(`lib/detect.js`)은 데스크톱 `detect/rules.py`의 복사본이다. 한쪽을 바꾸면 다른 쪽도 바꾸고 `tools/make_ext_fixtures.py`로 기대값을 다시 만든 뒤 `test/detect.test.mjs`를 통과시킨다.

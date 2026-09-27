@@ -103,6 +103,7 @@
         <div class="selHead"><b id="selTitle"></b></div>
         <ul id="selList"></ul>
         <button id="selEncrypt" class="filled wide" hidden>🔒 암호화하기</button>
+        <button id="selScan" class="tonal wide" hidden>🔍 개인정보 검사</button>
         <p id="selInfo" class="scopeInfo"></p>
       </div>
       <p id="scopeInfo" class="scopeInfo"></p>
@@ -133,6 +134,13 @@
         <ul id="members"></ul>
         <p id="notice" class="notice"></p>
         <div id="view"></div>
+      </div>
+      <div id="pii" hidden>
+        <div class="openedHead"><h2>🔍 개인정보 검사</h2><button id="piiClose" class="icon close" title="닫기" aria-label="닫기">✕</button></div>
+        <p class="small muted">데스크톱 앱과 같은 규칙으로 찾습니다. 파일은 이 패널의 메모리에서만 읽고, 찾은 <b>종류·건수·위치</b>만 보여 줍니다(원문은 보여 주지도 저장하지도 않음). 「검사 불가」는 안전하다는 뜻이 아닙니다.</p>
+        <div class="auditRun"><span id="piiProgress" class="small"></span> <button id="piiStop" class="text" hidden>중지</button></div>
+        <ul id="piiList" class="auditList"></ul>
+        <button id="piiEncrypt" class="filled wide" hidden>🔒 개인정보가 있는 파일 암호화</button>
       </div>
       <div id="audit" hidden>
         <div class="openedHead"><h2>🛡 내 드라이브 공유 점검</h2><button id="auditClose" class="icon close" title="닫기" aria-label="닫기">✕</button></div>

@@ -90,8 +90,19 @@ def _styled_docx() -> bytes:
 
 def main() -> None:
     (OUT / "expected").mkdir(parents=True, exist_ok=True)
+    from dpg.core.detect.rules import detect_extracted, summarize
+
     for name, fn in {**FILES, **EXPECTED_ONLY}.items():
         ex = fn((SRC / name).read_bytes())
+        # what the desktop detector finds in this content (kind -> count, confidence)
+        found = summarize(detect_extracted(ex))
+        (OUT / "expected" / f"{name}.detect.json").write_text(
+            json.dumps(
+                {k: [v.count, int(v.confidence)] for k, v in sorted(found.items())},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         (OUT / "expected" / f"{name}.json").write_text(
             json.dumps(
                 {"segments": [s.text for s in ex.segments], "tables": [t.rows for t in ex.tables]},

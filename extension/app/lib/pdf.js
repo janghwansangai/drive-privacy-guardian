@@ -60,3 +60,22 @@ export async function renderPdf(bytes, box, onNotice) {
   }
   return handle;
 }
+
+/** Text of each page (for the personal-data check; nothing is drawn or kept). */
+export async function pdfTextPages(bytes) {
+  const { getDocument } = await pdfjs();
+  const task = getDocument({ data: bytes.slice(), cMapUrl: BASE + "cmaps/", cMapPacked: true, standardFontDataUrl: BASE + "standard_fonts/", wasmUrl: BASE + "wasm/", isEvalSupported: false, enableXfa: false, verbosity: 0 });
+  try {
+    const doc = await task.promise;
+    const pages = [];
+    for (let n = 1; n <= Math.min(doc.numPages, MAX_PAGES); n++) {
+      const page = await doc.getPage(n);
+      const content = await page.getTextContent();
+      pages.push(content.items.map((it) => it.str + (it.hasEOL ? "\n" : "")).join(""));
+      page.cleanup();
+    }
+    return pages;
+  } finally {
+    task.destroy();
+  }
+}
