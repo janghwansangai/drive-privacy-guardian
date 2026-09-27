@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QDialogButtonBox, QFileDialog, QInputDialog
 
 from dpg.core.actions.model import ActionKind
 from dpg.core.auth.scopes import AccessLevel
+from dpg.core.drive.client import VAULT_NAME_RE
 from dpg.core.vault import archive
 from dpg.core.vault.archive import ArchiveFormat
 from dpg.gui.actions_ui import ActionDialog, HistoryDialog, ResultDialog
@@ -94,7 +95,7 @@ def test_archive_flow_end_to_end(qtbot: Any, env: Env) -> None:
     uploaded = [
         it
         for it in env.fake.items.values()
-        if it.name.startswith("보관_") and it.name.endswith(".7z")
+        if VAULT_NAME_RE.match(it.name) and it.name.endswith(".7z")
     ]
     assert len(uploaded) == 1
     assert uploaded[0].parent == vault_dir
@@ -754,8 +755,8 @@ def test_recovery_key_opens_archive_after_losing_every_password(
     qtbot.waitUntil(lambda: env.fake.items[fid].trashed, timeout=20000)
     qtbot.waitUntil(lambda: window.task is None, timeout=20000)
     assert env.ctx.prefs.recovery_fingerprint
-    arc = next(it for it in env.fake.items.values() if it.name.startswith("보관_"))
-    assert len(arc.name) == len("보관_2026-09-26_7f3a9c2e.7z")
+    arc = next(it for it in env.fake.items.values() if VAULT_NAME_RE.match(it.name))
+    assert arc.name.startswith("가상 상담.txt (암호화 ")  # D-087: the name shows what is inside
 
     # everything in the keychain is gone (wiped with "비밀번호까지 삭제")
     wipe_local_records(env.store, include_vault_passwords=True)

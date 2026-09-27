@@ -94,7 +94,7 @@ def test_archive_end_to_end_then_trash_and_undo(store: AuditStore) -> None:
     assert result.verified
     assert result.upload_verified
     assert result.safe_to_trash
-    assert result.name.startswith("보관_2026-09-26_")
+    assert " (암호화 " in result.name  # D-087: named after the files inside
     assert result.name.endswith(".7z")
     uploaded = fake.items[result.uploaded_id or ""]
     assert uploaded.parent == ids["archive_dir"]

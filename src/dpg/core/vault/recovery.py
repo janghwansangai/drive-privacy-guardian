@@ -22,7 +22,8 @@ import string
 RECOVERY_KEY_NAME = "vault:recovery-key"
 _KEY_BYTES = 20  # 160 bits
 _ALPHABET = string.ascii_letters + string.digits
-_TAG_RE = re.compile(r"_([0-9a-f]{8})\.(?:7z|zip)$")
+# `보관_2026-09-26_7f3a9c2e.7z` (before D-087) or `상담기록.hwp (암호화 7f3a9c2e).7z`
+_TAG_RE = re.compile(r"(?:_([0-9a-f]{8})|\(암호화 ([0-9a-f]{8})\))\.(?:7z|zip)$")
 _CONFUSABLE = str.maketrans({"0": "O", "1": "I", "8": "B"})
 
 
@@ -61,7 +62,7 @@ def fingerprint(raw: bytes) -> str:
 
 def tag_from_name(archive_name: str) -> str | None:
     m = _TAG_RE.search(archive_name)
-    return m.group(1) if m else None
+    return (m.group(1) or m.group(2)) if m else None
 
 
 def derive_password(raw: bytes, tag: str) -> str:

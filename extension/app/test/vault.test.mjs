@@ -38,6 +38,8 @@ test("recovery key: same derivation as the desktop app, typo detection", async (
   assert.equal(await parseRecoveryKey(typo), null);
   assert.equal(await passwordFor("보관_2026-09-27_0a1b2c3d.7z", "plain-password"), "plain-password");
   assert.equal(tagFromName("보관_2026-09-27_7f3a.7z"), null); // made before recovery keys
+  assert.equal(tagFromName("상담기록.hwp (암호화 7f3a9c2e).7z"), "7f3a9c2e"); // D-087, same as the desktop app
+  assert.equal(tagFromName("상담기록.hwp 외 2개 (암호화 0a1b2c3d).zip"), "0a1b2c3d");
 });
 
 test("extension-made 7z round trip (header encrypted, names hidden)", async () => {

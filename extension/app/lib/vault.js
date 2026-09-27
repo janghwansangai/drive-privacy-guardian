@@ -44,9 +44,10 @@ export async function parseRecoveryKey(text) {
   return b32encode(digest).slice(0, 3) === clean.slice(32) ? raw : null;
 }
 
+/** `상담기록.hwp (암호화 7f3a9c2e).7z` (D-087) or `보관_2026-09-26_7f3a9c2e.7z` (before). */
 export function tagFromName(name) {
-  const m = /_([0-9a-f]{8})\.(?:7z|zip)$/.exec(name);
-  return m ? m[1] : null;
+  const m = /(?:_([0-9a-f]{8})|\(암호화 ([0-9a-f]{8})\))\.(?:7z|zip)$/.exec(name);
+  return m ? m[1] || m[2] : null;
 }
 
 export async function derivePassword(raw, tag) {
@@ -149,9 +150,16 @@ export async function verifyArchive(blob, password, originals) {
   return true;
 }
 
-/** A neutral name like the desktop app's: 보관_YYYY-MM-DD_xxxxxxxx.7z (local date, random tag). */
-export function newArchiveName(now = new Date()) {
+/** Name after the contents, same rule as the desktop app (D-087):
+ *  `상담기록.hwp (암호화 7f3a9c2e).7z`, `상담기록.hwp 외 2개 (암호화 7f3a9c2e).7z`. */
+export function newArchiveName(names = [], now = new Date()) {
   const tag = [...crypto.getRandomValues(new Uint8Array(4))].map((b) => b.toString(16).padStart(2, "0")).join("");
-  const d = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  return `보관_${d}_${tag}.7z`;
+  if (!names.length) {
+    const d = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    return `보관_${d}_${tag}.7z`;
+  }
+  let base = [...names[0].split("/").pop()].map((c) => (c === "\\" || c.charCodeAt(0) < 32 ? "_" : c)).join("").trim() || "파일";
+  if ([...base].length > 80) base = [...base].slice(0, 79).join("") + "…";
+  if (names.length > 1) base += ` 외 ${names.length - 1}개`;
+  return `${base} (암호화 ${tag}).7z`;
 }

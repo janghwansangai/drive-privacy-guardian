@@ -85,7 +85,8 @@ class ArchiveProgress:
     total: int
 
 
-def _member_name(item: FileAudit) -> str:
+def member_name(item: FileAudit) -> str:
+    """The file name inside the archive (Google documents get their export extension)."""
     if item.mime_type in GOOGLE_EXPORT:
         ext = GOOGLE_EXPORT[item.mime_type][1]
         return item.name if item.name.lower().endswith(ext) else item.name + ext
@@ -129,7 +130,7 @@ class ArchiveJob:
                 result.skipped.append(Skip(a.file_id, "파일이 너무 큼(500MB 초과)"))
             else:
                 wanted.append(a)
-        names = archive.unique_names([_member_name(a) for a in wanted])
+        names = archive.unique_names([member_name(a) for a in wanted])
         total = 0
         for i, (a, name) in enumerate(zip(wanted, names, strict=True)):
             self._tick("내려받는 중", i, len(wanted))
@@ -171,7 +172,9 @@ class ArchiveJob:
     ) -> ArchiveResult:
         """`name` lets the caller pick the archive name first (its tag salts a recovery-key
         password); by default a fresh neutral name is generated."""
-        result = ArchiveResult(name or archive.archive_name(fmt, today), fmt)
+        result = ArchiveResult(
+            name or archive.archive_name(fmt, today, [member_name(i) for i in items]), fmt
+        )
         originals = self.collect(items, result)
         if not originals:
             raise ArchiveFailed("보관할 수 있는 파일이 없습니다.")

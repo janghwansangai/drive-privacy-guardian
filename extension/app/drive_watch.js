@@ -7,7 +7,7 @@
   const ID = /^[\w-]{20,}$/;
   // Name pattern of this app's encrypted archives (a double-click on one opens it in the panel
   // instead of Drive's "no preview available" screen).
-  const VAULT = /보관_\d{4}-\d{2}-\d{2}_(?:[0-9a-f]{4}|[0-9a-f]{8})\.(?:7z|zip)/;
+  const VAULT = /보관_\d{4}-\d{2}-\d{2}_(?:[0-9a-f]{4}|[0-9a-f]{8})\.(?:7z|zip)|\(암호화 [0-9a-f]{8}\)\.(?:7z|zip)/;
   const ROW = '[role="row"], [role="gridcell"], [role="option"], [role="listitem"], tr';
   const ITEM = `${ROW}, [data-id]`;
   const SELECTED = '[aria-selected="true"], [aria-checked="true"]';

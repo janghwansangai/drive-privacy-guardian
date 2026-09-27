@@ -8,7 +8,8 @@ export const SCOPE_FILE = "https://www.googleapis.com/auth/drive.file";
 export const SCOPE_FULL = "https://www.googleapis.com/auth/drive";
 const API = "https://www.googleapis.com/drive/v3/files";
 const UPLOAD = "https://www.googleapis.com/upload/drive/v3/files";
-const VAULT_NAME = /^보관_\d{4}-\d{2}-\d{2}_(?:[0-9a-f]{4}|[0-9a-f]{8})\.(7z|zip)$/;
+// `상담기록.hwp (암호화 7f3a9c2e).7z` (D-087) or `보관_2026-09-26_7f3a9c2e.7z` (before)
+const VAULT_NAME = /^(?:보관_\d{4}-\d{2}-\d{2}_(?:[0-9a-f]{4}|[0-9a-f]{8})|.+ \(암호화 [0-9a-f]{8}\))\.(7z|zip)$/;
 const MAX_DOWNLOAD = 1024 * 1024 * 1024;
 
 let token = null;

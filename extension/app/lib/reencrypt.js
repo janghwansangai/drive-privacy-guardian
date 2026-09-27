@@ -60,7 +60,7 @@ export async function passwordForNew(secret, name) {
  */
 export async function reencrypt({ files, secret, parent, trashIds = [], trashOld, drive, onStep = () => {} }) {
   if (!files.size) throw new ReencryptFailed("보관할 파일이 없습니다");
-  const name = newArchiveName();
+  const name = newArchiveName([...files.keys()]);
   const password = await passwordForNew(secret, name);
   if (trashIds.some((id) => typeof id !== "string" || !/^[\w-]+$/.test(id))) throw new ReencryptFailed("파일 ID 형식이 아닙니다");
   onStep("암호화하는 중…");

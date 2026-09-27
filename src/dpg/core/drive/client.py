@@ -42,8 +42,11 @@ PERMISSION_LIST_FIELDS = (
     "permissionDetails(permissionType,role,inherited,inheritedFrom))"
 )
 
-# Archives this app uploads: 보관_2026-09-26_7f3a9c2e.7z (4-hex tags: before the recovery key).
-VAULT_NAME_RE = re.compile(r"^보관_\d{4}-\d{2}-\d{2}_(?:[0-9a-f]{4}|[0-9a-f]{8})\.(7z|zip)$")
+# Archives this app uploads: `상담기록.hwp (암호화 7f3a9c2e).7z` (D-087), earlier
+# `보관_2026-09-26_7f3a9c2e.7z` (4-hex tags: before the recovery key).
+VAULT_NAME_RE = re.compile(
+    r"^(?:보관_\d{4}-\d{2}-\d{2}_(?:[0-9a-f]{4}|[0-9a-f]{8})|.+ \(암호화 [0-9a-f]{8}\))\.(7z|zip)$"
+)
 
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 RETRY_403_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})

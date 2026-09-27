@@ -64,4 +64,7 @@ def test_fingerprint_and_tags() -> None:
     assert re.fullmatch(r"[0-9A-F]{8}", fingerprint(raw))
     assert tag_from_name("보관_2026-09-26_7f3a9c2e.7z") == "7f3a9c2e"
     assert tag_from_name("보관_2026-09-26_7f3a.7z") is None  # made before recovery keys
+    assert tag_from_name("상담기록.hwp (암호화 7f3a9c2e).7z") == "7f3a9c2e"  # D-087
+    assert tag_from_name("상담기록.hwp 외 2개 (암호화 0a1b2c3d).zip") == "0a1b2c3d"
+    assert tag_from_name("상담기록 (암호화).7z") is None
     assert tag_from_name("사진.zip") is None

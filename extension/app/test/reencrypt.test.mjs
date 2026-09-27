@@ -44,7 +44,7 @@ test("recovery key: new archive gets its own tag and opens with the same key; ol
   const { files } = planMembers(existing(), [{ name: "메모.txt", bytes: enc("edited") }]);
   const steps = [];
   const r = await reencrypt({ files, secret: { raw }, parent: "folderA", trashIds: ["OLD"], trashOld: true, drive, onStep: (s) => steps.push(s) });
-  assert.match(r.name, /^보관_\d{4}-\d{2}-\d{2}_[0-9a-f]{8}\.7z$/);
+  assert.match(r.name, /^메모\.txt 외 2개 \(암호화 [0-9a-f]{8}\)\.7z$/); // D-087: named after the contents
   assert.ok(r.verified && r.uploadVerified && r.trashedOld && !r.parentFallback);
   assert.deepEqual(drive.calls.map((c) => c[0]), ["upload", "download", "trash"]);
   assert.equal(drive.calls[0][2], "folderA");

@@ -72,9 +72,17 @@ def test_password_generator() -> None:
     assert len(seen) == 200
 
 
-def test_archive_name_reveals_nothing() -> None:
+def test_archive_name_shows_the_contents() -> None:
+    """D-087: the user must be able to find what was encrypted."""
     name = archive.archive_name(ArchiveFormat.SEVEN_ZIP, dt.date(2026, 9, 26))
-    assert re.fullmatch(r"보관_2026-09-26_[0-9a-f]{8}\.7z", name)
+    assert re.fullmatch(r"보관_2026-09-26_[0-9a-f]{8}\.7z", name)  # no names given
+    one = archive.archive_name(ArchiveFormat.SEVEN_ZIP, names=["상담기록.hwp"])
+    assert re.fullmatch(r"상담기록\.hwp \(암호화 [0-9a-f]{8}\)\.7z", one)
+    many = archive.archive_name(ArchiveFormat.AES_ZIP, names=["a/b.hwp", "c.xlsx", "d.pdf"])
+    assert re.fullmatch(r"a_b\.hwp 외 2개 \(암호화 [0-9a-f]{8}\)\.zip", many)
+    long = archive.archive_name(ArchiveFormat.SEVEN_ZIP, names=["가" * 200 + ".hwp"])
+    assert len(long) < 110
+    assert "…" in long
 
 
 @pytest.mark.parametrize("bad", ["../x", "/etc/x", "a/../../x", "C:/x", "..", "a\x00b"])

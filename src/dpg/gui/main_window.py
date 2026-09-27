@@ -62,6 +62,7 @@ from dpg.core.vault.job import (
     RestoreJob,
     RestoreResult,
     archive_trash_plan,
+    member_name,
     trash_plan,
 )
 from dpg.core.vault.recovery import (
@@ -1839,7 +1840,7 @@ class MainWindow(QMainWindow):
         self, items: list[FileAudit], fmt: archive.ArchiveFormat, parent_id: str
     ) -> None:
         raw = self._recovery_key_for_new_archive()
-        name = archive.archive_name(fmt)
+        name = archive.archive_name(fmt, names=[member_name(i) for i in items])
         tag = tag_from_name(name)
         if raw is not None and tag is not None:
             password = derive_password(raw, tag)

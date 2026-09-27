@@ -61,12 +61,27 @@ def generate_password(length: int = PASSWORD_LENGTH) -> str:
             return "-".join(raw[i : i + 4] for i in range(0, length, 4))
 
 
-def archive_name(fmt: ArchiveFormat, today: dt.date | None = None) -> str:
-    """A name that says nothing about the contents, e.g. `보관_2026-09-26_7f3a9c2e.7z`.
+def archive_name(
+    fmt: ArchiveFormat, today: dt.date | None = None, names: list[str] | None = None
+) -> str:
+    """The archive's name shows what is inside (D-087), e.g. `상담기록.hwp (암호화 7f3a9c2e).7z`
+    or `상담기록.hwp 외 2개 (암호화 7f3a9c2e).7z`. Without names: `보관_2026-09-26_7f3a9c2e.7z`.
 
     The random tag is also the salt for recovery-key passwords (vault.recovery)."""
-    today = today or dt.date.today()
-    return f"보관_{today.isoformat()}_{secrets.token_hex(4)}.{fmt.value}"
+    tag = secrets.token_hex(4)
+    if not names:
+        today = today or dt.date.today()
+        return f"보관_{today.isoformat()}_{tag}.{fmt.value}"
+    base = display_base(names[0])
+    if len(names) > 1:
+        base = f"{base} 외 {len(names) - 1}개"
+    return f"{base} (암호화 {tag}).{fmt.value}"
+
+
+def display_base(name: str, limit: int = 80) -> str:
+    """A file name made safe for the archive name: no path separators or control characters."""
+    clean = "".join("_" if c in "/\\" or ord(c) < 32 else c for c in name).strip() or "파일"
+    return clean if len(clean) <= limit else clean[: limit - 1] + "…"
 
 
 def sha256(data: bytes) -> str:
