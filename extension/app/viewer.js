@@ -18,6 +18,19 @@ import { scanFile } from "./lib/scan.js";
 import { KIND_LABEL, CONFIDENCE_LABEL } from "./lib/detect.js";
 
 const $ = (id) => document.getElementById(id);
+const SVGNS = "http://www.w3.org/2000/svg";
+/** A line icon from the sprite in viewer.html. */
+function icon(name) {
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("class", "ic");
+  const use = document.createElementNS(SVGNS, "use");
+  use.setAttribute("href", `#i-${name}`);
+  svg.append(use);
+  return svg;
+}
+/** Button text with a line icon in front. */
+function label(el, iconName, text) { el.replaceChildren(icon(iconName), document.createTextNode(text)); return el; }
+const VIEW_EXT = /\.(hwp|hwpx|docx|xlsx|pdf|csv|txt|png|jpe?g|gif|webp|bmp)$/i;
 const params = new URLSearchParams(location.search);
 // Large view over Drive (D-089): this page inside drive_watch.js's full-screen iframe.
 const OVERLAY = params.get("mode") === "overlay" && window.parent !== window;
@@ -76,8 +89,26 @@ $("redirect").textContent = chrome.identity.getRedirectURL();
 function toggle(btn, show) {
   btn.setAttribute("aria-pressed", String(show));
 }
-$("settingsBtn").onclick = () => { $("settings").hidden = !$("settings").hidden; toggle($("settingsBtn"), !$("settings").hidden); };
-$("helpBtn").onclick = () => { $("help").hidden = !$("help").hidden; toggle($("helpBtn"), !$("help").hidden); };
+// One view at a time (user request): 암호화 파일 / 공유 점검 / 개인정보 검사 / 설정 / 도움말.
+const VIEW_BUTTONS = { vault: "tabVault", audit: "auditBtn", pii: "piiBtn", settings: "settingsBtn", help: "helpBtn" };
+function setView(name) {
+  document.body.dataset.view = name;
+  for (const [v, id] of Object.entries(VIEW_BUTTONS)) toggle($(id), v === name);
+  if (name === "pii") updatePiiHint();
+}
+$("tabVault").onclick = () => setView("vault");
+label($("selScan"), "search", "개인정보 검사");
+label($("restoreBtn"), "unlock", "풀기 (드라이브에)");
+label($("reencBtn"), "lock", "고친 파일로 다시 암호화");
+/** ⛶: this view over the Drive tab, full screen (like the file preview). */
+async function showBig(opts) {
+  if (driveTabId === null) { message("드라이브 탭 옆에서 쓸 수 있습니다."); return; }
+  try { await chrome.tabs.sendMessage(driveTabId, { type: "showOverlay", ...opts }); }
+  catch { message("드라이브 탭을 새로고침(F5, Mac은 ⌘R)한 뒤 다시 눌러 주세요."); }
+}
+$("settingsBtn").onclick = () => setView("settings");
+$("helpBtn").onclick = () => setView("help");
+$("guideBtn").onclick = () => window.open(chrome.runtime.getURL("guide.html"), "_blank", "noopener");
 $("listBtn").onclick = () => {
   const on = !document.body.classList.contains("showList");
   document.body.classList.toggle("showList", on);
@@ -95,7 +126,6 @@ $("saveClient").onclick = async () => {
 
 // -- account & list --------------------------------------------------------------------------
 function setSignedIn(on) {
-  $("status").textContent = on ? "로그인됨" : "로그인 전";
   $("login").hidden = on;
   $("logout").hidden = !on;
 }
@@ -392,22 +422,61 @@ $("forgetKey").onclick = async () => {
 };
 refreshVault();
 
+/** Preview a file that is not encrypted (e.g. HWP, which Drive cannot show). Needs the full scope. */
+async function previewPlain(f) {
+  forget();
+  selected = f;
+  $("unlock").hidden = true;
+  try {
+    if (!drive.hasFullAccess()) await drive.requestFullAccess();
+    message("받는 중… (메모리에만)");
+    const got = await drive.fetchContent(f);
+    if (selected !== f) return;
+    current = { file: f, members: new Map([[got.name, got.bytes]]), secret: null, plain: true };
+    showOpened();
+    message("");
+  } catch (e) { message(e.message); }
+}
+
 async function openOverlayFile() {
   const id = params.get("file") || "";
   if (!/^[\w-]{20,}$/.test(id)) { message("열 파일을 알 수 없습니다."); return; }
   if (!(await drive.restore())) { message("위쪽 「로그인」을 눌러 구글 로그인을 해 주세요. 로그인하면 바로 열립니다."); return; }
   setSignedIn(true);
-  const f = await drive.getFile(id).catch(() => null);
-  if (!f) { message("이 파일을 볼 권한이 없습니다 (이 앱으로 만든 암호화 파일만 열 수 있습니다)."); return; }
-  await select(f, null);
+  let f = await drive.getFile(id).catch(() => null);
+  if (!f && !drive.hasFullAccess()) {
+    // not one of this app's files: previewing it needs the Drive permission (asked once)
+    message("이 파일을 보려면 드라이브 파일 보기 권한이 필요합니다.");
+    $("grantBtn").hidden = false;
+    $("grantBtn").onclick = async () => {
+      try { await drive.requestFullAccess(); $("grantBtn").hidden = true; message(""); await openOverlayFile(); } catch (e) { message(e.message); }
+    };
+    return;
+  }
+  if (!f) { message("이 파일을 볼 권한이 없습니다."); return; }
+  if (drive.isVaultName(f.name)) await select(f, null);
+  else await previewPlain(f);
 }
-if (OVERLAY) openOverlayFile().catch((e) => message(e.message));
+async function openOverlayView(view) {
+  setView(view);
+  if (!(await drive.restore())) { $(view === "audit" ? "auditStatus" : "piiProgress").textContent = "먼저 오른쪽 패널에서 구글 로그인을 해 주세요."; return; }
+  setSignedIn(true);
+  if (view === "pii") {
+    driveSel = (params.get("ids") || "").split(",").filter((x) => /^[\w-]{20,}$/.test(x)).slice(0, 50);
+    updatePiiHint();
+    if (driveSel.length) runPii();
+  }
+}
+if (OVERLAY && ["audit", "pii"].includes(params.get("view"))) openOverlayView(params.get("view")).catch((e) => message(e.message));
+else if (OVERLAY) openOverlayFile().catch((e) => message(e.message));
 // A sign-in from another view of this extension (same browser session) is used right away.
 else drive.restore().then((ok) => { if (ok) { setSignedIn(true); refresh(); } }).catch(() => {});
 
 function showOpened() {
   $("unlock").hidden = true;
   $("bigBtn").hidden = OVERLAY || driveTabId === null;
+  $("restoreBtn").hidden = !!current.plain;
+  $("reencBtn").hidden = !!current.plain;
   $("opened").hidden = false;
   $("openedName").textContent = current.file.name;
   const ul = $("members");
@@ -439,34 +508,35 @@ async function show(name, btn) {
 }
 
 // -- decrypt back into Drive (only when asked) ----------------------------------------------------
-$("restoreBtn").onclick = () => { $("restoreStatus").textContent = ""; $("restoreOk").disabled = false; $("restoreDialog").showModal(); };
-$("restoreCancel").onclick = () => $("restoreDialog").close();
-$("restoreOk").onclick = async () => {
-  if (!current) return;
+// Decrypt in place right away (user request: no second confirmation). The archive goes to the
+// trash only when every file was uploaded and re-checked.
+async function restoreNow() {
+  if (!current || current.plain) return;
   const file = current.file;
-  $("restoreOk").disabled = true;
+  $("restoreBtn").disabled = true;
   busy = true;
   try {
     const r = await restoreToDrive({
       members: current.members, parent: file.parents?.[0] || null, archiveId: file.id,
-      trashArchive: $("restoreTrash").checked, drive, onStep: (t) => { $("restoreStatus").textContent = t; },
+      trashArchive: true, drive, onStep: (t) => message(t, true),
     });
-    $("restoreDialog").close();
     const shownNames = r.files.slice(0, 5).map((f) => f.name).join(", ") + (r.files.length > 5 ? " …" : "");
-    const lines = [`✓ ${r.files.length}개 파일을 드라이브의 같은 폴더에 풀었습니다: ${shownNames}`];
-    if (!r.allVerified) lines.push("⚠ 올린 파일 중 다시 받아 비교가 맞지 않는 것이 있어 암호화 파일은 지우지 않았습니다.");
-    else if (r.trashedArchive) lines.push("🗑 암호화 파일을 휴지통으로 옮겼습니다 (30일 안에 복원 가능).");
+    const lines = [`✓ 풀었습니다: ${shownNames}`];
+    if (!r.allVerified) lines.push("⚠ 확인이 맞지 않는 파일이 있어 암호화 파일은 그대로 두었습니다.");
+    else if (r.trashedArchive) lines.push("🗑 암호화 파일은 휴지통으로 (30일 안에 복원 가능)");
     forget();
     selected = null;
+    if (OVERLAY) { $("view").replaceChildren(); }
     await refresh();
     message(lines.join("\n"), r.allVerified);
   } catch (e) {
-    $("restoreStatus").textContent = e instanceof RestoreFailed ? e.message : `실패: ${e.message}`;
-    $("restoreOk").disabled = false;
+    message(e instanceof RestoreFailed ? e.message : `실패: ${e.message}`);
   } finally {
     busy = false;
+    $("restoreBtn").disabled = false;
   }
-};
+}
+$("restoreBtn").onclick = restoreNow;
 
 // -- save (only when asked) -------------------------------------------------------------------
 $("save").onclick = () => $("saveDialog").showModal();
@@ -501,7 +571,8 @@ $("bigBtn").onclick = async () => {
 };
 
 // Narrow side panel: show either the list or the open file (body.focus), with "← 목록" to go back.
-const focusTargets = ["unlock", "opened", "reenc", "audit", "pii"].map($);
+const focusTargets = ["unlock", "opened", "reenc"].map($);
+setView(OVERLAY && ["audit", "pii"].includes(params.get("view")) ? params.get("view") : "vault");
 const updateFocus = () => {
   const on = focusTargets.some((e) => !e.hidden);
   if (document.body.classList.contains("focus") === on) return; // setting `hidden` again would re-trigger
@@ -525,7 +596,6 @@ let busy = false; // an encryption / decryption is running: do not switch screen
 /** A new selection in Drive replaces whatever this panel was preparing (user request). */
 function leaveForSelection() {
   if (busy || OVERLAY) return;
-  if (!$("pii").hidden && !pii?.running) closePii();
   if (!$("reenc").hidden || !$("unlock").hidden || !$("opened").hidden) {
     forget();
     closeReenc();
@@ -545,6 +615,7 @@ async function showSelection(ids) {
   leaveForSelection();
   card.hidden = false;
   $("selTitle").textContent = `드라이브에서 선택: ${ids.length}개`;
+  if (document.body.dataset.view === "pii") updatePiiHint();
   const list = $("selList");
   if (!drive.signedIn()) {
     list.replaceChildren(li("로그인하면 선택한 파일이 보입니다", "muted"));
@@ -563,18 +634,24 @@ async function showSelection(ids) {
     if (drive.isVaultName(f.name)) {
       const b = Object.assign(document.createElement("span"), { className: "btns" });
       b.append(
-        btn("열기", "tonal", () => openLarge(f)),
-        btn("🔓 풀기", "tonal", () => quickRestore(f)),
+        label(btn("", "tonal", () => openLarge(f)), "eye", "열기"),
+        label(btn("", "tonal", () => quickRestore(f)), "unlock", "풀기"),
       );
       row.append(b);
-    } else plain += 1; // files and folders can be encrypted
+    } else {
+      plain += 1; // files and folders can be encrypted
+      if (f.mimeType !== FOLDER && VIEW_EXT.test(f.name)) {
+        const b = Object.assign(document.createElement("span"), { className: "btns" });
+        b.append(label(btn("", "tonal", () => openLarge(f)), "eye", "미리보기"));
+        row.append(b);
+      }
+    }
     list.append(row);
   }
   if (ids.length > selFiles.length) list.append(li(`이름을 모르는 항목 ${ids.length - selFiles.length}개 — 「암호화하기」를 누르면 권한을 받은 뒤 보입니다`, "muted"));
   $("selScan").hidden = plain === 0;
   $("selEncrypt").hidden = plain === 0;
-  $("selEncrypt").textContent = plain === 1 ? "🔒 암호화하기" : `🔒 암호화하기 (${plain}개를 한 파일로)`;
-  $("selInfo").textContent = plain ? "같은 폴더에 암호화 파일을 만들고, 확인이 끝나면 원래 파일은 휴지통으로 옮깁니다. 처음 한 번 드라이브 권한을 묻습니다." : "";
+  label($("selEncrypt"), "lock", plain === 1 ? "암호화하기" : `암호화하기 (${plain}개를 한 파일로)`);
 }
 
 /** "열기": large view over Drive when the Drive tab is next to us, else in this panel. */
@@ -582,13 +659,14 @@ async function openLarge(f) {
   if (driveTabId !== null) {
     try { await chrome.tabs.sendMessage(driveTabId, { type: "showOverlay", id: f.id }); return; } catch { /* no watcher: open here */ }
   }
-  await select(f, null);
+  if (drive.isVaultName(f.name)) await select(f, null);
+  else await previewPlain(f);
 }
 
 /** "풀기": decrypt in memory, then the decrypt-to-Drive confirmation right away. */
 async function quickRestore(f) {
   await select(f, null);
-  if (current?.file.id === f.id) $("restoreBtn").click();
+  if (current?.file.id === f.id) await restoreNow();
 }
 
 async function openDriveFile(id) {
@@ -642,9 +720,15 @@ async function listenToDrive(win) {
 const PII_MAX_FILES = 500;
 let pii = null; // { results: [], stopping, running }
 
-function closePii() { pii = null; $("pii").hidden = true; $("piiList").replaceChildren(); $("piiEncrypt").hidden = true; }
-$("piiClose").onclick = () => { if (pii) pii.stopping = true; closePii(); };
+function closePii() { pii = null; $("piiList").replaceChildren(); $("piiEncrypt").hidden = true; $("piiProgress").textContent = ""; }
 $("piiStop").onclick = () => { if (pii) pii.stopping = true; };
+function updatePiiHint() {
+  const n = driveSel.length;
+  $("piiHint").textContent = n ? `드라이브에서 고른 ${n}개를 검사합니다. 종류·건수만 보여 줍니다.` : "드라이브에서 파일·폴더를 고른 뒤 검사하세요. 종류·건수만 보여 줍니다.";
+  $("piiStart").disabled = !n || !!pii?.running;
+}
+$("piiBtn").onclick = () => setView("pii");
+$("piiBig").onclick = () => showBig({ view: "pii", ids: driveSel });
 
 function drawPiiRow(r) {
   const row = document.createElement("li");
@@ -664,15 +748,17 @@ function drawPiiRow(r) {
   return row;
 }
 
-$("selScan").onclick = async () => {
+$("selScan").onclick = () => { setView("pii"); runPii(); };
+$("piiStart").onclick = () => runPii();
+async function runPii() {
+  if (!driveSel.length || pii?.running) return;
   try {
     await drive.requestFullAccess();
-    forget(); closeReenc(); closePii();
-    $("unlock").hidden = true;
+    closePii();
     const chosen = (await Promise.all(driveSel.map((id) => drive.getFile(id).catch(() => null)))).filter((f) => f && !drive.isVaultName(f.name));
     pii = { results: [], stopping: false, running: true };
-    $("pii").hidden = false;
     $("piiStop").hidden = false;
+    $("piiStart").disabled = true;
     // folders → every file inside (with its path)
     const files = [];
     for (const f of chosen) {
@@ -695,15 +781,19 @@ $("selScan").onclick = async () => {
     const skipped = pii.results.filter((r) => r.status === "unscannable").length;
     $("piiProgress").textContent = `${pii.stopping ? "중지함 — " : "✓ "}${pii.results.length}개 검사 · 개인정보 있음 ${found.length}개 · 검사 불가 ${skipped}개`;
     $("piiEncrypt").hidden = !found.length;
-    $("piiEncrypt").textContent = `🔒 개인정보가 있는 파일 암호화 (${found.length}개를 한 파일로)`;
-  } catch (e) { message(e.message); } finally {
+    label($("piiEncrypt"), "lock", `개인정보가 있는 ${found.length}개 암호화`);
+  } catch (e) { $("piiProgress").textContent = e.message; } finally {
     if (pii) pii.running = false;
     $("piiStop").hidden = true;
+    updatePiiHint();
   }
-};
+}
 $("piiEncrypt").onclick = () => {
   const files = pii.results.filter((r) => r.status === "found").map((r) => r.file);
   closePii();
+  setView("vault");
+  forget();
+  $("unlock").hidden = true;
   openReenc("drive", files);
 };
 
@@ -743,7 +833,15 @@ function drawAudit() {
     const who = Object.assign(document.createElement("div"), { className: "who", textContent: peopleLine(it.views) });
     if (it.views.some((v) => v.likely)) who.append(Object.assign(document.createElement("span"), { className: "badge", textContent: "일부는 상위 폴더에서" }));
     mid.append(who);
-    const open = Object.assign(document.createElement("a"), { textContent: "드라이브↗", href: `https://drive.google.com/open?id=${encodeURIComponent(it.file.id)}`, target: "_blank", rel: "noopener noreferrer", title: "드라이브에서 보기" });
+    const isFolder = it.file.mimeType === drive.FOLDER_MIME;
+    const id = encodeURIComponent(it.file.id);
+    const open = Object.assign(document.createElement("a"), {
+      className: "go", target: "_blank", rel: "noopener noreferrer",
+      href: isFolder ? `https://drive.google.com/drive/folders/${id}` : `https://drive.google.com/file/d/${id}/view`,
+    });
+    open.dataset.tip = isFolder ? "드라이브에서 폴더 열기" : "드라이브에서 파일 열기";
+    open.setAttribute("aria-label", open.dataset.tip);
+    open.append(icon(isFolder ? "folder" : "file"));
     row.append(cb, mid, open);
     list.append(row);
   }
@@ -772,23 +870,16 @@ function pickedChanged() {
   $("auditGo").disabled = n === 0;
 }
 
-$("auditBtn").onclick = async () => {
-  if (!$("audit").hidden) { closeAudit(); return; }
-  try {
-    await drive.requestFullAccess();
-    forget(); closeReenc();
-    $("unlock").hidden = true;
-    if (!audit) {
-      const me = await drive.myEmail().catch(() => "");
-      audit = { me, internal: sharing.internalDomains(me), items: [], filter: null, picked: new Set(), shown: PAGE };
-      $("auditAction").replaceChildren(...Object.entries(sharing.ACTIONS).map(([k, label]) => Object.assign(document.createElement("option"), { value: k, textContent: label })));
-    }
-    $("audit").hidden = false;
-    toggle($("auditBtn"), true);
-  } catch (e) { message(e.message); }
-};
-function closeAudit() { $("audit").hidden = true; toggle($("auditBtn"), false); }
-$("auditClose").onclick = closeAudit;
+$("auditBtn").onclick = () => setView("audit");
+$("auditBig").onclick = () => showBig({ view: "audit" });
+async function ensureAudit() {
+  await drive.requestFullAccess();
+  if (!audit) {
+    const me = await drive.myEmail().catch(() => "");
+    audit = { me, internal: sharing.internalDomains(me), items: [], raw: [], filter: null, picked: new Set(), shown: PAGE };
+    $("auditAction").replaceChildren(...Object.entries(sharing.ACTIONS).map(([k, label]) => Object.assign(document.createElement("option"), { value: k, textContent: label })));
+  }
+}
 $("auditMore").onclick = () => { audit.shown += PAGE; drawAudit(); };
 $("auditAll").onchange = () => {
   for (const it of auditVisible()) $("auditAll").checked ? audit.picked.add(it.file.id) : audit.picked.delete(it.file.id);
@@ -797,6 +888,7 @@ $("auditAll").onchange = () => {
 $("auditAction").onchange = () => audit && pickedChanged();
 $("auditStop").onclick = () => { if (audit) audit.stopping = true; };
 $("auditStart").onclick = async () => {
+  try { await ensureAudit(); } catch (e) { $("auditStatus").textContent = e.message; return; }
   audit.stopping = false;
   $("auditStart").disabled = true;
   $("auditStop").hidden = false;
@@ -879,7 +971,7 @@ function openReenc(mode, driveFiles = []) {
   $("reencTitle").textContent = mode === "edit" ? `다시 암호화: ${current.file.name}`
     : mode === "drive" ? `드라이브 파일 암호화: ${driveFiles.length}개` : "새 파일 암호화해 올리기";
   $("pickStep").hidden = mode === "drive";
-  $("reencGo").textContent = mode === "edit" ? "🔒 다시 암호화하기" : "🔒 암호화하기";
+  label($("reencGo"), "lock", mode === "edit" ? "다시 암호화하기" : "암호화하기");
   $("trashStep").hidden = mode === "new";
   $("trashLabel").textContent = mode === "drive" ? "원래 파일을 휴지통으로" : "예전 보관 파일을 휴지통으로";
   $("secretInfo").hidden = false;

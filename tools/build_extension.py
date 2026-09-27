@@ -22,6 +22,8 @@ INCLUDE = [
     "viewer.html",
     "viewer.css",
     "viewer.js",
+    "guide.html",
+    "guide.css",
     "NOTICE_KO.txt",
 ]
 INCLUDE_DIRS = ["lib", "vendor"]

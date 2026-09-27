@@ -21,7 +21,7 @@ test("network: only Google sign-in and the Drive API", () => {
   assert.match(csp, /frame-ancestors https:\/\/drive\.google\.com$/);
   assert.doesNotMatch(csp, /(?<!wasm-)unsafe-eval|unsafe-inline|http:/);
   // XML namespace names are identifiers, never fetched.
-  const NAMESPACES = new Set(["http://schemas.openxmlformats.org/officeDocument/2006/relationships"]);
+  const NAMESPACES = new Set(["http://schemas.openxmlformats.org/officeDocument/2006/relationships", "http://www.w3.org/2000/svg"]);
   for (const f of SHIPPED) {
     for (const url of (src(f).match(/https?:\/\/[^\s"'`)]+/g) || []).filter((u) => !NAMESPACES.has(u))) {
       // drive.google.com appears only as a sender check (startsWith) — never fetched (see connect-src).
@@ -137,7 +137,8 @@ test("Drive page watcher: file IDs to this extension, and only the large-view if
   assert.doesNotMatch(w, /\bpostMessage\(/, "it only listens for the iframe's close request");
   // the only page change: one iframe of this extension's viewer, added and removed
   assert.deepEqual([...w.matchAll(/createElement\("(\w+)"\)/g)].map((m) => m[1]), ["iframe"]);
-  assert.match(w, /overlay\.src = chrome\.runtime\.getURL\(`viewer\.html\?mode=overlay&file=\$\{encodeURIComponent\(id\)\}`\)/);
+  assert.match(w, /overlay\.src = chrome\.runtime\.getURL\(`viewer\.html\?mode=overlay&\$\{q\}`\)/);
+  assert.match(w, /ID\.test\(what\.id \|\| ""\) \? `file=\$\{encodeURIComponent\(what\.id\)\}`/); // IDs are checked before use
   assert.doesNotMatch(w, /\.(innerHTML|outerHTML|textContent|innerText|value)\s*=|appendChild|prepend\(|insertAdjacent|setAttribute|document\.write/);
   assert.equal((w.match(/\.append\(/g) || []).length, 1);
   assert.match(w, /ev\.origin === ORIGIN && ev\.source === overlay\?\.contentWindow/);

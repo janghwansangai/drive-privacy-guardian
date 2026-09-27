@@ -4,55 +4,101 @@
   <meta charset="utf-8">
   <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>🔐 암호화된 파일 보기</title>
+  <title>Drive Privacy Guardian</title>
   <link rel="stylesheet" href="viewer.css">
 </head>
 <body>
+  <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/><path d="M8.5 11h5M11 8.5v5" /></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 0 1 5 0c0 1.8-2.5 2-2.5 4"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-newtab" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="i-login" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3"/><path d="M14 4h5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-5"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M13 13h5M16 10.5l2.5 2.5-2.5 2.5"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 14h6M12 11v6"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21V5M8 7h7"/></symbol>
+  </svg>
   <header class="bar">
-    <div class="brand"><span class="logo" aria-hidden="true">🔐</span><div><h1>암호화 파일</h1><small>Drive Privacy Guardian</small></div></div>
-    <div class="account">
-      <span id="status" class="chip">로그인 전</span>
-      <button id="login" class="filled">로그인</button>
-      <button id="logout" class="text" hidden>로그아웃</button>
-      <button id="openTab" class="icon" title="새 탭에서 크게 보기" aria-label="새 탭에서 크게 보기">↗</button>
-      <button id="auditBtn" class="icon" title="내 드라이브 공유 점검" aria-label="내 드라이브 공유 점검" aria-pressed="false">🛡</button>
-      <button id="listBtn" class="icon" title="암호화 파일 목록" aria-label="암호화 파일 목록" aria-pressed="false">☰</button>
-      <button id="helpBtn" class="icon" title="도움말" aria-label="도움말" aria-pressed="false">?</button>
-      <button id="settingsBtn" class="icon" title="설정" aria-label="설정" aria-pressed="false">⚙</button>
-      <button id="overlayClose" class="icon closeBig" title="닫기 (Esc)" aria-label="닫기">✕</button>
-    </div>
+    <div class="brand"><span class="logo"><svg class="ic"><use href="#i-lock"/></svg></span><h1>Drive Privacy Guardian</h1></div>
+    <nav class="account">
+      <button id="login" class="icon" data-tip="구글 로그인" aria-label="구글 로그인"><svg class="ic"><use href="#i-login"/></svg></button>
+      <button id="logout" class="icon signed" data-tip="로그인됨 · 누르면 로그아웃" aria-label="로그아웃" hidden><svg class="ic"><use href="#i-user"/></svg></button>
+      <button id="openTab" class="icon" data-tip="새 탭에서 크게" aria-label="새 탭에서 크게"><svg class="ic"><use href="#i-newtab"/></svg></button>
+      <span class="sep"></span>
+      <button id="tabVault" class="icon" data-tip="암호화 파일" aria-label="암호화 파일" aria-pressed="true"><svg class="ic"><use href="#i-lock"/></svg></button>
+      <button id="auditBtn" class="icon" data-tip="공유 점검 (내 드라이브 전체)" aria-label="공유 점검" aria-pressed="false"><svg class="ic"><use href="#i-shield"/></svg></button>
+      <button id="piiBtn" class="icon" data-tip="개인정보 검사 (선택한 파일·폴더)" aria-label="개인정보 검사" aria-pressed="false"><svg class="ic"><use href="#i-search"/></svg></button>
+      <button id="settingsBtn" class="icon" data-tip="설정" aria-label="설정" aria-pressed="false"><svg class="ic"><use href="#i-sliders"/></svg></button>
+      <button id="helpBtn" class="icon" data-tip="도움말" aria-label="도움말" aria-pressed="false"><svg class="ic"><use href="#i-help"/></svg></button>
+      <button id="overlayClose" class="icon closeBig" data-tip="닫기 (Esc)" aria-label="닫기"><svg class="ic"><use href="#i-close"/></svg></button>
+    </nav>
   </header>
-  <p class="memory">🛡 풀린 내용은 <b>이 패널의 메모리에만</b> 있습니다. 닫거나 10분 동안 쓰지 않으면 지워집니다.</p>
 
-  <section id="help" hidden>
+  <section id="help" class="view card">
     <h2>도움말</h2>
-    <ol>
-      <li><b>드라이브 옆에서 보기</b>: 구글 드라이브를 연 채로 도구 모음의 확장 프로그램 아이콘을 누르면 이 패널이 드라이브 옆에 열립니다. 드라이브에서 폴더를 열면 「📁 이 폴더」에 그 폴더의 암호화 파일이 보이고, 암호화 파일을 더블클릭해 미리보기를 열면 그 파일이 바로 선택됩니다.</li>
-      <li><b>보기</b>: 목록에서 암호화된 파일을 고르고 비밀번호 또는 <b>복구 키(35자)</b>를 넣으면, 파일을 <b>이 창의 메모리에서만</b> 풀어 보여 줍니다.
-        한글(HWP·HWPX)·엑셀·워드·PDF·사진·CSV·TXT를 볼 수 있습니다. 한글·워드는 굵게·크기·색·정렬 같은 기본 모양만 보이며, 쪽 모양·그림·머리말은 다를 수 있습니다.</li>
-      <li><b>💾 저장</b>: 지금 보는 파일을 암호 없이 다운로드 폴더에 저장합니다. 다 쓰면 휴지통에 버리고 비우세요.</li>
-      <li><b>🔒 고친 파일로 다시 암호화</b>: 저장해서 고친 파일을 골라 새 보관 파일을 만들고 드라이브에 올립니다. 다시 풀어 비교하고, 올린 파일을 다시 받아 비교한 뒤에만 예전 파일을 휴지통으로 옮깁니다.</li>
-      <li><b>➕ 새 파일 암호화해 올리기</b>: 컴퓨터의 파일을 바로 암호화해 내 드라이브 맨 위에 올립니다. 복구 키를 쓰면 데스크톱 앱에서도 열립니다.</li>
-      <li><b>지우기</b>: 「닫기」, 탭 닫기, 10분 동안 쓰지 않으면 풀린 내용이 메모리에서 지워집니다.</li>
-      <li><b>안전</b>: 구글 드라이브 API 주소에만 접속하고, 저장하는 것은 클라이언트 ID뿐입니다. 비밀번호·복구 키·파일 내용은 저장하지 않습니다. 운영체제의 스왑·화면 캡처는 막을 수 없습니다.</li>
-      <li><b>열리지 않을 때</b>: 복구 키의 오타(0/O, 1/I, 8/B는 자동 처리)를 확인하세요. 아주 큰 파일(수백 MB)은 데스크톱 앱에서 푸세요.</li>
-    </ol>
+    <ul class="tips">
+      <li><svg class="ic"><use href="#i-lock"/></svg> <b>암호화 파일</b> — 드라이브에서 파일을 고르면 암호화·열기·풀기</li>
+      <li><svg class="ic"><use href="#i-shield"/></svg> <b>공유 점검</b> — 내 드라이브 전체의 공유 상태를 보고 한꺼번에 바꾸기</li>
+      <li><svg class="ic"><use href="#i-search"/></svg> <b>개인정보 검사</b> — 고른 파일·폴더에서 주민번호 등 찾기</li>
+      <li>개인 비밀번호 한 번이면 모든 파일이 열리고, 15분 동안 안 쓰면 잠깁니다.</li>
+      <li>풀린 내용은 이 화면의 메모리에만 있고 저장하지 않습니다.</li>
+    </ul>
+    <button id="guideBtn" class="filled"><svg class="ic"><use href="#i-book"/></svg> 설명서 열기</button>
   </section>
 
-  <section id="settings" hidden>
+  <section id="settings" class="view card">
     <h2>설정</h2>
-    <p>이 확장 프로그램의 리디렉션 주소 (구글 콘솔의 웹 애플리케이션 클라이언트에 등록): <code id="redirect"></code></p>
-    <label>OAuth 클라이언트 ID <input id="client" size="72" placeholder="1234-abc.apps.googleusercontent.com"></label>
-    <button id="saveClient" class="filled">저장</button> <span id="clientSaved"></span>
+    <h3>구글 연결</h3>
+    <label class="small">OAuth 클라이언트 ID <input id="client" placeholder="1234-abc.apps.googleusercontent.com"></label>
+    <button id="saveClient" class="filled">저장</button> <span id="clientSaved" class="small"></span>
+    <p class="small muted">리디렉션 주소: <code id="redirect"></code></p>
     <h3>자동 잠금</h3>
-    <label>안 쓰면 잠그기 <select id="lockMinutes"><option value="5">5분</option><option value="15">15분</option><option value="30">30분</option><option value="60">60분</option></select></label>
-    <h3>개인 비밀번호 바꾸기 <span class="muted small">(잠금이 풀려 있을 때)</span></h3>
+    <label class="small">안 쓰면 잠그기 <select id="lockMinutes"><option value="5">5분</option><option value="15">15분</option><option value="30">30분</option><option value="60">60분</option></select></label>
+    <h3>개인 비밀번호 바꾸기</h3>
     <input id="newPw" type="password" placeholder="새 개인 비밀번호 (8자 이상)" autocomplete="new-password">
-    <input id="newPw2" type="password" placeholder="새 개인 비밀번호 확인" autocomplete="new-password">
-    <button id="changePw" class="tonal">바꾸기</button> <span id="changePwMsg"></span>
+    <input id="newPw2" type="password" placeholder="확인" autocomplete="new-password">
+    <button id="changePw" class="tonal">바꾸기</button> <span id="changePwMsg" class="small"></span>
     <h3>이 컴퓨터에서 열쇠 지우기</h3>
-    <p class="small muted">이 컴퓨터에 잠가 둔 복구 키를 지웁니다. 파일은 그대로이며 종이의 복구 키로 다시 설정할 수 있습니다.</p>
     <button id="forgetKey" class="text">열쇠 지우기</button>
+  </section>
+
+  <section id="pii" class="view card">
+    <div class="openedHead"><h2><svg class="ic"><use href="#i-search"/></svg> 개인정보 검사</h2>
+      <span><button id="piiBig" class="icon" data-tip="드라이브 위에 크게" aria-label="크게 보기"><svg class="ic"><use href="#i-expand"/></svg></button></span></div>
+    <p id="piiHint" class="small muted">드라이브에서 파일·폴더를 고른 뒤 검사하세요. 종류·건수만 보여 줍니다.</p>
+    <div class="auditRun"><button id="piiStart" class="filled">검사</button> <button id="piiStop" class="text" hidden>중지</button> <span id="piiProgress" class="small"></span></div>
+    <ul id="piiList" class="auditList"></ul>
+    <button id="piiEncrypt" class="filled wide" hidden>🔒 개인정보가 있는 파일 암호화</button>
+  </section>
+
+  <section id="audit" class="view card">
+    <div class="openedHead"><h2><svg class="ic"><use href="#i-shield"/></svg> 공유 점검</h2>
+      <span><button id="auditBig" class="icon" data-tip="드라이브 위에 크게" aria-label="크게 보기"><svg class="ic"><use href="#i-expand"/></svg></button></span></div>
+    <p class="small muted">내 드라이브 전체의 공유 상태 (내용은 읽지 않음)</p>
+    <div class="auditRun"><button id="auditStart" class="filled">점검 시작</button> <button id="auditStop" class="text" hidden>중지</button> <span id="auditProgress" class="small"></span></div>
+    <div id="auditCards" class="auditCards" hidden></div>
+    <div id="auditTools" hidden>
+      <label class="small allBox"><input type="checkbox" id="auditAll"> 보이는 것 모두 선택</label>
+      <span id="auditPicked" class="small muted"></span>
+    </div>
+    <ul id="auditList" class="auditList"></ul>
+    <button id="auditMore" class="text" hidden>더 보기</button>
+    <div class="shareDo" id="auditDo" hidden>
+      <label class="small">할 일<select id="auditAction"></select></label>
+      <p id="auditPlan" class="small"></p>
+      <button id="auditGo" class="filled" disabled>변경 실행</button>
+      <button id="auditUndo" class="tonal" hidden>↩ 되돌리기</button>
+    </div>
+    <p id="auditStatus" class="notice"></p>
   </section>
 
   <main>
@@ -60,12 +106,11 @@
       <div id="vaultCard" class="vaultCard">
         <div id="vaultSetup" hidden>
           <b>🛟 처음 한 번 설정</b>
-          <p class="small">모든 암호화 파일은 <b>복구 키(만능키)</b>로 잠급니다. 이 컴퓨터에는 복구 키를 <b>개인 비밀번호</b>로 잠가 보관하고, 평소에는 개인 비밀번호만 넣습니다.</p>
-          <label class="radio"><input type="radio" name="setupMode" value="have" checked> 복구 키가 있어요 <span class="muted">(데스크톱 앱에서 만든 35자 — 이미 쓰고 있다면 꼭 이것)</span></label>
+          <label class="radio"><input type="radio" name="setupMode" value="have" checked> 복구 키가 있어요 <span class="muted">(데스크톱 앱의 35자)</span></label>
           <label class="radio"><input type="radio" name="setupMode" value="new"> 없어요, 새로 만들기</label>
           <input id="setupKey" placeholder="복구 키 35자 (예: ABCDE-FGHIJ-…)" autocomplete="off">
           <div id="newKeyBox" class="newKeyBox" hidden>
-            <p class="small">새 복구 키입니다. <b>종이에 적어 안전한 곳에</b> 두세요. 비밀번호를 잊거나 다른 컴퓨터에서 열 때 필요합니다. 이 화면을 닫으면 다시 볼 수 없습니다.</p>
+            <p class="small"><b>종이에 적어 두세요.</b> 다시 볼 수 없습니다.</p>
             <code id="newKeyText"></code>
             <label class="radio"><input type="checkbox" id="newKeySaved"> 종이에 적었습니다</label>
           </div>
@@ -81,14 +126,13 @@
         </form>
         <form id="vaultForgot" hidden autocomplete="off">
           <b>🛟 복구 키로 열기</b>
-          <p class="small">종이에 적어 둔 복구 키(35자)를 넣고, 새 개인 비밀번호를 정하세요.</p>
           <input id="forgotKey" placeholder="복구 키 35자" autocomplete="off">
           <input id="forgotPw" type="password" placeholder="새 개인 비밀번호 (8자 이상)" autocomplete="new-password">
           <input id="forgotPw2" type="password" placeholder="새 개인 비밀번호 확인" autocomplete="new-password">
           <button type="submit" class="filled">새 비밀번호로 열기</button>
           <button type="button" id="forgotCancel" class="text">취소</button>
         </form>
-        <div id="vaultOpen" hidden>🔓 <b>열림</b> <span id="lockInfo" class="muted"></span> <button id="lockNow" class="text">잠그기</button></div>
+        <div id="vaultOpen" hidden><svg class="ic"><use href="#i-unlock"/></svg> <b>열림</b> <span id="lockInfo" class="muted"></span> <button id="lockNow" class="text">잠그기</button></div>
         <p id="vaultMsg" class="message"></p>
       </div>
       <div class="asideHead">
@@ -96,7 +140,7 @@
           <button id="scopeFolder" class="on" role="tab" title="드라이브에서 지금 열어 둔 폴더">📁 이 폴더</button>
           <button id="scopeAll" role="tab">전체</button>
         </div>
-        <button id="refresh" class="icon" title="새로고침" aria-label="새로고침">⟳</button>
+        <button id="refresh" class="icon" data-tip="새로고침" aria-label="새로고침"><svg class="ic"><use href="#i-refresh"/></svg></button>
       </div>
       <p id="driveLink" class="driveLink" hidden></p>
       <div id="selCard" class="selCard" hidden>
@@ -104,11 +148,13 @@
         <ul id="selList"></ul>
         <button id="selEncrypt" class="filled wide" hidden>🔒 암호화하기</button>
         <button id="selScan" class="tonal wide" hidden>🔍 개인정보 검사</button>
-        <p id="selInfo" class="scopeInfo"></p>
       </div>
       <p id="scopeInfo" class="scopeInfo"></p>
       <ul id="files"><li class="muted">로그인하면 목록이 보입니다</li></ul>
-      <button id="newArchive" class="tonal wide">➕ 새 파일 암호화해 올리기</button>
+      <div class="asideFoot">
+        <button id="listBtn" class="text" aria-pressed="false"><svg class="ic"><use href="#i-list"/></svg> 모든 암호화 파일</button>
+        <button id="newArchive" class="text">➕ 컴퓨터 파일 암호화</button>
+      </div>
     </aside>
     <section id="panel" class="card">
       <button id="back" class="text back" hidden>← 목록</button>
@@ -118,76 +164,40 @@
           <input id="password" type="password" size="44" placeholder="이 파일만의 비밀번호" autocomplete="off">
           <button type="submit" class="filled">열기</button>
         </form>
-        <p class="muted small" id="unlockHint">복구 키(만능키)로 잠그지 않은 예전 파일입니다. 이 파일을 잠글 때 정한 비밀번호를 넣으세요.</p>
+        <p class="muted small" id="unlockHint"></p>
       </div>
       <div id="opened" hidden>
         <div class="openedHead">
           <h2 id="openedName"></h2>
-          <button id="close" class="icon close" title="닫기 (메모리에서 지우기)" aria-label="닫기">✕</button>
+          <button id="close" class="icon close" data-tip="닫기 (메모리에서 지움)" aria-label="닫기"><svg class="ic"><use href="#i-close"/></svg></button>
         </div>
         <div class="actions">
-          <button id="bigBtn" class="tonal" hidden>⛶ 크게 보기</button>
+          <button id="bigBtn" class="tonal" hidden><svg class="ic"><use href="#i-expand"/></svg> 크게</button>
           <button id="save" class="tonal" hidden>💾 저장</button>
-          <button id="restoreBtn" class="tonal">🔓 풀어서 드라이브에 저장</button>
+          <button id="restoreBtn" class="tonal">🔓 풀기 (드라이브에)</button>
           <button id="reencBtn" class="tonal">🔒 고친 파일로 다시 암호화</button>
         </div>
         <ul id="members"></ul>
         <p id="notice" class="notice"></p>
         <div id="view"></div>
       </div>
-      <div id="pii" hidden>
-        <div class="openedHead"><h2>🔍 개인정보 검사</h2><button id="piiClose" class="icon close" title="닫기" aria-label="닫기">✕</button></div>
-        <p class="small muted">데스크톱 앱과 같은 규칙으로 찾습니다. 파일은 이 패널의 메모리에서만 읽고, 찾은 <b>종류·건수·위치</b>만 보여 줍니다(원문은 보여 주지도 저장하지도 않음). 「검사 불가」는 안전하다는 뜻이 아닙니다.</p>
-        <div class="auditRun"><span id="piiProgress" class="small"></span> <button id="piiStop" class="text" hidden>중지</button></div>
-        <ul id="piiList" class="auditList"></ul>
-        <button id="piiEncrypt" class="filled wide" hidden>🔒 개인정보가 있는 파일 암호화</button>
-      </div>
-      <div id="audit" hidden>
-        <div class="openedHead"><h2>🛡 내 드라이브 공유 점검</h2><button id="auditClose" class="icon close" title="닫기" aria-label="닫기">✕</button></div>
-        <p class="small muted">내가 소유한 모든 파일·폴더의 공유 상태를 확인합니다. 파일 내용은 받지 않고 이름·권한 정보만 읽으며, 결과는 이 화면에만 있습니다(저장 안 함).</p>
-        <div class="auditRun"><button id="auditStart" class="filled">점검 시작</button> <button id="auditStop" class="text" hidden>중지</button> <span id="auditProgress" class="small"></span></div>
-        <div id="auditCards" class="auditCards" hidden></div>
-        <div id="auditTools" hidden>
-          <label class="small allBox"><input type="checkbox" id="auditAll"> 보이는 것 모두 선택</label>
-          <span id="auditPicked" class="small muted"></span>
-        </div>
-        <ul id="auditList" class="auditList"></ul>
-        <button id="auditMore" class="text" hidden>더 보기</button>
-        <div class="shareDo" id="auditDo" hidden>
-          <label class="small">고른 항목에 할 일<select id="auditAction"></select></label>
-          <p id="auditPlan" class="small"></p>
-          <button id="auditGo" class="filled" disabled>변경 실행</button>
-          <button id="auditUndo" class="tonal" hidden>↩ 되돌리기</button>
-        </div>
-        <p id="auditStatus" class="notice"></p>
-      </div>
       <div id="reenc" hidden>
         <h2 id="reencTitle"></h2>
         <ol class="steps">
-          <li id="pickStep">이 컴퓨터에서 <b>고친 파일(또는 넣을 파일)</b>을 고릅니다. 이름이 같은 파일은 바뀌고, 없는 이름은 추가됩니다.
+          <li id="pickStep">고친 파일 고르기 <span class="muted small">(같은 이름은 바뀜)</span>
             <input id="pick" type="file" multiple></li>
           <li id="rowsStep">암호화할 파일 <table id="reencRows" class="rows"></table></li>
           <li id="secretInfo"></li>
-          <li id="trashStep"><label><input id="trashOld" type="checkbox" checked> 확인이 끝나면 <b id="trashLabel">예전 보관 파일을 휴지통으로</b> (30일 안에 복원 가능)</label></li>
+          <li id="trashStep"><label><input id="trashOld" type="checkbox" checked> 확인이 끝나면 <b id="trashLabel">예전 보관 파일을 휴지통으로</b></label></li>
         </ol>
         <p class="muted" id="whereInfo"></p>
         <button id="reencGo" class="filled">🔒 암호화하기</button> <button id="reencCancel" class="text">취소</button>
         <p id="reencStatus" class="notice"></p>
       </div>
       <p id="message" class="message"></p>
+      <button id="grantBtn" class="filled" hidden>드라이브 파일 보기 허용</button>
     </section>
   </main>
-  <dialog id="restoreDialog">
-    <h2>암호를 풀어 드라이브에 저장할까요?</h2>
-    <ul>
-      <li>안의 파일이 <b>원래 이름 그대로</b>, 암호화 파일이 있던 <b>같은 폴더</b>에 생깁니다.</li>
-      <li>풀린 파일은 <b>암호가 없고</b>, 그 폴더의 공유 설정을 따릅니다.</li>
-      <li>올린 파일을 다시 받아 비교해서 모두 맞을 때만 암호화 파일을 휴지통으로 옮깁니다.</li>
-    </ul>
-    <label class="radio"><input type="checkbox" id="restoreTrash" checked> 확인이 끝나면 <b>암호화 파일을 휴지통으로</b> (30일 안에 복원 가능)</label>
-    <p id="restoreStatus" class="notice"></p>
-    <div class="dialogButtons"><button id="restoreCancel" class="text">취소</button> <button id="restoreOk" class="filled">풀어서 저장</button></div>
-  </dialog>
   <dialog id="saveDialog">
     <h2>풀린 파일을 이 컴퓨터에 저장할까요?</h2>
     <ul>
@@ -197,7 +207,7 @@
     </ul>
     <div class="dialogButtons"><button id="saveCancel" class="text">취소</button> <button id="saveOk" class="danger">저장</button></div>
   </dialog>
-  <footer>본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다. · 뷰어는 내용 확인용이며 원본 모양과 다를 수 있습니다.</footer>
+  <footer>본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.</footer>
   <script type="module" src="viewer.js"></script>
 </body>
 </html>

@@ -9,6 +9,8 @@
   // Name pattern of this app's encrypted archives (a double-click on one opens it in the panel
   // instead of Drive's "no preview available" screen).
   const VAULT = /보관_\d{4}-\d{2}-\d{2}_(?:[0-9a-f]{4}|[0-9a-f]{8})\.(?:7z|zip)|\(암호화 [0-9a-f]{8}\)\.(?:7z|zip)/;
+  // Hangul documents, which Drive cannot preview: a double-click shows them in the large view too.
+  const HANGUL = /\.hwpx?(?![\w.])/i;
   const ROW = '[role="row"], [role="gridcell"], [role="option"], [role="listitem"], tr';
   const ITEM = `${ROW}, [data-id]`;
   const SELECTED = '[aria-selected="true"], [aria-checked="true"]';
@@ -55,10 +57,15 @@
   const ORIGIN = new URL(chrome.runtime.getURL("")).origin;
   let overlay = null;
   const closeOverlay = () => { overlay?.remove(); overlay = null; };
-  const showOverlay = (id) => {
+  // what: { id } a file, or { view: "audit" } / { view: "pii", ids } a panel view shown large
+  const showOverlay = (what) => {
+    const q = what.view === "audit" ? "view=audit"
+      : what.view === "pii" ? `view=pii&ids=${(what.ids || []).filter((x) => ID.test(x)).slice(0, 50).join(",")}`
+      : ID.test(what.id || "") ? `file=${encodeURIComponent(what.id)}` : null;
+    if (!q) return;
     closeOverlay();
     overlay = document.createElement("iframe");
-    overlay.src = chrome.runtime.getURL(`viewer.html?mode=overlay&file=${encodeURIComponent(id)}`);
+    overlay.src = chrome.runtime.getURL(`viewer.html?mode=overlay&${q}`);
     overlay.title = "암호화 파일 크게 보기";
     overlay.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;border:0;z-index:2147483647;background:transparent;color-scheme:normal";
     document.documentElement.append(overlay);
@@ -75,12 +82,13 @@
     if (ev.type !== "dblclick" && (ev.detail || 0) < 2) return;
     const item = itemOf(ev.target);
     const id = idOf(item) || idOf(ev.target);
-    if (!id || !VAULT.test(item?.textContent || "")) return; // other files: Drive behaves as usual
+    const text = item?.textContent || "";
+    if (!id || !(VAULT.test(text) || HANGUL.test(text))) return; // other files: Drive behaves as usual
     ev.preventDefault();
     ev.stopImmediatePropagation();
     if (Date.now() - lastOpen < 800) return;
     lastOpen = Date.now();
-    showOverlay(id);
+    showOverlay({ id });
   };
   for (const type of ["dblclick", "mousedown", "click"]) window.addEventListener(type, onOpen, true);
 
@@ -88,7 +96,7 @@
   chrome.runtime.onMessage.addListener((msg, sender) => {
     if (sender.id !== chrome.runtime.id || sender.tab) return;
     if (msg?.type === "ping") { last = ""; report(); }
-    if (msg?.type === "showOverlay" && typeof msg.id === "string" && ID.test(msg.id)) showOverlay(msg.id);
+    if (msg?.type === "showOverlay") showOverlay({ id: String(msg.id || ""), view: msg.view, ids: Array.isArray(msg.ids) ? msg.ids.map(String) : [] });
   });
   report(); // hello: lets the panel show that Drive is connected
 })();

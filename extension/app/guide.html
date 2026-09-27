@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>설명서 — Drive Privacy Guardian</title>
+  <link rel="stylesheet" href="guide.css">
+</head>
+<body>
+  <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/><path d="M8.5 11h5M11 8.5v5" /></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 0 1 5 0c0 1.8-2.5 2-2.5 4"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-newtab" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="i-login" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3"/><path d="M14 4h5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-5"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M13 13h5M16 10.5l2.5 2.5-2.5 2.5"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 14h6M12 11v6"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21V5M8 7h7"/></symbol>
+  </svg>
+<header class="top"><span class="logo"><svg class="ic"><use href="#i-lock"/></svg></span><div><h1>Drive Privacy Guardian 설명서</h1><p>구글 드라이브 옆에서 파일을 암호화하고, 공유와 개인정보를 점검합니다.</p></div></header>
+<nav class="toc">
+  <a href="#start">① 처음 설정</a><a href="#screen">② 화면</a><a href="#encrypt">③ 암호화</a><a href="#open">④ 열기·풀기</a>
+  <a href="#audit">⑤ 공유 점검</a><a href="#pii">⑥ 개인정보</a><a href="#lock">⑦ 잠금</a><a href="#safe">⑧ 안전</a><a href="#trouble">⑨ 문제 해결</a>
+</nav>
+<main>
+
+<section id="start">
+  <h2>① 처음 한 번 설정</h2>
+  <div class="flow">
+    <div class="box"><span class="num">1</span><b>확장 프로그램 설치</b><p>chrome://extensions → 개발자 모드 → 압축해제된 확장 프로그램 로드</p></div>
+    <div class="arrow">→</div>
+    <div class="box"><span class="num">2</span><b>설정 <svg class="ic"><use href="#i-sliders"/></svg></b><p>구글 콘솔에서 만든 <b>클라이언트 ID</b> 붙여 넣기</p></div>
+    <div class="arrow">→</div>
+    <div class="box"><span class="num">3</span><b>로그인 <svg class="ic"><use href="#i-login"/></svg></b><p>계정 선택 → 「계속」 → 권한 체크</p></div>
+    <div class="arrow">→</div>
+    <div class="box"><span class="num">4</span><b>복구 키 + 개인 비밀번호</b><p>데스크톱 앱의 복구 키(35자)와 매일 쓸 비밀번호</p></div>
+  </div>
+  <p class="note">복구 키가 없으면 「없어요, 새로 만들기」 — <b>종이에 적어</b> 안전한 곳에 두세요.</p>
+</section>
+
+<section id="screen">
+  <h2>② 화면 구성</h2>
+  <div class="mock">
+    <div class="mockbar">
+      <span class="m-ic"><svg class="ic"><use href="#i-user"/></svg><i>A</i></span><span class="m-ic"><svg class="ic"><use href="#i-newtab"/></svg><i>B</i></span><span class="m-sep"></span>
+      <span class="m-ic on"><svg class="ic"><use href="#i-lock"/></svg><i>1</i></span><span class="m-ic"><svg class="ic"><use href="#i-shield"/></svg><i>2</i></span><span class="m-ic"><svg class="ic"><use href="#i-search"/></svg><i>3</i></span><span class="m-ic"><svg class="ic"><use href="#i-sliders"/></svg><i>4</i></span><span class="m-ic"><svg class="ic"><use href="#i-help"/></svg><i>5</i></span>
+    </div>
+  </div>
+  <table class="legend">
+    <tr><td><i class="k">A</i></td><td>로그인 / 로그아웃</td><td><i class="k">1</i></td><td><svg class="ic"><use href="#i-lock"/></svg> 암호화 파일 — 드라이브에서 고른 파일 암호화·열기·풀기</td></tr>
+    <tr><td><i class="k">B</i></td><td>새 탭에서 크게</td><td><i class="k">2</i></td><td><svg class="ic"><use href="#i-shield"/></svg> 공유 점검 — 내 드라이브 전체</td></tr>
+    <tr><td></td><td></td><td><i class="k">3</i></td><td><svg class="ic"><use href="#i-search"/></svg> 개인정보 검사 — 고른 파일·폴더</td></tr>
+    <tr><td></td><td></td><td><i class="k">4·5</i></td><td><svg class="ic"><use href="#i-sliders"/></svg> 설정 · <svg class="ic"><use href="#i-help"/></svg> 도움말</td></tr>
+  </table>
+  <p class="note">아이콘에 마우스를 올리면 이름이 나옵니다. 한 번에 한 화면만 보입니다.</p>
+</section>
+
+<section id="encrypt">
+  <h2>③ 드라이브에서 바로 암호화</h2>
+  <div class="flow">
+    <div class="box"><span class="num">1</span><b>드라이브에서 선택</b><p>파일 여러 개나 <b>폴더</b>도 됩니다</p></div>
+    <div class="arrow">→</div>
+    <div class="box card"><b>드라이브에서 선택: 2개</b><p class="row">상담기록.hwp</p><p class="row">학급자료 📁</p><span class="btn primary"><svg class="ic"><use href="#i-lock"/></svg> 암호화하기</span></div>
+    <div class="arrow">→</div>
+    <div class="box"><span class="num">2</span><b>결과</b><p class="file">상담기록.hwp 외 1개 (암호화 7f3a9c2e).7z</p><p>같은 폴더에 생기고, 원래 파일은 <b>휴지통</b>으로</p></div>
+  </div>
+  <ul class="facts">
+    <li>암호화 → <b>다시 풀어서 비교</b> → 올리기 → <b>다시 받아서 비교</b> — 모두 맞을 때만 원래 파일을 휴지통으로 옮깁니다.</li>
+    <li>폴더는 구조 그대로 <b>압축 없이</b> 들어갑니다 (3000개 · 700MB까지).</li>
+    <li>데스크톱 앱과 같은 형식이라 서로 열 수 있습니다.</li>
+  </ul>
+</section>
+
+<section id="open">
+  <h2>④ 열기 · 풀기 · 미리보기</h2>
+  <div class="grid3">
+    <div class="box"><svg class="ic"><use href="#i-eye"/></svg><b>열기</b><p>암호화 파일을 <b>더블클릭</b> → 드라이브 위에 크게. ✕ 또는 Esc로 닫기</p></div>
+    <div class="box"><svg class="ic"><use href="#i-unlock"/></svg><b>풀기</b><p>선택 → 「풀기」 → 같은 자리에 원래 파일이 돌아오고 암호화 파일은 휴지통으로</p></div>
+    <div class="box"><svg class="ic"><use href="#i-file"/></svg><b>한글 미리보기</b><p>암호화하지 않은 <b>한글 파일</b>도 더블클릭하면 크게 보입니다</p></div>
+  </div>
+  <p class="note">보기 가능: 한글(HWP·HWPX) · 엑셀 · 워드 · PDF · 사진 · CSV · TXT. 모양(쪽·그림)은 원본과 다를 수 있습니다.</p>
+</section>
+
+<section id="audit">
+  <h2>⑤ 공유 점검 <svg class="ic"><use href="#i-shield"/></svg></h2>
+  <div class="mock cards">
+    <div class="c"><b>12</b>공유된 항목</div><div class="c red"><b>2</b>링크 공개(편집)</div><div class="c red"><b>3</b>링크 공개(보기)</div><div class="c amber"><b>7</b>외부 계정 공유</div>
+  </div>
+  <ol class="steps"><li>「점검 시작」 — 내 드라이브 전체를 훑습니다 (내용은 읽지 않음)</li><li>칸을 누르면 그 종류만 보입니다</li><li>체크(또는 「보이는 것 모두 선택」) → 할 일 → 「변경 실행」</li><li>잘못 바꿨으면 「↩ 되돌리기」</li></ol>
+  <p class="note">상위 폴더에서 온 권한은 건너뜁니다 — 그 폴더를 바꾸세요. 알림 메일은 보내지 않습니다. <svg class="ic"><use href="#i-folder"/></svg> 폴더 열기 · <svg class="ic"><use href="#i-file"/></svg> 파일 열기 아이콘으로 드라이브에서 확인할 수 있습니다.</p>
+</section>
+
+<section id="pii">
+  <h2>⑥ 개인정보 검사 <svg class="ic"><use href="#i-search"/></svg></h2>
+  <div class="mock"><p class="row">학급자료/명단.xlsx</p><span class="chip red">주민·외국인등록번호 30건 · 높음</span> <span class="chip red">휴대전화 30건 · 높음</span> <span class="chip amber">이메일 1건 · 낮음(의심)</span></div>
+  <ol class="steps"><li>드라이브에서 파일·폴더 선택</li><li>「개인정보 검사」</li><li>개인정보가 있으면 바로 「암호화」</li></ol>
+  <p class="note">원문은 보여 주지도 저장하지도 않습니다. 「검사 불가」(스캔 PDF·사진 등)는 안전하다는 뜻이 아닙니다. 드라이브 <b>전체</b> 검사는 데스크톱 앱에서 하세요.</p>
+</section>
+
+<section id="lock">
+  <h2>⑦ 잠금과 비밀번호</h2>
+  <div class="flow">
+    <div class="box"><svg class="ic"><use href="#i-lock"/></svg><b>잠김</b><p>개인 비밀번호 한 번</p></div><div class="arrow">→</div>
+    <div class="box"><svg class="ic"><use href="#i-unlock"/></svg><b>열림</b><p>모든 암호화 파일이 바로 열림</p></div><div class="arrow">→</div>
+    <div class="box">⏱<b>15분</b><p>안 쓰면 자동 잠금 (설정에서 5·15·30·60분)</p></div>
+  </div>
+  <p class="note"><b>비밀번호를 잊었나요?</b> → 종이의 복구 키 → 새 비밀번호. 복구 키 = 모든 파일을 여는 만능키이니 금고처럼 보관하세요.</p>
+</section>
+
+<section id="safe">
+  <h2>⑧ 안전</h2>
+  <ul class="facts">
+    <li>구글 드라이브 API 외에는 어디에도 접속하지 않습니다 (원격 분석·광고 없음).</li>
+    <li>풀린 내용은 확장 프로그램 화면의 <b>메모리</b>에만 있고, 닫거나 10분 동안 안 쓰면 지워집니다.</li>
+    <li>이 컴퓨터에 두는 것: 클라이언트 ID, <b>개인 비밀번호로 암호화한</b> 복구 키 사본, 잠금 시간.</li>
+    <li>영구 삭제는 하지 않습니다 — 휴지통(30일 안에 복원 가능)만.</li>
+    <li>운영체제의 화면 캡처·스왑은 막을 수 없습니다. 공용 PC에서는 「💾 저장」을 쓰지 마세요.</li>
+  </ul>
+</section>
+
+<section id="trouble">
+  <h2>⑨ 문제 해결</h2>
+  <table class="legend"><tr><th>이럴 때</th><th>이렇게</th></tr>
+    <tr><td>「드라이브와 연결 안 됨」</td><td>드라이브 탭 새로고침 (Mac ⌘R, Windows F5)</td></tr>
+    <tr><td>선택해도 카드가 안 나옴</td><td>확장 프로그램 ↻ 새로고침 후 드라이브 탭 새로고침</td></tr>
+    <tr><td>복구 키가 안 맞음</td><td>35자 확인 (0/O, 1/I, 8/B는 자동 처리)</td></tr>
+    <tr><td>아주 큰 파일·폴더</td><td>데스크톱 앱 사용</td></tr>
+  </table>
+</section>
+</main>
+<footer>본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다. · Google Drive는 Google LLC의 상표입니다.</footer>
+</body>
+</html>
