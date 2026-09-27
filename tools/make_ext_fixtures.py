@@ -112,6 +112,11 @@ def main() -> None:
     if not merged.exists():  # keep the committed file stable (python-docx embeds timestamps)
         merged.write_bytes(_merged_docx())
     key = _valid_key()
+    from dpg.core.vault.recovery import fingerprint
+
+    (OUT / "expected" / "recovery_fingerprint.txt").write_text(
+        fingerprint(parse_recovery_key(key)) + "\n", encoding="utf-8"
+    )
     raw = parse_recovery_key(key)
     members = {n: (SRC / n).read_bytes() for n in FILES}
     tag7z, tagzip = "0a1b2c3d", "4e5f6a7b"

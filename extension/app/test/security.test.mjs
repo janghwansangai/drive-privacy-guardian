@@ -29,7 +29,7 @@ test("network: only Google sign-in and the Drive API", () => {
 });
 
 test("minimal permissions, no content scripts, no remote code", () => {
-  assert.deepEqual([...manifest.permissions].sort(), ["identity", "sidePanel", "storage"]);
+  assert.deepEqual([...manifest.permissions].sort(), ["alarms", "identity", "sidePanel", "storage"]);
   // One content script, on Drive only (D-086); what it may do is checked below.
   assert.deepEqual(manifest.content_scripts, [
     { matches: ["https://drive.google.com/*"], js: ["drive_watch.js"], run_at: "document_idle", all_frames: false },
@@ -45,15 +45,22 @@ test("minimal permissions, no content scripts, no remote code", () => {
   }
 });
 
-test("nothing decrypted is persisted: storage holds only the client ID, no downloads API", () => {
+test("nothing decrypted is persisted; storage holds only what D-088 allows", () => {
+  const allowed = {
+    "lib/drive.js": ["clientId", "auth"], // auth → session storage (memory only)
+    "lib/keyring.js": ["vaultWrap", "vaultKey", "lockMinutes"], // vaultWrap is AES-GCM encrypted
+  };
   for (const f of SHIPPED) {
     const s = src(f);
-    for (const m of s.matchAll(/chrome\.storage\.(\w+)\.set\(([^)]*)\)/g)) {
-      assert.equal(m[1], "local", f);
-      assert.match(m[2], /^\{ clientId: value \}$/, `${f}: only the client ID may be stored`);
-    }
-    assert.doesNotMatch(s, /chrome\.downloads|localStorage|sessionStorage|indexedDB|caches\.open/, f);
+    assert.doesNotMatch(s, /chrome\.storage\.sync|setAccessLevel|chrome\.downloads|localStorage|sessionStorage|indexedDB|caches\.open/, f);
+    const keys = [...s.matchAll(/(?:storage\.\w+\??|local\(\)|session\(\))\.set\(\{\s*(\w+)/g)].map((m) => m[1]);
+    for (const k of keys) assert.ok((allowed[f] || []).includes(k), `${f}: may not store "${k}"`);
   }
+  const k = src("lib/keyring.js");
+  assert.match(k, /local\(\)\.set\(\{ vaultWrap \}\)/);
+  assert.match(k, /session\(\)\.set\(\{ vaultKey:/); // the unlocked key only in session memory
+  assert.doesNotMatch(k, /local\(\)\.set\(\{ vaultKey/);
+  assert.match(src("lib/drive.js"), /chrome\.storage\.session\?\.set\(\{ auth:/);
   assert.ok(!manifest.permissions.includes("downloads")); // saving uses a one-off <a download> link
 });
 

@@ -1,10 +1,12 @@
-// Viewer page: sign in → list encrypted files → unlock in memory → view HWP/HWPX/XLSX/DOCX/
-// PDF/images/CSV/TXT → save a copy only when the user asks (with a warning).
+// Viewer page: sign in → unlock the master key once (personal password; D-088) → encrypted files
+// open directly in memory → view HWP/HWPX/XLSX/DOCX/PDF/images/CSV/TXT → save / decrypt to Drive
+// only when the user asks.
 // Decrypted bytes and parsed content live only in variables of this page and are dropped on
 // close, after 10 idle minutes, and when the tab goes away.
 
 import * as drive from "./lib/drive.js";
-import { openArchive, passwordFor, parseRecoveryKey, tagFromName, WrongPassword, ArchiveError } from "./lib/vault.js";
+import { openArchive, derivePassword, passwordFor, parseRecoveryKey, tagFromName, WrongPassword, ArchiveError } from "./lib/vault.js";
+import * as keyring from "./lib/keyring.js";
 import { viewModel } from "./lib/view.js";
 import { renderModel } from "./lib/render.js";
 import { planMembers, reencrypt, ReencryptFailed } from "./lib/reencrypt.js";
@@ -14,7 +16,6 @@ const $ = (id) => document.getElementById(id);
 const IDLE_MS = 10 * 60 * 1000;
 
 let current = null; // { file, members: Map<name, Uint8Array> }
-let rememberedKey = null; // raw recovery key bytes, memory only, if the user asked
 let idleTimer = null;
 let shown = null; // name of the member on screen
 let handles = []; // things to release on close (object URLs, PDF documents)
@@ -53,12 +54,13 @@ function touch() {
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
     forget();
-    rememberedKey = null;
     message("10분 동안 쓰지 않아 풀린 내용을 메모리에서 지웠습니다.");
   }, IDLE_MS);
 }
 ["click", "keydown", "scroll"].forEach((t) => document.addEventListener(t, touch, { passive: true }));
-window.addEventListener("pagehide", () => { forget(); rememberedKey = null; drive.signOut(); });
+// Closing this view drops what it decrypted; the sign-in and the unlocked key stay in session
+// memory for the other views until the browser closes or the auto-lock time passes.
+window.addEventListener("pagehide", () => { forget(); });
 
 // -- settings --------------------------------------------------------------------------------
 $("redirect").textContent = chrome.identity.getRedirectURL();
@@ -185,51 +187,61 @@ $("login").onclick = async () => {
   }
   catch (e) { message(e.message); }
 };
-$("logout").onclick = () => { forget(); rememberedKey = null; drive.signOut(); setSignedIn(false); $("files").replaceChildren(); $("unlock").hidden = true; };
+$("logout").onclick = async () => {
+  forget(); drive.signOut(); await keyring.lock();
+  setSignedIn(false); $("files").replaceChildren(); $("unlock").hidden = true;
+};
 $("refresh").onclick = refresh;
 
 // -- unlock ----------------------------------------------------------------------------------
 let selected = null;
 let encrypted = null; // { id, bytes } — the still-encrypted download, reused on a retry
+let pendingOpen = null; // a file chosen while locked: opened right after unlocking
+
 async function select(file, li) {
   forget();
   document.querySelectorAll("#files li").forEach((x) => x.classList.remove("on"));
   li?.classList.add("on");
   selected = file;
   $("unlockName").textContent = file.name;
-  $("unlock").hidden = false;
+  $("unlock").hidden = true;
   $("password").value = "";
   message("");
-  if (rememberedKey && tagFromName(file.name)) {
-    await unlock(null); // the remembered recovery key opens it directly
+  const tag = tagFromName(file.name);
+  const raw = tag ? await keyring.currentKey() : null;
+  if (raw) {
+    pendingOpen = null;
+    await openWith({ raw }, await derivePassword(raw, tag), { fallback: true });
+  } else if (tag) {
+    pendingOpen = file; // locked: ask for the personal password once, then open
+    message("🔒 잠겨 있습니다 — 위쪽 🔒 칸에 개인 비밀번호를 넣으면 바로 열립니다.");
+    $("vaultPw")?.focus();
   } else {
-    $("password").focus();
+    showFilePassword(); // an old archive with its own password
   }
+}
+
+function showFilePassword(hint) {
+  $("unlock").hidden = false;
+  $("unlockHint").textContent = hint || "복구 키(만능키)로 잠그지 않은 예전 파일입니다. 이 파일을 잠글 때 정한 비밀번호를 넣으세요.";
+  $("password").focus();
 }
 
 $("unlockForm").onsubmit = async (ev) => {
   ev.preventDefault();
-  await unlock($("password").value);
+  if (!selected) return;
+  const typed = $("password").value;
+  $("password").value = "";
+  const raw = tagFromName(selected.name) ? await parseRecoveryKey(typed) : null;
+  await openWith(raw ? { raw } : { password: typed }, await passwordFor(selected.name, typed));
 };
 
-async function unlock(typed) {
+/** Download (memory only) and decrypt the selected archive. */
+async function openWith(secret, password, { fallback = false } = {}) {
   if (!selected) return;
   const file = selected;
   message("받는 중… (메모리에만)");
   try {
-    let password;
-    let secret; // kept while the archive is open, for re-encryption (E3)
-    if (typed === null) {
-      const { derivePassword } = await import("./lib/vault.js");
-      password = await derivePassword(rememberedKey, tagFromName(file.name));
-      secret = { raw: rememberedKey };
-    } else {
-      password = await passwordFor(file.name, typed);
-      const raw = tagFromName(file.name) ? await parseRecoveryKey(typed) : null;
-      secret = raw ? { raw } : { password: typed };
-      if ($("remember").checked && raw) rememberedKey = raw;
-    }
-    $("password").value = "";
     const mb = (n) => (n / 1024 / 1024).toFixed(1);
     if (Number(file.size || 0) > 300 * 1024 * 1024) message("큰 파일입니다. 받고 푸는 데 시간이 걸리고 메모리를 많이 씁니다…");
     if (!encrypted || encrypted.id !== file.id) {
@@ -237,17 +249,122 @@ async function unlock(typed) {
         message(total ? `받는 중… ${mb(done)} / ${mb(total)} MB (메모리에만)` : `받는 중… ${mb(done)} MB (메모리에만)`);
       }) };
     }
+    if (selected !== file) return;
     message("푸는 중…");
     const members = await openArchive(encrypted.bytes, password);
     current = { file, members, secret };
     showOpened();
     message("");
   } catch (e) {
-    if (e instanceof WrongPassword) message("비밀번호(또는 복구 키)가 맞지 않거나 파일이 손상되었습니다.");
+    if (e instanceof WrongPassword && fallback) {
+      message("");
+      showFilePassword("이 컴퓨터의 복구 키로는 열리지 않습니다 — 다른 복구 키로 만들었거나 따로 정한 비밀번호가 있는 파일입니다. 그 비밀번호(또는 그때의 복구 키)를 넣으세요.");
+    } else if (e instanceof WrongPassword) message("비밀번호가 맞지 않거나 파일이 손상되었습니다.");
     else if (e instanceof ArchiveError) message(e.message);
     else message(e.message || "열지 못했습니다.");
   }
 }
+
+// -- master key: set up once, unlock once, auto-lock (D-088) -----------------------------------
+const vaultMsg = (t) => { $("vaultMsg").textContent = t || ""; };
+const showVault = (id) => ["vaultSetup", "vaultUnlock", "vaultForgot", "vaultOpen"].forEach((x) => { $(x).hidden = x !== id; });
+
+async function refreshVault() {
+  if (!(await keyring.isSetUp())) { showVault("vaultSetup"); return; }
+  if (await keyring.currentKey({ touch: false })) {
+    showVault("vaultOpen");
+    $("lockInfo").textContent = `· ${await keyring.lockMinutes()}분 동안 안 쓰면 잠김`;
+    if (pendingOpen) { const f = pendingOpen; pendingOpen = null; if (selected?.id === f.id) await select(f, document.querySelector(`#files li[data-id="${CSS.escape(f.id)}"]`)); }
+  } else if ($("vaultForgot").hidden) {
+    showVault("vaultUnlock");
+  }
+}
+
+let newKey = null; // a recovery key made here, shown once until setup completes
+document.querySelectorAll('input[name="setupMode"]').forEach((r) => {
+  r.onchange = async () => {
+    const make = r.value === "new" && r.checked;
+    $("setupKey").hidden = make;
+    $("newKeyBox").hidden = !make;
+    if (make && !newKey) { newKey = await keyring.newRecoveryKey(); $("newKeyText").textContent = newKey.text; }
+  };
+});
+
+$("setupGo").onclick = async () => {
+  vaultMsg("");
+  const making = document.querySelector('input[name="setupMode"]:checked').value === "new";
+  let raw;
+  if (making) {
+    if (!$("newKeySaved").checked) { vaultMsg("새 복구 키를 종이에 적은 뒤 「종이에 적었습니다」를 체크해 주세요."); return; }
+    raw = newKey.raw;
+  } else {
+    raw = await parseRecoveryKey($("setupKey").value);
+    if (!raw) { vaultMsg("복구 키가 맞지 않습니다. 35자를 오타 없이 넣어 주세요 (0/O, 1/I, 8/B는 자동 처리)."); return; }
+  }
+  const bad = keyring.checkNewPassword($("setupPw").value, $("setupPw2").value);
+  if (bad) { vaultMsg(bad); return; }
+  $("setupGo").disabled = true;
+  try {
+    await keyring.setPassword(raw, $("setupPw").value);
+    ["setupKey", "setupPw", "setupPw2"].forEach((x) => { $(x).value = ""; });
+    newKey = null; $("newKeyText").textContent = "";
+    await refreshVault();
+  } catch (e) { vaultMsg(e.message); } finally { $("setupGo").disabled = false; }
+};
+
+$("vaultUnlock").onsubmit = async (ev) => {
+  ev.preventDefault();
+  vaultMsg("여는 중…");
+  try { await keyring.unlock($("vaultPw").value); $("vaultPw").value = ""; vaultMsg(""); await refreshVault(); }
+  catch (e) { vaultMsg(e.message); }
+};
+$("forgotBtn").onclick = () => { vaultMsg(""); showVault("vaultForgot"); $("forgotKey").focus(); };
+$("forgotCancel").onclick = () => { vaultMsg(""); showVault("vaultUnlock"); };
+$("vaultForgot").onsubmit = async (ev) => {
+  ev.preventDefault();
+  vaultMsg("");
+  const raw = await parseRecoveryKey($("forgotKey").value);
+  if (!raw) { vaultMsg("복구 키가 맞지 않습니다. 35자를 오타 없이 넣어 주세요."); return; }
+  const bad = keyring.checkNewPassword($("forgotPw").value, $("forgotPw2").value);
+  if (bad) { vaultMsg(bad); return; }
+  try {
+    await keyring.checkRecoveryKey(raw);
+    await keyring.setPassword(raw, $("forgotPw").value);
+    ["forgotKey", "forgotPw", "forgotPw2"].forEach((x) => { $(x).value = ""; });
+    showVault("vaultOpen");
+    await refreshVault();
+  } catch (e) { vaultMsg(e.message); }
+};
+$("lockNow").onclick = async () => { forget(); await keyring.lock(); };
+
+// Locked elsewhere (another view, the auto-lock alarm) → drop what this view decrypted.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "session" && "vaultKey" in changes) {
+    if (!changes.vaultKey.newValue && current?.secret?.raw) { forget(); message("잠겼습니다. 개인 비밀번호를 넣으면 다시 열립니다."); }
+    refreshVault();
+  }
+  if (area === "local" && "vaultWrap" in changes) refreshVault();
+});
+// Using this view counts as activity for the auto-lock.
+["click", "keydown"].forEach((t) => document.addEventListener(t, () => { keyring.currentKey().catch(() => {}); }, { passive: true }));
+
+// settings: lock time, change password, forget the key on this computer
+keyring.lockMinutes().then((m) => { $("lockMinutes").value = String(m); });
+$("lockMinutes").onchange = async () => { await keyring.setLockMinutes(Number($("lockMinutes").value)); refreshVault(); };
+$("changePw").onclick = async () => {
+  const raw = await keyring.currentKey();
+  if (!raw) { $("changePwMsg").textContent = "먼저 잠금을 풀어 주세요"; return; }
+  const bad = keyring.checkNewPassword($("newPw").value, $("newPw2").value);
+  if (bad) { $("changePwMsg").textContent = bad; return; }
+  await keyring.setPassword(raw, $("newPw").value);
+  $("newPw").value = ""; $("newPw2").value = "";
+  $("changePwMsg").textContent = "바꿨습니다";
+};
+$("forgetKey").onclick = async () => {
+  if (!confirm("이 컴퓨터에 잠가 둔 복구 키를 지울까요? 종이의 복구 키로 다시 설정할 수 있습니다.")) return;
+  forget(); await keyring.forget();
+};
+refreshVault();
 
 function showOpened() {
   $("unlock").hidden = true;
@@ -421,8 +538,6 @@ function closeReenc() {
   reenc = null;
   $("reenc").hidden = true;
   $("pick").value = "";
-  $("newSecret").value = "";
-  $("newSecret2").value = "";
   $("reencStatus").textContent = "";
 }
 
@@ -435,16 +550,13 @@ function openReenc(mode, driveFiles = []) {
   $("reencTitle").textContent = mode === "edit" ? `다시 암호화: ${current.file.name}`
     : mode === "drive" ? `드라이브 파일 암호화: ${driveFiles.length}개` : "새 파일 암호화해 올리기";
   $("pickStep").hidden = mode === "drive";
-  $("secretStep").hidden = mode === "edit";
   $("trashStep").hidden = mode === "new";
   $("trashLabel").textContent = mode === "drive" ? "원래 파일을 휴지통으로" : "예전 보관 파일을 휴지통으로";
-  $("secretInfo").hidden = mode !== "edit";
+  $("secretInfo").hidden = false;
+  $("secretInfo").textContent = "비밀번호: 복구 키(만능키)로 만듭니다 — 이 컴퓨터(개인 비밀번호), 데스크톱 앱, 종이의 복구 키로 모두 열립니다.";
   if (mode === "drive") {
     $("whereInfo").textContent = "보관 파일은 원래 파일과 같은 폴더에 올립니다. 구글 문서·시트·프레젠테이션은 Office 파일(docx·xlsx·pptx)로 바꿔 암호화합니다.";
   } else if (mode === "edit") {
-    $("secretInfo").textContent = current.secret.raw
-      ? "비밀번호: 복구 키로 새 파일의 비밀번호를 만듭니다 (데스크톱 앱에서도 복구 키로 열림)."
-      : "비밀번호: 이 파일을 열 때 넣은 비밀번호를 그대로 씁니다.";
     $("whereInfo").textContent = "새 보관 파일은 예전 파일과 같은 폴더에 올립니다 (안 되면 내 드라이브 맨 위).";
   } else {
     $("whereInfo").textContent = "새 보관 파일은 내 드라이브 맨 위에 올립니다. 데스크톱 앱의 「폴더로 옮기기」로 옮길 수 있습니다.";
@@ -498,14 +610,11 @@ $("pick").onchange = async () => {
   try { drawRows(); } catch (e) { $("reencStatus").textContent = e.message; }
 };
 
+/** New archives are always locked with the master key (D-088). */
 async function newSecret() {
-  const typed = $("newSecret").value;
-  if (!typed && rememberedKey) return { raw: rememberedKey }; // the recovery key remembered in this panel
-  const raw = await parseRecoveryKey(typed);
-  if (raw) return { raw };
-  if (typed.length < 8) throw new ReencryptFailed("복구 키가 아니면 8자 이상 비밀번호를 넣어 주세요 (복구 키는 35자, 오타 확인)");
-  if (typed !== $("newSecret2").value) throw new ReencryptFailed("비밀번호 확인이 다릅니다");
-  return { password: typed };
+  const raw = await keyring.currentKey();
+  if (!raw) throw new ReencryptFailed("먼저 위쪽 🔒 칸에서 잠금을 풀어 주세요 (개인 비밀번호)");
+  return { raw };
 }
 
 $("reencGo").onclick = async () => {
@@ -514,7 +623,7 @@ $("reencGo").onclick = async () => {
   $("reencGo").disabled = true;
   let fetched = [];
   try {
-    const secret = reenc.mode === "edit" ? current.secret : await newSecret();
+    const secret = await newSecret();
     const old = reenc.mode === "edit" ? current.file : null;
     let files;
     let parent = old?.parents?.[0] || null;
@@ -550,7 +659,6 @@ $("reencGo").onclick = async () => {
         ? `⚠ 원래 파일 ${result.trashFailed}개는 휴지통으로 옮기지 못했습니다 (소유자가 아니거나 권한 없음). 드라이브에서 확인하세요.`
         : `🗑 원래 파일 ${trashIds.length}개를 휴지통으로 옮겼습니다 (30일 안에 복원 가능).`);
     }
-    if (secret.password && reenc.mode === "new") lines.push("⚠ 직접 정한 비밀번호는 저장되지 않습니다. 잊으면 열 수 없습니다.");
     if (reenc.picked.length) lines.push("🧹 이 컴퓨터에서 고른 파일(암호 없음)은 다 썼으면 휴지통에 버리고 비우세요.");
     const keep = lines.join("\n");
     closeReenc();

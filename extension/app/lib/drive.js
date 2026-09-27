@@ -2,7 +2,9 @@
 // upload a new encrypted archive, move a replaced archive to the trash (never a permanent delete).
 // Scope: drive.file for viewing (E0: the desktop app's archives are visible with it). The full
 // `drive` scope is requested only when the user encrypts files chosen in Drive (D-086).
-// The access token lives only in this module's memory.
+// The access token lives in memory and in chrome.storage.session (memory only, cleared when the
+// browser closes, not readable by content scripts) so the side panel, the large view and the tab
+// share one sign-in (D-088).
 
 export const SCOPE_FILE = "https://www.googleapis.com/auth/drive.file";
 export const SCOPE_FULL = "https://www.googleapis.com/auth/drive";
@@ -25,7 +27,20 @@ export async function setClientId(value) {
   await chrome.storage.local.set({ clientId: value }); // an identifier, not a secret
 }
 
-export function signOut() { token = null; tokenExpiry = 0; granted = new Set(); wantFull = false; }
+export function signOut() {
+  token = null; tokenExpiry = 0; granted = new Set(); wantFull = false;
+  chrome.storage.session?.remove("auth").catch?.(() => {});
+}
+
+/** Pick up a sign-in made in another view of this extension (same browser session). */
+export async function restore() {
+  if (signedIn()) return true;
+  const a = (await chrome.storage.session?.get("auth"))?.auth;
+  if (!a || Date.now() >= a.expiry) return false;
+  token = a.token; tokenExpiry = a.expiry; granted = new Set(a.granted || []);
+  wantFull = granted.has(SCOPE_FULL);
+  return true;
+}
 export function hasFullAccess() { return signedIn() && granted.has(SCOPE_FULL); }
 export function signedIn() { return !!token && Date.now() < tokenExpiry; }
 
@@ -46,6 +61,7 @@ export async function signIn({ interactive = true, prompt = "select_account" } =
   granted = new Set((p.get("scope") || "").split(" "));
   token = p.get("access_token");
   tokenExpiry = Date.now() + (Number(p.get("expires_in") || 3600) - 60) * 1000;
+  await chrome.storage.session?.set({ auth: { token, expiry: tokenExpiry, granted: [...granted] } });
 }
 
 /** Ask for the full Drive scope (only when encrypting files chosen in Drive). */
@@ -62,7 +78,7 @@ export async function requestFullAccess() {
 }
 
 async function authed(url, init = {}) {
-  if (!signedIn()) await signIn({ interactive: true, prompt: "" });
+  if (!signedIn() && !(await restore())) await signIn({ interactive: true, prompt: "" });
   let res = await fetch(url, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` } });
   if (res.status === 401) {
     signOut();

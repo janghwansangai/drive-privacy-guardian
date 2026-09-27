@@ -41,10 +41,53 @@
     <p>이 확장 프로그램의 리디렉션 주소 (구글 콘솔의 웹 애플리케이션 클라이언트에 등록): <code id="redirect"></code></p>
     <label>OAuth 클라이언트 ID <input id="client" size="72" placeholder="1234-abc.apps.googleusercontent.com"></label>
     <button id="saveClient" class="filled">저장</button> <span id="clientSaved"></span>
+    <h3>자동 잠금</h3>
+    <label>안 쓰면 잠그기 <select id="lockMinutes"><option value="5">5분</option><option value="15">15분</option><option value="30">30분</option><option value="60">60분</option></select></label>
+    <h3>개인 비밀번호 바꾸기 <span class="muted small">(잠금이 풀려 있을 때)</span></h3>
+    <input id="newPw" type="password" placeholder="새 개인 비밀번호 (8자 이상)" autocomplete="new-password">
+    <input id="newPw2" type="password" placeholder="새 개인 비밀번호 확인" autocomplete="new-password">
+    <button id="changePw" class="tonal">바꾸기</button> <span id="changePwMsg"></span>
+    <h3>이 컴퓨터에서 열쇠 지우기</h3>
+    <p class="small muted">이 컴퓨터에 잠가 둔 복구 키를 지웁니다. 파일은 그대로이며 종이의 복구 키로 다시 설정할 수 있습니다.</p>
+    <button id="forgetKey" class="text">열쇠 지우기</button>
   </section>
 
   <main>
     <aside class="card">
+      <div id="vaultCard" class="vaultCard">
+        <div id="vaultSetup" hidden>
+          <b>🛟 처음 한 번 설정</b>
+          <p class="small">모든 암호화 파일은 <b>복구 키(만능키)</b>로 잠급니다. 이 컴퓨터에는 복구 키를 <b>개인 비밀번호</b>로 잠가 보관하고, 평소에는 개인 비밀번호만 넣습니다.</p>
+          <label class="radio"><input type="radio" name="setupMode" value="have" checked> 복구 키가 있어요 <span class="muted">(데스크톱 앱에서 만든 35자 — 이미 쓰고 있다면 꼭 이것)</span></label>
+          <label class="radio"><input type="radio" name="setupMode" value="new"> 없어요, 새로 만들기</label>
+          <input id="setupKey" placeholder="복구 키 35자 (예: ABCDE-FGHIJ-…)" autocomplete="off">
+          <div id="newKeyBox" class="newKeyBox" hidden>
+            <p class="small">새 복구 키입니다. <b>종이에 적어 안전한 곳에</b> 두세요. 비밀번호를 잊거나 다른 컴퓨터에서 열 때 필요합니다. 이 화면을 닫으면 다시 볼 수 없습니다.</p>
+            <code id="newKeyText"></code>
+            <label class="radio"><input type="checkbox" id="newKeySaved"> 종이에 적었습니다</label>
+          </div>
+          <input id="setupPw" type="password" placeholder="개인 비밀번호 (8자 이상)" autocomplete="new-password">
+          <input id="setupPw2" type="password" placeholder="개인 비밀번호 확인" autocomplete="new-password">
+          <button id="setupGo" class="filled wide">설정 완료</button>
+        </div>
+        <form id="vaultUnlock" hidden autocomplete="off">
+          <b>🔒 잠겨 있습니다</b>
+          <input id="vaultPw" type="password" placeholder="개인 비밀번호" autocomplete="current-password">
+          <button type="submit" class="filled">잠금 풀기</button>
+          <button type="button" id="forgotBtn" class="text">비밀번호를 잊었나요?</button>
+        </form>
+        <form id="vaultForgot" hidden autocomplete="off">
+          <b>🛟 복구 키로 열기</b>
+          <p class="small">종이에 적어 둔 복구 키(35자)를 넣고, 새 개인 비밀번호를 정하세요.</p>
+          <input id="forgotKey" placeholder="복구 키 35자" autocomplete="off">
+          <input id="forgotPw" type="password" placeholder="새 개인 비밀번호 (8자 이상)" autocomplete="new-password">
+          <input id="forgotPw2" type="password" placeholder="새 개인 비밀번호 확인" autocomplete="new-password">
+          <button type="submit" class="filled">새 비밀번호로 열기</button>
+          <button type="button" id="forgotCancel" class="text">취소</button>
+        </form>
+        <div id="vaultOpen" hidden>🔓 <b>열림</b> <span id="lockInfo" class="muted"></span> <button id="lockNow" class="text">잠그기</button></div>
+        <p id="vaultMsg" class="message"></p>
+      </div>
       <div class="asideHead">
         <div class="seg" role="tablist">
           <button id="scopeFolder" class="on" role="tab" title="드라이브에서 지금 열어 둔 폴더">📁 이 폴더</button>
@@ -68,11 +111,10 @@
       <div id="unlock" hidden>
         <h2 id="unlockName"></h2>
         <form id="unlockForm" autocomplete="off">
-          <input id="password" type="password" size="44" placeholder="비밀번호 또는 복구 키(35자)" autocomplete="off">
+          <input id="password" type="password" size="44" placeholder="이 파일만의 비밀번호" autocomplete="off">
           <button type="submit" class="filled">열기</button>
-          <label class="remember"><input id="remember" type="checkbox"> 복구 키를 이 창이 열려 있는 동안만 기억</label>
         </form>
-        <p class="muted">복구 키로 만든 파일은 종이에 적어 둔 복구 키(35자)를 넣어도 열립니다.</p>
+        <p class="muted small" id="unlockHint">복구 키(만능키)로 잠그지 않은 예전 파일입니다. 이 파일을 잠글 때 정한 비밀번호를 넣으세요.</p>
       </div>
       <div id="opened" hidden>
         <div class="openedHead">
@@ -94,9 +136,6 @@
             <input id="pick" type="file" multiple></li>
           <li>새 보관 파일에 들어갈 내용을 확인합니다. <span class="muted">(빼려면 체크)</span>
             <table id="reencRows" class="grid"></table></li>
-          <li id="secretStep" hidden>비밀번호: <b>복구 키(35자)</b>를 넣으면 이 키로 새 비밀번호를 만듭니다(권장). 직접 정한 비밀번호도 됩니다(8자 이상, 두 번).
-            <div><input id="newSecret" type="password" size="44" autocomplete="off" placeholder="복구 키 또는 새 비밀번호 (기억한 복구 키가 있으면 비워 둠)">
-            <input id="newSecret2" type="password" size="24" autocomplete="off" placeholder="비밀번호 확인 (복구 키면 비워 둠)"></div></li>
           <li id="secretInfo"></li>
           <li id="trashStep"><label><input id="trashOld" type="checkbox" checked> 확인이 끝나면 <b id="trashLabel">예전 보관 파일을 휴지통으로</b> (30일 안에 복원 가능)</label></li>
         </ol>

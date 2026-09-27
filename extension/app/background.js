@@ -1,6 +1,13 @@
+import { currentKey } from "./lib/keyring.js";
+
 // The toolbar icon opens the viewer as a side panel next to the current tab (Google Drive),
 // so encrypted files open on the same screen. The viewer can also open as a full tab.
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+
+// Auto-lock (D-088): drop the unlocked key from session memory after the chosen idle time,
+// even when no extension page is open.
+chrome.alarms.create("autolock", { periodInMinutes: 1 });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === "autolock") currentKey({ touch: false }).catch(() => {}); });
 
 const pendingOpen = new Map(); // windowId → { id, at } (memory only: a file ID, for a panel just opened)
 

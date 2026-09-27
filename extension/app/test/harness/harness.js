@@ -37,7 +37,20 @@ async function e2Archive() {
 }
 const store = { clientId: "123-harness.apps.googleusercontent.com" };
 globalThis.chrome = {
-  storage: { local: { get: async (k) => ({ [k]: store[k] }), set: async (o) => Object.assign(store, o) } },
+  storage: (() => {
+    const listeners = [];
+    const area = (name, data) => ({
+      data,
+      get: async (k) => ({ [k]: data[k] }),
+      set: async (o) => {
+        const changes = {};
+        for (const [k, v] of Object.entries(o)) { changes[k] = { oldValue: data[k], newValue: v }; data[k] = JSON.parse(JSON.stringify(v)); }
+        listeners.forEach((fn) => fn(changes, name));
+      },
+      remove: async (k) => { const changes = { [k]: { oldValue: data[k] } }; delete data[k]; listeners.forEach((fn) => fn(changes, name)); },
+    });
+    return { local: area("local", store), session: area("session", {}), onChanged: { addListener: (fn) => listeners.push(fn) } };
+  })(),
   identity: {
     getRedirectURL: () => "https://gjlomabldjleleakkeffjojhjdgeekgj.chromiumapp.org/",
     launchWebAuthFlow: async ({ url }) => {
