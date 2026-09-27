@@ -12,6 +12,10 @@ export const parseXml = (text) => new DOMParser().parseFromString(text, "text/xm
 export const expected = (name) => JSON.parse(fs.readFileSync(path.join(FIX, "expected", `${name}.json`), "utf8"));
 export const recoveryKey = () => fs.readFileSync(path.join(FIX, "recovery.txt"), "utf8").split("\n")[0].trim();
 
+// Under Node, 7-Zip WASM records its own exit status (2 = wrong password, which the tests expect)
+// as the process exit code; the test runner would read that as a failed file.
+process.on("beforeExit", () => { if (process.exitCode === 2) process.exitCode = 0; });
+
 setLoader(async () => (await import("../vendor/7z-wasm/7zz.es6.js")).default);
 
 /** Collapse whitespace and drop trailing empty cells/rows so both sides compare fairly. */

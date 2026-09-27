@@ -112,7 +112,8 @@ export async function openArchive(bytes, password) {
   return out;
 }
 
-/** 7z AES-256 with header encryption (same format as the desktop app). Folder names are kept. */
+/** 7z AES-256 with header encryption (same format as the desktop app). Folder names are kept.
+ *  Stored without compression (-mx=0, user request): faster, and documents barely shrink anyway. */
 export async function create7z(files, password) {
   if (!password) throw new ArchiveError("비밀번호가 없습니다");
   const sz = await newSevenZip();
@@ -130,7 +131,7 @@ export async function create7z(files, password) {
     if (!names.includes(parts[0])) names.push(parts[0]);
   }
   sz.FS.chdir("/in"); // relative names → the archive keeps "folder/file" paths
-  const code = sz.callMain(["a", "/out.7z", ...names, `-p${password}`, "-mhe=on", "-mx=7", "-bso0", "-bsp0"]);
+  const code = sz.callMain(["a", "/out.7z", ...names, `-p${password}`, "-mhe=on", "-mx=0", "-bso0", "-bsp0"]);
   if (code !== 0) throw new ArchiveError("암호화에 실패했습니다");
   return sz.FS.readFile("/out.7z");
 }

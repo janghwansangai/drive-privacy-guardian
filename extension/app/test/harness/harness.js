@@ -8,6 +8,11 @@ const FILES = [
   // ordinary Drive files (visible only after the full scope is granted)
   { id: "plainDocx000000000000001", plain: true, parents: ["folderA123456"], name: "가정통신문_체험학습.docx", mimeType: "application/octet-stream", size: "9000", createdTime: "2026-09-20T00:00:00Z" },
   { id: "googleDoc000000000000002", plain: true, parents: ["folderA123456"], name: "회의록", mimeType: "application/vnd.google-apps.document", createdTime: "2026-09-21T00:00:00Z" },
+  // a folder with a sub-folder (folder encryption)
+  { id: "folderClass0000000000001", plain: true, parents: ["folderA123456"], name: "학급자료", mimeType: "application/vnd.google-apps.folder", createdTime: "2026-09-22T00:00:00Z" },
+  { id: "childCsv000000000000001", plain: true, parents: ["folderClass0000000000001"], name: "6-2_학생_연락처.csv", mimeType: "text/csv", size: "800", createdTime: "2026-09-22T00:00:00Z" },
+  { id: "folderSub00000000000001", plain: true, parents: ["folderClass0000000000001"], name: "하위", mimeType: "application/vnd.google-apps.folder", createdTime: "2026-09-22T00:00:00Z" },
+  { id: "childTxt000000000000001", plain: true, parents: ["folderSub00000000000001"], name: "업무메모.txt", mimeType: "text/plain", size: "300", createdTime: "2026-09-22T00:00:00Z" },
   { id: "fe2Archive000300000000", name: "보관_2026-09-27_9c8d7e6f.7z", size: "90000", createdTime: "2026-09-25T00:00:00Z" },
 ];
 const built = {};
@@ -109,6 +114,13 @@ window.fetch = async (input, init) => {
       built[id] = new Uint8Array(init.body);
       FILES.find((f) => f.id === id).size = String(built[id].length);
       return new Response(JSON.stringify({ id }), { headers: { "content-type": "application/json" } });
+    }
+    if (url.pathname === "/drive/v3/files" && init?.method === "POST") { // new folder
+      const meta = JSON.parse(init.body);
+      const id = `newfolder${++window.harnessUploads}`.padEnd(24, "0");
+      FILES.push({ id, plain: true, name: meta.name, mimeType: meta.mimeType, parents: meta.parents });
+      window.harnessFolders = (window.harnessFolders || []).concat(`${meta.name}←${meta.parents?.[0]}`);
+      return new Response(JSON.stringify({ id, name: meta.name }), { headers: { "content-type": "application/json" } });
     }
     if (init?.method === "PATCH") {
       window.harnessTrashed = (window.harnessTrashed || []).concat(decodeURIComponent(/\/files\/([^/?]+)/.exec(url.pathname)[1]));

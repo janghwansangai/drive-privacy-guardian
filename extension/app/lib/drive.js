@@ -190,3 +190,50 @@ export async function fetchContent(file) {
   if ((file.mimeType || "").startsWith("application/vnd.google-apps.")) throw new Error(`「${file.name}」은(는) 암호화할 수 없는 형식입니다 (폴더·양식 등)`);
   return { name: file.name, bytes: await download(file) };
 }
+
+export const FOLDER_MIME = "application/vnd.google-apps.folder";
+export const TREE_LIMITS = { files: 3000, bytes: 700 * 1024 * 1024 };
+
+/** Every file under a folder, with its path inside it (`하위폴더/파일.hwp`). Shortcuts and forms
+ *  are skipped (reported); stops with a clear message past TREE_LIMITS (memory-only work). */
+export async function listFolderTree(folder, limits = TREE_LIMITS) {
+  const files = [];
+  const skipped = [];
+  let bytes = 0;
+  const queue = [{ id: folder.id, path: "" }];
+  while (queue.length) {
+    const { id, path } = queue.shift();
+    if (!/^[\w-]+$/.test(id)) continue;
+    let pageToken = "";
+    do {
+      const url = new URL(API);
+      url.search = new URLSearchParams({
+        q: `'${id}' in parents and trashed = false`, pageSize: "1000",
+        fields: "nextPageToken,files(id,name,mimeType,size,parents)",
+        supportsAllDrives: "true", includeItemsFromAllDrives: "true", ...(pageToken ? { pageToken } : {}),
+      }).toString();
+      const body = await (await authed(url)).json();
+      for (const f of body.files) {
+        const name = f.name.replace(/[\\/]/g, "_");
+        if (f.mimeType === FOLDER_MIME) { queue.push({ id: f.id, path: `${path}${name}/` }); continue; }
+        if (f.mimeType.startsWith("application/vnd.google-apps.") && !EXPORTS[f.mimeType]) { skipped.push(`${path}${name}`); continue; }
+        bytes += Number(f.size || 0);
+        files.push({ ...f, path: `${path}${name}` });
+        if (files.length > limits.files) throw new Error(`폴더 안 파일이 너무 많습니다 (${limits.files}개 초과) — 데스크톱 앱을 쓰거나 폴더를 나눠 주세요`);
+        if (bytes > limits.bytes) throw new Error(`폴더가 너무 큽니다 (${Math.round(limits.bytes / 1048576)}MB 초과, 브라우저 메모리에서 작업) — 폴더를 나눠 주세요`);
+      }
+      pageToken = body.nextPageToken || "";
+    } while (pageToken);
+  }
+  return { files, skipped };
+}
+
+/** A new folder (for decrypting a folder archive back into Drive). */
+export async function createFolder(name, parent) {
+  const clean = String(name).replace(/[\\/]/g, "_").trim().slice(0, 255) || "폴더";
+  const url = `${API}?supportsAllDrives=true&fields=id,name,parents`;
+  return (await authed(url, {
+    method: "POST", headers: { "Content-Type": "application/json; charset=UTF-8" },
+    body: JSON.stringify({ name: clean, mimeType: FOLDER_MIME, ...(parent ? { parents: [parent] } : {}) }),
+  })).json();
+}

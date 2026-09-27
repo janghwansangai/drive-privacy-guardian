@@ -160,3 +160,19 @@ body.overlay #panel:has(> #message:empty):not(:has(> :is(#unlock, #opened, #reen
 body.overlay .close { background: #f1f3f4; }
 body.overlay .doc:not(.pdf) { font-size: 15px; padding: 16px 32px; }
 body.overlay .sheet { max-height: calc(100vh - 260px); }
+
+/* pressed state for toggle buttons (settings, help, list) */
+.icon[aria-pressed="true"] { background: var(--blue-soft); color: #001d35; }
+#overlayClose { display: none; }
+body.overlay #overlayClose { display: inline-grid; background: rgba(255,255,255,.14); color: #fff; font-size: 20px; width: 40px; height: 40px; }
+/* the file list only when asked (☰) — the side panel starts with the Drive selection */
+body:not(.showList) aside .asideHead, body:not(.showList) #scopeInfo, body:not(.showList) #files { display: none; }
+/* files to encrypt: plain rows with a small ✕ */
+table.rows { border-collapse: collapse; width: 100%; margin-top: 6px; font-size: 13px; }
+table.rows td { padding: 5px 6px; border-bottom: 1px solid var(--line); word-break: break-all; }
+table.rows td.x { width: 32px; text-align: right; }
+table.rows td.x button { color: var(--muted); border-radius: 50%; width: 26px; height: 26px; }
+table.rows td.x button:hover { background: #f1f3f4; color: var(--error); }
+table.rows td.state { width: 56px; font-size: 12px; font-weight: 600; }
+table.rows td.state.바꿈 { color: var(--warn); } table.rows td.state.추가 { color: var(--ok); }
+#selList li .btns { display: flex; gap: 6px; flex: none; }

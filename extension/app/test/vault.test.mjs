@@ -49,3 +49,12 @@ test("extension-made 7z round trip (header encrypted, names hidden)", async () =
   const back = await openArchive(blob, "Aa1-roundtrip");
   assert.equal(new TextDecoder().decode(back.get("가상_메모.txt")), "hello");
 });
+
+test("extension archives are stored without compression (user request) but still encrypted", async () => {
+  const zeros = new Uint8Array(200000); // would shrink to almost nothing if compressed
+  const blob = await create7z(new Map([["폴더/하위/빈칸.bin", zeros]]), "Aa1-store-test");
+  assert.ok(blob.length > 200000, `stored, not compressed (${blob.length} bytes)`);
+  const back = await openArchive(blob, "Aa1-store-test");
+  assert.deepEqual([...back.keys()], ["폴더/하위/빈칸.bin"]);
+  await assert.rejects(openArchive(blob, "wrong-password"), WrongPassword);
+});
