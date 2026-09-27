@@ -11,6 +11,7 @@ import { viewModel } from "./lib/view.js";
 import { renderModel } from "./lib/render.js";
 import { planMembers, reencrypt, ReencryptFailed } from "./lib/reencrypt.js";
 import { parseDriveUrl } from "./lib/driveurl.js";
+import { restoreToDrive, RestoreFailed } from "./lib/restore.js";
 
 const $ = (id) => document.getElementById(id);
 const IDLE_MS = 10 * 60 * 1000;
@@ -397,6 +398,32 @@ async function show(name, btn) {
   const track = (h) => { if (current && shown === name) handles.push(h); else h.destroy(); };
   $("view").replaceChildren(renderModel(model, (t) => { $("notice").textContent = t; }, track));
 }
+
+// -- decrypt back into Drive (only when asked) ----------------------------------------------------
+$("restoreBtn").onclick = () => { $("restoreStatus").textContent = ""; $("restoreOk").disabled = false; $("restoreDialog").showModal(); };
+$("restoreCancel").onclick = () => $("restoreDialog").close();
+$("restoreOk").onclick = async () => {
+  if (!current) return;
+  const file = current.file;
+  $("restoreOk").disabled = true;
+  try {
+    const r = await restoreToDrive({
+      members: current.members, parent: file.parents?.[0] || null, archiveId: file.id,
+      trashArchive: $("restoreTrash").checked, drive, onStep: (t) => { $("restoreStatus").textContent = t; },
+    });
+    $("restoreDialog").close();
+    const lines = [`✓ ${r.files.length}개 파일을 드라이브의 같은 폴더에 풀었습니다: ${r.files.map((f) => f.name).join(", ")}`];
+    if (!r.allVerified) lines.push("⚠ 올린 파일 중 다시 받아 비교가 맞지 않는 것이 있어 암호화 파일은 지우지 않았습니다.");
+    else if (r.trashedArchive) lines.push("🗑 암호화 파일을 휴지통으로 옮겼습니다 (30일 안에 복원 가능).");
+    forget();
+    selected = null;
+    await refresh();
+    message(lines.join("\n"), r.allVerified);
+  } catch (e) {
+    $("restoreStatus").textContent = e instanceof RestoreFailed ? e.message : `실패: ${e.message}`;
+    $("restoreOk").disabled = false;
+  }
+};
 
 // -- save (only when asked) -------------------------------------------------------------------
 $("save").onclick = () => $("saveDialog").showModal();

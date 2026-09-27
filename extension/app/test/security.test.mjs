@@ -119,6 +119,7 @@ test("E3 writes: upload and trash only — no permanent delete, trash only after
   const r = src("lib/reencrypt.js");
   assert.match(r, /if \(trashOld && trashIds\.length && uploadVerified\)/);
   assert.ok(r.indexOf("verifyArchive(") < r.indexOf("drive.upload("), "verify before upload");
+  assert.match(src("lib/restore.js"), /if \(trashArchive && archiveId && allVerified\)/);
 });
 
 test("Drive page watcher only reports file IDs to this extension (D-086)", () => {

@@ -123,6 +123,7 @@
         </div>
         <div class="actions">
           <button id="save" class="tonal" hidden>💾 저장</button>
+          <button id="restoreBtn" class="tonal">🔓 풀어서 드라이브에 저장</button>
           <button id="reencBtn" class="tonal">🔒 고친 파일로 다시 암호화</button>
         </div>
         <ul id="members"></ul>
@@ -146,6 +147,17 @@
       <p id="message" class="message"></p>
     </section>
   </main>
+  <dialog id="restoreDialog">
+    <h2>암호를 풀어 드라이브에 저장할까요?</h2>
+    <ul>
+      <li>안의 파일이 <b>원래 이름 그대로</b>, 암호화 파일이 있던 <b>같은 폴더</b>에 생깁니다.</li>
+      <li>풀린 파일은 <b>암호가 없고</b>, 그 폴더의 공유 설정을 따릅니다.</li>
+      <li>올린 파일을 다시 받아 비교해서 모두 맞을 때만 암호화 파일을 휴지통으로 옮깁니다.</li>
+    </ul>
+    <label class="radio"><input type="checkbox" id="restoreTrash" checked> 확인이 끝나면 <b>암호화 파일을 휴지통으로</b> (30일 안에 복원 가능)</label>
+    <p id="restoreStatus" class="notice"></p>
+    <div class="dialogButtons"><button id="restoreCancel" class="text">취소</button> <button id="restoreOk" class="filled">풀어서 저장</button></div>
+  </dialog>
   <dialog id="saveDialog">
     <h2>풀린 파일을 이 컴퓨터에 저장할까요?</h2>
     <ul>

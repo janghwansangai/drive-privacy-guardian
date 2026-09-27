@@ -122,6 +122,10 @@ canvas.pdfPage { max-width: 100%; height: auto; background: #fff; box-shadow: 0 
 #reencRows td.state.바꿈 { color: var(--warn); } #reencRows td.state.추가 { color: var(--ok); } #reencRows td.state.뺌 { color: #999; text-decoration: line-through; }
 
 /* save dialog */
+dialog#restoreDialog { max-width: 460px; border: 0; border-radius: 28px; padding: 24px; box-shadow: 0 4px 24px rgba(0,0,0,.25); }
+dialog#restoreDialog::backdrop { background: rgba(0,0,0,.32); }
+dialog#restoreDialog h2 { margin-top: 0; font-size: 18px; }
+dialog#restoreDialog li { margin: 6px 0; line-height: 1.5; }
 dialog#saveDialog { max-width: 460px; border: 0; border-radius: 28px; padding: 24px; box-shadow: 0 4px 24px rgba(0,0,0,.25); }
 dialog#saveDialog::backdrop { background: rgba(0,0,0,.32); }
 dialog#saveDialog h2 { color: var(--error); margin-top: 0; font-size: 18px; }
