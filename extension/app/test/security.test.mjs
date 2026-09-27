@@ -122,7 +122,7 @@ test("Drive page watcher only reports file IDs to this extension (D-086)", () =>
   assert.doesNotMatch(w, /\.(innerHTML|outerHTML|textContent|innerText|value)\s*=|appendChild|append\(|prepend\(|insertAdjacent|setAttribute|\.style\b|createElement|remove\(\)/);
   // the messages carry IDs only
   const sends = [...w.matchAll(/send\(\{([^}]*)\}\)/g)].map((m) => m[1].trim());
-  assert.deepEqual(sends, ['type: "driveSelection", ids', 'type: "driveOpen", id']);
+  assert.deepEqual(sends, ['type: "driveStatus", items, selected: selected.length, found: ids.length', 'type: "driveSelection", ids', 'type: "driveOpen", id']);
   // the receivers check who sent it
   assert.match(src("viewer.js"), /sender\.id !== chrome\.runtime\.id \|\| !sender\.tab \|\| !sender\.url\?\.startsWith\("https:\/\/drive\.google\.com\/"\)/);
   assert.match(src("background.js"), /if \(sender\.id !== chrome\.runtime\.id\) return;/);

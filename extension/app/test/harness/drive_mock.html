@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>드라이브 화면 모형 (drive_watch.js 시험용)</title></head>
+<body>
+<!-- Layout A: list row carries aria-selected, the ID sits on a child -->
+<table><tbody>
+  <tr role="row" aria-selected="false" id="rowA"><td><div data-id="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA">보관_2026-09-27_0a1b2c3d.7z</div></td><td>나</td></tr>
+  <tr role="row" aria-selected="false" id="rowA2"><td><div data-id="BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB">회의록</div></td></tr>
+</tbody></table>
+<!-- Layout B: ID and selection on the same element -->
+<div role="row" data-id="CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC" aria-selected="false" id="rowB"><span>가정통신문.docx</span></div>
+<!-- Layout C: grid view; gridcell selected, ID on an ancestor -->
+<div data-id="DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"><div role="gridcell" aria-selected="false" id="cellC"><span>보관_2026-09-26_49d8aee1.7z</span></div></div>
+<!-- Layout D: checkbox column (aria-checked) -->
+<div role="row" id="rowD"><div role="checkbox" aria-checked="false" id="chkD"></div><div data-id="EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE">메모.txt</div></div>
+<script>
+  window.msgs = [];
+  window.chrome = { runtime: { id: "x", sendMessage: async (m) => { window.msgs.push(m); }, onMessage: { addListener() {} } } };
+  window.previewOpened = 0;
+  document.addEventListener("dblclick", () => { window.previewOpened++; }); // stands in for Drive's own preview
+</script>
+<script src="../../drive_watch.js"></script>
+</body></html>

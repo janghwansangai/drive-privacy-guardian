@@ -63,6 +63,8 @@ main { display: grid; grid-template-columns: 320px 1fr; gap: 12px; padding: 0 12
 #files li .meta { color: var(--muted); font-size: 11.5px; grid-column: 2; }
 
 /* files selected in the Drive tab */
+.driveLink { font-size: 12px; margin: 8px 2px 0; color: var(--muted); }
+.driveLink.off { color: var(--warn); }
 .selCard { background: var(--blue-tint); border-radius: 12px; padding: 10px 12px; margin: 10px 0 6px; }
 .selHead { font-size: 13px; color: #0842a0; margin-bottom: 4px; }
 #selList { list-style: none; padding: 0; margin: 4px 0 8px; }

@@ -53,6 +53,7 @@ globalThis.chrome = {
     query: async () => [{ id: 2, active: true, windowId: 1, url: window.harnessDriveUrl }],
     onActivated: { addListener: () => {} },
     onUpdated: { addListener: (fn) => { window.harnessTabListeners.push(fn); } },
+    sendMessage: async (_id, m) => { window.harnessPings = (window.harnessPings || 0) + 1; if (!window.harnessWatcher) throw new Error("no receiver"); window.harnessFromDrive({ type: "driveStatus", items: 12, selected: 0, found: 0 }); },
   },
   windows: { getCurrent: async () => ({ id: 1 }) },
   runtime: {

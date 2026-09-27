@@ -157,6 +157,14 @@ async function watchDriveTab() {
   listenToDrive(win).catch(() => {});
   const check = async () => {
     const [tab] = await chrome.tabs.query({ active: true, ...(win ? { windowId: win.id } : { currentWindow: true }) });
+    const wasDrive = driveTabActive;
+    driveTabActive = !!tab?.url?.startsWith("https://drive.google.com/");
+    if (driveTabActive && (driveTabActive !== wasDrive || !watcherSeen)) {
+      watcherSeen = 0;
+      chrome.tabs.sendMessage(tab.id, { type: "ping" }).catch(() => showDriveLink(null)); // no watcher there
+      setTimeout(() => showDriveLink(null), 2500);
+    }
+    if (!driveTabActive) showDriveLink(null);
     try { await followDrive(tab?.url); } catch (e) { message(e.message); }
   };
   let timer = null;
@@ -369,11 +377,31 @@ $("selEncrypt").onclick = async () => {
   } catch (e) { message(e.message); }
 };
 
+// Status line: is the Drive page watcher running in the active Drive tab, and does it find files?
+let driveTabActive = false;
+let watcherSeen = 0; // time of the last message from drive_watch.js
+function showDriveLink(status) {
+  const p = $("driveLink");
+  if (!driveTabActive) { p.hidden = true; return; }
+  p.hidden = false;
+  if (status) {
+    watcherSeen = Date.now();
+    p.classList.remove("off");
+    p.textContent = `🔗 드라이브와 연결됨 · 화면의 파일 ${status.items}개 인식`
+      + (status.selected && !status.found ? ` · 선택한 ${status.selected}개를 알아보지 못함` : "");
+  } else if (!watcherSeen) {
+    p.classList.add("off");
+    p.textContent = "🔌 드라이브와 연결 안 됨 — 드라이브 탭을 새로고침(F5, Mac은 ⌘R)해 주세요";
+  }
+}
+
 async function listenToDrive(win) {
   chrome.runtime.onMessage.addListener((msg, sender) => {
     if (sender.id !== chrome.runtime.id || !sender.tab || !sender.url?.startsWith("https://drive.google.com/")) return;
     if (win && sender.tab.windowId !== win.id) return; // another window's Drive tab
     const ok = (id) => typeof id === "string" && /^[\w-]{20,}$/.test(id);
+    const n = (v) => (Number.isInteger(v) && v >= 0 && v < 1e6 ? v : 0);
+    if (msg?.type === "driveStatus") showDriveLink({ items: n(msg.items), selected: n(msg.selected), found: n(msg.found) });
     if (msg?.type === "driveSelection" && Array.isArray(msg.ids)) showSelection(msg.ids.filter(ok).slice(0, 50)).catch((e) => message(e.message));
     if (msg?.type === "driveOpen" && ok(msg.id)) {
       chrome.runtime.sendMessage({ type: "takePendingOpen", windowId: win?.id }).catch(() => {}); // handled here
