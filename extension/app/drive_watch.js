@@ -1,8 +1,9 @@
-// Runs on drive.google.com (isolated from the page's own scripts). It only tells the side panel
-// WHICH files are selected / double-clicked — their Drive IDs — plus counts for a status line.
-// It never reads file contents, never changes the page, stores nothing and talks only to this
-// extension (D-086). If Drive changes its page structure it simply stops finding IDs; the panel
-// list still works.
+// Runs on drive.google.com (isolated from the page's own scripts). It tells the side panel WHICH
+// files are selected — their Drive IDs — plus counts for a status line, and shows the large view:
+// one full-screen <iframe> of this extension's viewer (D-089). The decrypted content lives only
+// inside that iframe (extension origin: Drive's scripts cannot read it). This script never reads
+// file contents, adds nothing else to the page, stores nothing and talks only to this extension.
+// If Drive changes its page structure it simply stops finding IDs; the panel list still works.
 (() => {
   const ID = /^[\w-]{20,}$/;
   // Name pattern of this app's encrypted archives (a double-click on one opens it in the panel
@@ -50,7 +51,25 @@
   document.addEventListener("click", soon, true);
   document.addEventListener("keyup", soon, true);
 
-  // Double-click (or the second click of one) on an encrypted archive → open it in the panel.
+  // Large view: the extension's viewer in a full-screen iframe over Drive, closed with ✕ or Esc.
+  const ORIGIN = new URL(chrome.runtime.getURL("")).origin;
+  let overlay = null;
+  const closeOverlay = () => { overlay?.remove(); overlay = null; };
+  const showOverlay = (id) => {
+    closeOverlay();
+    overlay = document.createElement("iframe");
+    overlay.src = chrome.runtime.getURL(`viewer.html?mode=overlay&file=${encodeURIComponent(id)}`);
+    overlay.title = "암호화 파일 크게 보기";
+    overlay.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;border:0;z-index:2147483647;background:transparent;color-scheme:normal";
+    document.documentElement.append(overlay);
+    overlay.focus();
+  };
+  window.addEventListener("message", (ev) => {
+    if (ev.origin === ORIGIN && ev.source === overlay?.contentWindow && ev.data?.type === "dpgOverlayClose") closeOverlay();
+  });
+  document.addEventListener("keydown", (ev) => { if (overlay && ev.key === "Escape") { ev.stopImmediatePropagation(); closeOverlay(); } }, true);
+
+  // Double-click (or the second click of one) on an encrypted archive → the large view.
   let lastOpen = 0;
   const onOpen = (ev) => {
     if (ev.type !== "dblclick" && (ev.detail || 0) < 2) return;
@@ -61,13 +80,15 @@
     ev.stopImmediatePropagation();
     if (Date.now() - lastOpen < 800) return;
     lastOpen = Date.now();
-    send({ type: "driveOpen", id });
+    showOverlay(id);
   };
   for (const type of ["dblclick", "mousedown", "click"]) window.addEventListener(type, onOpen, true);
 
   // The panel asks "are you there?" when it opens or when this tab becomes active.
   chrome.runtime.onMessage.addListener((msg, sender) => {
-    if (sender.id === chrome.runtime.id && !sender.tab && msg?.type === "ping") { last = ""; report(); }
+    if (sender.id !== chrome.runtime.id || sender.tab) return;
+    if (msg?.type === "ping") { last = ""; report(); }
+    if (msg?.type === "showOverlay" && typeof msg.id === "string" && ID.test(msg.id)) showOverlay(msg.id);
   });
   report(); // hello: lets the panel show that Drive is connected
 })();

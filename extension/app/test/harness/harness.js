@@ -2,13 +2,13 @@
 // that serves the synthetic fixture archives. No network, no Google account. Not shipped.
 const FIX = "../fixtures/";
 const FILES = [
-  { id: "f7zArchive0001", parents: ["folderA123456"], name: "보관_2026-09-27_0a1b2c3d.7z", size: "50000", createdTime: "2026-09-27T00:00:00Z" },
-  { id: "fzipArchive0002", name: "보관_2026-09-27_4e5f6a7b.zip", size: "50000", createdTime: "2026-09-26T00:00:00Z" },
+  { id: "f7zArchive000100000000", parents: ["folderA123456"], name: "보관_2026-09-27_0a1b2c3d.7z", size: "50000", createdTime: "2026-09-27T00:00:00Z" },
+  { id: "fzipArchive00020000000", name: "보관_2026-09-27_4e5f6a7b.zip", size: "50000", createdTime: "2026-09-26T00:00:00Z" },
   // E2 formats: built in the page with the extension's own 7z writer (recovery-key password)
   // ordinary Drive files (visible only after the full scope is granted)
   { id: "plainDocx000000000000001", plain: true, parents: ["folderA123456"], name: "가정통신문_체험학습.docx", mimeType: "application/octet-stream", size: "9000", createdTime: "2026-09-20T00:00:00Z" },
   { id: "googleDoc000000000000002", plain: true, parents: ["folderA123456"], name: "회의록", mimeType: "application/vnd.google-apps.document", createdTime: "2026-09-21T00:00:00Z" },
-  { id: "fe2Archive0003", name: "보관_2026-09-27_9c8d7e6f.7z", size: "90000", createdTime: "2026-09-25T00:00:00Z" },
+  { id: "fe2Archive000300000000", name: "보관_2026-09-27_9c8d7e6f.7z", size: "90000", createdTime: "2026-09-25T00:00:00Z" },
 ];
 const built = {};
 const SYN_URL = "/tests/fixtures/synthetic/";
@@ -49,7 +49,10 @@ globalThis.chrome = {
       },
       remove: async (k) => { const changes = { [k]: { oldValue: data[k] } }; delete data[k]; listeners.forEach((fn) => fn(changes, name)); },
     });
-    return { local: area("local", store), session: area("session", {}), onChanged: { addListener: (fn) => listeners.push(fn) } };
+    // ?signedin → start with a sign-in already in session storage (as another view would leave it)
+    const session = new URLSearchParams(location.search).has("signedin")
+      ? { auth: { token: "fake-token", expiry: Date.now() + 3600e3, granted: ["https://www.googleapis.com/auth/drive.file"] } } : {};
+    return { local: area("local", store), session: area("session", session), onChanged: { addListener: (fn) => listeners.push(fn) } };
   })(),
   identity: {
     getRedirectURL: () => "https://gjlomabldjleleakkeffjojhjdgeekgj.chromiumapp.org/",
@@ -122,7 +125,7 @@ window.fetch = async (input, init) => {
     }
     if (m && url.searchParams.get("alt") === "media") {
       const f = FILES.find((x) => x.id === decodeURIComponent(m[1]));
-      if (f.id === "fe2Archive0003") return new Response(await e2Archive());
+      if (f.id === "fe2Archive000300000000") return new Response(await e2Archive());
       if (built[f.id]) return new Response(built[f.id]);
       if (f.plain) return realFetch(SYN_URL + encodeURIComponent(f.name));
       return realFetch(FIX + encodeURIComponent(f.name));

@@ -17,13 +17,16 @@ test("network: only Google sign-in and the Drive API", () => {
   const csp = manifest.content_security_policy.extension_pages;
   assert.match(csp, /connect-src 'self' https:\/\/www\.googleapis\.com;/);
   assert.match(csp, /script-src 'self' 'wasm-unsafe-eval';/);
+  // only Drive may frame the viewer (the large view, D-089)
+  assert.match(csp, /frame-ancestors https:\/\/drive\.google\.com$/);
   assert.doesNotMatch(csp, /(?<!wasm-)unsafe-eval|unsafe-inline|http:/);
   // XML namespace names are identifiers, never fetched.
   const NAMESPACES = new Set(["http://schemas.openxmlformats.org/officeDocument/2006/relationships"]);
   for (const f of SHIPPED) {
     for (const url of (src(f).match(/https?:\/\/[^\s"'`)]+/g) || []).filter((u) => !NAMESPACES.has(u))) {
       // drive.google.com appears only as a sender check (startsWith) — never fetched (see connect-src).
-      assert.match(url, /^https:\/\/(www\.googleapis\.com|accounts\.google\.com|drive\.google\.com)\//, `${f}: ${url}`);
+      // (and as the postMessage target of the large view's close request)
+      assert.match(url, /^https:\/\/(www\.googleapis\.com|accounts\.google\.com|drive\.google\.com)(\/|$)/, `${f}: ${url}`);
     }
   }
 });
@@ -37,7 +40,8 @@ test("minimal permissions, no content scripts, no remote code", () => {
   assert.ok(!manifest.permissions.includes("scripting") && !manifest.permissions.includes("tabs"));
   assert.equal(manifest.side_panel.default_path, "viewer.html");
   for (const f of SHIPPED) assert.doesNotMatch(src(f), /chrome\.scripting|executeScript|insertCSS/, f);
-  assert.equal(manifest.web_accessible_resources, undefined);
+  // only viewer.html, only for Drive (the large view's iframe, D-089)
+  assert.deepEqual(manifest.web_accessible_resources, [{ resources: ["viewer.html"], matches: ["https://drive.google.com/*"] }]);
   for (const f of SHIPPED) {
     const s = src(f);
     assert.doesNotMatch(s, /\beval\(|new Function\(|importScripts\(/, f);
@@ -122,16 +126,22 @@ test("E3 writes: upload and trash only — no permanent delete, trash only after
   assert.match(src("lib/restore.js"), /if \(trashArchive && archiveId && allVerified\)/);
 });
 
-test("Drive page watcher only reports file IDs to this extension (D-086)", () => {
+test("Drive page watcher: file IDs to this extension, and only the large-view iframe on the page (D-086, D-089)", () => {
   const w = src("drive_watch.js");
   // talks only to this extension, never to the network or storage
-  assert.doesNotMatch(w, /fetch\(|XMLHttpRequest|WebSocket|sendBeacon|chrome\.storage|localStorage|indexedDB|postMessage|chrome\.tabs/);
-  // never changes the Drive page
-  assert.doesNotMatch(w, /\.(innerHTML|outerHTML|textContent|innerText|value)\s*=|appendChild|append\(|prepend\(|insertAdjacent|setAttribute|\.style\b|createElement|remove\(\)/);
-  // the messages carry IDs only
+  assert.doesNotMatch(w, /fetch\(|XMLHttpRequest|WebSocket|sendBeacon|chrome\.storage|localStorage|indexedDB|chrome\.tabs/);
+  assert.doesNotMatch(w, /\bpostMessage\(/, "it only listens for the iframe's close request");
+  // the only page change: one iframe of this extension's viewer, added and removed
+  assert.deepEqual([...w.matchAll(/createElement\("(\w+)"\)/g)].map((m) => m[1]), ["iframe"]);
+  assert.match(w, /overlay\.src = chrome\.runtime\.getURL\(`viewer\.html\?mode=overlay&file=\$\{encodeURIComponent\(id\)\}`\)/);
+  assert.doesNotMatch(w, /\.(innerHTML|outerHTML|textContent|innerText|value)\s*=|appendChild|prepend\(|insertAdjacent|setAttribute|document\.write/);
+  assert.equal((w.match(/\.append\(/g) || []).length, 1);
+  assert.match(w, /ev\.origin === ORIGIN && ev\.source === overlay\?\.contentWindow/);
+  // the messages carry IDs / counts only
   const sends = [...w.matchAll(/send\(\{([^}]*)\}\)/g)].map((m) => m[1].trim());
-  assert.deepEqual(sends, ['type: "driveStatus", items, selected: selected.length, found: ids.length', 'type: "driveSelection", ids', 'type: "driveOpen", id']);
+  assert.deepEqual(sends, ['type: "driveStatus", items, selected: selected.length, found: ids.length', 'type: "driveSelection", ids']);
   // the receivers check who sent it
   assert.match(src("viewer.js"), /sender\.id !== chrome\.runtime\.id \|\| !sender\.tab \|\| !sender\.url\?\.startsWith\("https:\/\/drive\.google\.com\/"\)/);
-  assert.match(src("background.js"), /if \(sender\.id !== chrome\.runtime\.id\) return;/);
+  assert.match(w, /if \(sender\.id !== chrome\.runtime\.id \|\| sender\.tab\) return;/);
+  assert.match(src("background.js"), /if \(sender\.id !== chrome\.runtime\.id \|\| sender\.tab/);
 });

@@ -9,24 +9,8 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => 
 chrome.alarms.create("autolock", { periodInMinutes: 1 });
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === "autolock") currentKey({ touch: false }).catch(() => {}); });
 
-const pendingOpen = new Map(); // windowId → { id, at } (memory only: a file ID, for a panel just opened)
-
-chrome.runtime.onMessage.addListener((msg, sender, reply) => {
-  if (sender.id !== chrome.runtime.id) return;
-  if (msg?.type === "takePendingOpen" && !sender.tab) {
-    const p = pendingOpen.get(msg.windowId);
-    pendingOpen.delete(msg.windowId);
-    reply(p && Date.now() - p.at < 15000 ? { id: p.id } : null);
-    return;
-  }
-  // A double-clicked encrypted file in Drive: open the panel next to that tab (Chrome allows this
-  // only right after a user action; if it is refused the panel, when open, still picks it up).
-  if (msg?.type === "driveOpen" && sender.tab?.id !== undefined && sender.url?.startsWith("https://drive.google.com/")) {
-    pendingOpen.set(sender.tab.windowId, { id: String(msg.id), at: Date.now() });
-    chrome.sidePanel.open({ tabId: sender.tab.id }).catch(() => {});
-    return;
-  }
-  if (msg?.type !== "openTab") return;
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (sender.id !== chrome.runtime.id || sender.tab || msg?.type !== "openTab") return;
   const url = chrome.runtime.getURL("viewer.html");
   chrome.tabs.query({ url }).then(([tab]) => (tab ? chrome.tabs.update(tab.id, { active: true }) : chrome.tabs.create({ url })));
 });

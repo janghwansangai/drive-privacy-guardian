@@ -14,6 +14,10 @@ import { parseDriveUrl } from "./lib/driveurl.js";
 import { restoreToDrive, RestoreFailed } from "./lib/restore.js";
 
 const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+// Large view over Drive (D-089): this page inside drive_watch.js's full-screen iframe.
+const OVERLAY = params.get("mode") === "overlay" && window.parent !== window;
+if (OVERLAY) document.body.classList.add("overlay");
 const IDLE_MS = 10 * 60 * 1000;
 
 let current = null; // { file, members: Map<name, Uint8Array> }
@@ -147,7 +151,9 @@ async function followLoc(loc) {
   if (scope === "folder") await refresh();
 }
 
+let driveTabId = null;
 async function watchDriveTab() {
+  if (OVERLAY) return;
   const me = await chrome.tabs.getCurrent?.();
   if (me) { // full-tab mode: no Drive tab to follow
     document.body.classList.add("inTab");
@@ -162,6 +168,7 @@ async function watchDriveTab() {
     const [tab] = await chrome.tabs.query({ active: true, ...(win ? { windowId: win.id } : { currentWindow: true }) });
     const wasDrive = driveTabActive;
     driveTabActive = !!tab?.url?.startsWith("https://drive.google.com/");
+    driveTabId = driveTabActive ? tab.id : null;
     if (driveTabActive && (driveTabActive !== wasDrive || !watcherSeen)) {
       watcherSeen = 0;
       chrome.tabs.sendMessage(tab.id, { type: "ping" }).catch(() => showDriveLink(null)); // no watcher there
@@ -181,6 +188,7 @@ $("login").onclick = async () => {
   try {
     await drive.signIn({ interactive: true });
     setSignedIn(true);
+    if (OVERLAY) { await openOverlayFile(); return; }
     const loc = driveLoc;
     driveLoc = undefined; // re-apply the Drive tab's folder / file now that we can list
     if (loc?.file) await followLoc(loc);
@@ -271,8 +279,10 @@ const vaultMsg = (t) => { $("vaultMsg").textContent = t || ""; };
 const showVault = (id) => ["vaultSetup", "vaultUnlock", "vaultForgot", "vaultOpen"].forEach((x) => { $(x).hidden = x !== id; });
 
 async function refreshVault() {
+  const unlocked = (await keyring.isSetUp()) && !!(await keyring.currentKey({ touch: false }));
+  document.body.classList.toggle("unlocked", unlocked);
   if (!(await keyring.isSetUp())) { showVault("vaultSetup"); return; }
-  if (await keyring.currentKey({ touch: false })) {
+  if (unlocked) {
     showVault("vaultOpen");
     $("lockInfo").textContent = `· ${await keyring.lockMinutes()}분 동안 안 쓰면 잠김`;
     if (pendingOpen) { const f = pendingOpen; pendingOpen = null; if (selected?.id === f.id) await select(f, document.querySelector(`#files li[data-id="${CSS.escape(f.id)}"]`)); }
@@ -367,8 +377,20 @@ $("forgetKey").onclick = async () => {
 };
 refreshVault();
 
+async function openOverlayFile() {
+  const id = params.get("file") || "";
+  if (!/^[\w-]{20,}$/.test(id)) { message("열 파일을 알 수 없습니다."); return; }
+  if (!(await drive.restore())) { message("위쪽 「로그인」을 눌러 구글 로그인을 해 주세요. 로그인하면 바로 열립니다."); return; }
+  setSignedIn(true);
+  const f = await drive.getFile(id).catch(() => null);
+  if (!f) { message("이 파일을 볼 권한이 없습니다 (이 앱으로 만든 암호화 파일만 열 수 있습니다)."); return; }
+  await select(f, null);
+}
+if (OVERLAY) openOverlayFile().catch((e) => message(e.message));
+
 function showOpened() {
   $("unlock").hidden = true;
+  $("bigBtn").hidden = OVERLAY || driveTabId === null;
   $("opened").hidden = false;
   $("openedName").textContent = current.file.name;
   const ul = $("members");
@@ -438,7 +460,9 @@ $("saveOk").onclick = () => {
   message(`「${a.download}」을(를) 다운로드 폴더에 저장했습니다. 다 쓰면 휴지통에 버리고 휴지통도 비우세요.`);
 };
 
-$("close").onclick = () => { forget(); $("unlock").hidden = !selected; };
+const closeOverlay = () => { forget(); window.parent.postMessage({ type: "dpgOverlayClose" }, "https://drive.google.com"); };
+$("close").onclick = () => { if (OVERLAY) { closeOverlay(); return; } forget(); $("unlock").hidden = !selected; };
+if (OVERLAY) document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !document.querySelector("dialog[open]")) closeOverlay(); });
 $("back").onclick = () => {
   forget();
   closeReenc();
@@ -447,6 +471,12 @@ $("back").onclick = () => {
   document.querySelectorAll("#files li").forEach((x) => x.classList.remove("on"));
 };
 $("openTab").onclick = () => chrome.runtime.sendMessage({ type: "openTab" });
+// From the side panel: show the open archive large, over the Drive tab.
+$("bigBtn").onclick = async () => {
+  if (!current || driveTabId === null) return;
+  try { await chrome.tabs.sendMessage(driveTabId, { type: "showOverlay", id: current.file.id }); forget(); $("unlock").hidden = true; selected = null; }
+  catch { message("드라이브 탭을 새로고침(F5, Mac은 ⌘R)한 뒤 다시 눌러 주세요."); }
+};
 
 // Narrow side panel: show either the list or the open file (body.focus), with "← 목록" to go back.
 const focusTargets = ["unlock", "opened", "reenc"].map($);
@@ -547,14 +577,7 @@ async function listenToDrive(win) {
     const n = (v) => (Number.isInteger(v) && v >= 0 && v < 1e6 ? v : 0);
     if (msg?.type === "driveStatus") showDriveLink({ items: n(msg.items), selected: n(msg.selected), found: n(msg.found) });
     if (msg?.type === "driveSelection" && Array.isArray(msg.ids)) showSelection(msg.ids.filter(ok).slice(0, 50)).catch((e) => message(e.message));
-    if (msg?.type === "driveOpen" && ok(msg.id)) {
-      chrome.runtime.sendMessage({ type: "takePendingOpen", windowId: win?.id }).catch(() => {}); // handled here
-      openDriveFile(msg.id).catch((e) => message(e.message));
-    }
   });
-  // The panel may have been opened by that very double-click: ask for it.
-  const pending = await chrome.runtime.sendMessage({ type: "takePendingOpen", windowId: win?.id }).catch(() => null);
-  if (pending?.id) openDriveFile(pending.id).catch(() => {});
 }
 
 // -- E3: re-encrypt and upload -----------------------------------------------------------------
