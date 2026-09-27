@@ -27,186 +27,215 @@
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></symbol>
     <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
     <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21V5M8 7h7"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5.5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="18.5" r="2.5"/><path d="M8.2 10.8l7.6-4.1M8.2 13.2l7.6 4.1"/></symbol>
+    <symbol id="i-idscan" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M6 16c.7-1.4 1.7-2 3-2s2.3.6 3 2M14.5 10h4M14.5 13h3"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 17l5-5-5-5M19 12H8"/><path d="M10 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
   </svg>
-  <header class="bar">
-    <div class="brand"><span class="logo"><svg class="ic"><use href="#i-badge"/></svg></span><h1>개인정보 보안관</h1></div>
-    <nav class="account">
-      <button id="login" class="icon" data-tip="구글 로그인" aria-label="구글 로그인"><svg class="ic"><use href="#i-login"/></svg></button>
-      <button id="logout" class="icon signed" data-tip="로그인됨 · 누르면 로그아웃" aria-label="로그아웃" hidden><svg class="ic"><use href="#i-user"/></svg></button>
-      <button id="openTab" class="icon" data-tip="새 탭에서 크게" aria-label="새 탭에서 크게"><svg class="ic"><use href="#i-newtab"/></svg></button>
-      <span class="sep"></span>
-      <button id="tabVault" class="icon" data-tip="암호화 파일" aria-label="암호화 파일" aria-pressed="true"><svg class="ic"><use href="#i-lock"/></svg></button>
-      <button id="auditBtn" class="icon" data-tip="공유 점검 (내 드라이브 전체)" aria-label="공유 점검" aria-pressed="false"><svg class="ic"><use href="#i-shield"/></svg></button>
-      <button id="piiBtn" class="icon" data-tip="개인정보 검사 (선택한 파일·폴더)" aria-label="개인정보 검사" aria-pressed="false"><svg class="ic"><use href="#i-search"/></svg></button>
-      <button id="settingsBtn" class="icon" data-tip="설정" aria-label="설정" aria-pressed="false"><svg class="ic"><use href="#i-sliders"/></svg></button>
-      <button id="helpBtn" class="icon" data-tip="도움말" aria-label="도움말" aria-pressed="false"><svg class="ic"><use href="#i-help"/></svg></button>
+  <header class="top">
+    <div class="brand"><span class="badgeLogo"><svg class="ic"><use href="#i-badge"/></svg></span><b>개인정보 보안관</b></div>
+    <h1 class="pageTitle" id="pageTitle"></h1>
+    <div class="acct">
+      <button id="login" class="pill light"><svg class="ic"><use href="#i-login"/></svg><span>로그인</span></button>
+      <button id="acctBtn" class="pill" aria-haspopup="menu" aria-expanded="false" hidden><span class="avatar" id="avatar">·</span><span id="acctName">로그인됨</span><svg class="ic"><use href="#i-down"/></svg></button>
+      <div id="acctMenu" class="menu" role="menu" hidden>
+        <div class="menuEmail" id="acctEmail"></div>
+        <button id="openTab" role="menuitem"><svg class="ic"><use href="#i-newtab"/></svg><span>새 탭에서 크게 열기</span></button>
+        <button id="logout" role="menuitem"><svg class="ic"><use href="#i-logout"/></svg><span>로그아웃</span></button>
+      </div>
+    </div>
+    <div class="util">
+      <button id="settingsBtn" class="icon" data-tip="설정" aria-label="설정" aria-pressed="false"><svg class="ic"><use href="#i-gear"/></svg><span class="lbl">설정</span></button>
+      <button id="helpBtn" class="icon" data-tip="도움말" aria-label="도움말" aria-pressed="false"><svg class="ic"><use href="#i-help"/></svg><span class="lbl">도움말</span></button>
       <button id="overlayClose" class="icon closeBig" data-tip="닫기 (Esc)" aria-label="닫기"><svg class="ic"><use href="#i-close"/></svg></button>
+    </div>
+    <nav class="tabs" aria-label="기능">
+      <button id="auditBtn" class="tab blue" aria-pressed="false"><svg class="ic"><use href="#i-share"/></svg><span>공유 점검</span></button>
+      <button id="piiBtn" class="tab amber" aria-pressed="false"><svg class="ic"><use href="#i-idscan"/></svg><span>개인정보 점검</span></button>
+      <button id="tabVault" class="tab green" aria-pressed="true"><svg class="ic"><use href="#i-lock"/></svg><span>암호화 관리</span></button>
     </nav>
   </header>
 
-  <section id="help" class="view card">
-    <h2>도움말</h2>
-    <ul class="tips">
-      <li><svg class="ic"><use href="#i-lock"/></svg> <b>암호화 파일</b> — 드라이브에서 파일을 고르면 암호화·열기·풀기</li>
-      <li><svg class="ic"><use href="#i-shield"/></svg> <b>공유 점검</b> — 내 드라이브 전체의 공유 상태를 보고 한꺼번에 바꾸기</li>
-      <li><svg class="ic"><use href="#i-search"/></svg> <b>개인정보 검사</b> — 고른 파일·폴더에서 주민번호 등 찾기</li>
-      <li>개인 비밀번호 한 번이면 모든 파일이 열리고, 15분 동안 안 쓰면 잠깁니다.</li>
-      <li>풀린 내용은 이 화면의 메모리에만 있고 저장하지 않습니다.</li>
-    </ul>
-    <button id="guideBtn" class="filled"><svg class="ic"><use href="#i-book"/></svg> 설명서 열기</button>
-  </section>
-
-  <section id="settings" class="view card">
-    <h2>설정</h2>
-    <h3>구글 연결</h3>
-    <label class="small">OAuth 클라이언트 ID <input id="client" placeholder="1234-abc.apps.googleusercontent.com"></label>
-    <button id="saveClient" class="filled">저장</button> <span id="clientSaved" class="small"></span>
-    <p class="small muted">리디렉션 주소: <code id="redirect"></code></p>
-    <h3>자동 잠금</h3>
-    <label class="small">안 쓰면 잠그기 <select id="lockMinutes"><option value="5">5분</option><option value="15">15분</option><option value="30">30분</option><option value="60">60분</option></select></label>
-    <h3>개인 비밀번호 바꾸기</h3>
-    <input id="newPw" type="password" placeholder="새 개인 비밀번호 (8자 이상)" autocomplete="new-password">
-    <input id="newPw2" type="password" placeholder="확인" autocomplete="new-password">
-    <button id="changePw" class="tonal">바꾸기</button> <span id="changePwMsg" class="small"></span>
-    <h3>이 컴퓨터에서 열쇠 지우기</h3>
-    <button id="forgetKey" class="text">열쇠 지우기</button>
-  </section>
-
-  <section id="pii" class="view card">
-    <div class="openedHead"><h2><svg class="ic"><use href="#i-search"/></svg> 개인정보 검사</h2>
-      <span><button id="piiBig" class="icon" data-tip="드라이브 위에 크게" aria-label="크게 보기"><svg class="ic"><use href="#i-expand"/></svg></button></span></div>
-    <p id="piiHint" class="small muted">드라이브에서 파일·폴더를 고른 뒤 검사하세요. 종류·건수만 보여 줍니다.</p>
-    <div class="auditRun"><button id="piiStart" class="filled">검사</button> <button id="piiStop" class="text" hidden>중지</button> <span id="piiProgress" class="small"></span></div>
-    <ul id="piiList" class="auditList"></ul>
-    <button id="piiEncrypt" class="filled wide" hidden>🔒 개인정보가 있는 파일 암호화</button>
-  </section>
-
-  <section id="audit" class="view card">
-    <div class="openedHead"><h2><svg class="ic"><use href="#i-shield"/></svg> 공유 점검</h2>
-      <span><button id="auditBig" class="icon" data-tip="드라이브 위에 크게" aria-label="크게 보기"><svg class="ic"><use href="#i-expand"/></svg></button></span></div>
-    <p class="small muted">내 드라이브 전체의 공유 상태 (내용은 읽지 않음)</p>
-    <div class="auditRun"><button id="auditStart" class="filled">점검 시작</button> <button id="auditStop" class="text" hidden>중지</button> <span id="auditProgress" class="small"></span></div>
-    <div id="auditCards" class="auditCards" hidden></div>
-    <div id="auditTools" hidden>
-      <label class="small allBox"><input type="checkbox" id="auditAll"> 보이는 것 모두 선택</label>
-      <span id="auditPicked" class="small muted"></span>
+  <!-- 공유 점검 -->
+  <section id="audit" class="view">
+    <div class="card">
+      <div class="heroRow">
+        <div class="grow"><div class="cap">밖으로 공유된 항목</div><div class="big" id="auditTotal">–</div></div>
+        <button id="auditStart" class="btn outline blue"><svg class="ic"><use href="#i-refresh"/></svg><span>점검 시작</span></button>
+        <button id="auditStop" class="btn ghost" hidden>중지</button>
+        <button id="auditBig" class="icon" data-tip="드라이브 위에 크게" aria-label="크게 보기"><svg class="ic"><use href="#i-expand"/></svg></button>
+      </div>
+      <p id="auditProgress" class="cap">내 드라이브 전체 · 파일 내용은 읽지 않음</p>
+      <div id="auditCards" class="stats" hidden></div>
     </div>
-    <ul id="auditList" class="auditList"></ul>
-    <button id="auditMore" class="text" hidden>더 보기</button>
-    <div class="shareDo" id="auditDo" hidden>
-      <label class="small">할 일<select id="auditAction"></select></label>
-      <p id="auditPlan" class="small"></p>
-      <button id="auditGo" class="filled" disabled>변경 실행</button>
-      <button id="auditUndo" class="tonal" hidden>↩ 되돌리기</button>
+    <div class="card list" id="auditListCard" hidden>
+      <div class="listHead" id="auditTools"><label class="check"><input type="checkbox" id="auditAll"><span>모두 선택</span></label></div>
+      <ul id="auditList" class="rows2"></ul>
+      <button id="auditMore" class="btn ghost" hidden>더 보기</button>
     </div>
     <p id="auditStatus" class="notice"></p>
+    <div id="auditDo" class="actionBar" hidden>
+      <p id="auditPlan" class="planLine"></p>
+      <div class="barRow">
+        <span id="auditPicked" class="picked">0개 선택</span>
+        <select id="auditAction" aria-label="할 일"></select>
+        <button id="auditGo" class="barGo" disabled>바꾸기</button>
+      </div>
+      <button id="auditUndo" class="barUndo" hidden>↩ 되돌리기</button>
+    </div>
   </section>
 
+  <!-- 개인정보 점검 -->
+  <section id="pii" class="view">
+    <div class="card">
+      <div class="heroRow">
+        <span class="sq amber" id="piiIcon"><svg class="ic"><use href="#i-folder"/></svg></span>
+        <div class="grow"><div class="t" id="piiTarget">드라이브에서 파일·폴더를 고르세요</div><div class="cap" id="piiHint"></div></div>
+        <button id="piiStart" class="btn outline amber"><svg class="ic"><use href="#i-refresh"/></svg><span>검사</span></button>
+        <button id="piiStop" class="btn ghost" hidden>중지</button>
+        <button id="piiBig" class="icon" data-tip="드라이브 위에 크게" aria-label="크게 보기"><svg class="ic"><use href="#i-expand"/></svg></button>
+      </div>
+      <div class="progress" id="piiProgressBar" hidden><span id="piiBar"></span></div>
+      <div id="piiStats" class="stats" hidden></div>
+      <p id="piiProgress" class="cap"></p>
+    </div>
+    <div class="card list" id="piiListCard" hidden><ul id="piiList" class="rows2"></ul></div>
+    <button id="piiEncrypt" class="btn primary green wide" hidden></button>
+  </section>
+
+  <!-- 설정 -->
+  <section id="settings" class="view">
+    <div class="card form">
+      <h2>설정</h2>
+      <h3>구글 연결</h3>
+      <label class="cap">OAuth 클라이언트 ID <input id="client" placeholder="1234-abc.apps.googleusercontent.com"></label>
+      <div><button id="saveClient" class="btn primary blue">저장</button> <span id="clientSaved" class="cap"></span></div>
+      <p class="cap">리디렉션 주소: <code id="redirect"></code></p>
+      <h3>자동 잠금</h3>
+      <label class="cap">안 쓰면 잠그기 <select id="lockMinutes"><option value="5">5분</option><option value="15">15분</option><option value="30">30분</option><option value="60">60분</option></select></label>
+      <h3>개인 비밀번호 바꾸기</h3>
+      <input id="newPw" type="password" placeholder="새 개인 비밀번호 (8자 이상)" autocomplete="new-password">
+      <input id="newPw2" type="password" placeholder="확인" autocomplete="new-password">
+      <div><button id="changePw" class="btn outline green">바꾸기</button> <span id="changePwMsg" class="cap"></span></div>
+      <h3>이 컴퓨터에서 열쇠 지우기</h3>
+      <div><button id="forgetKey" class="btn ghost">열쇠 지우기</button></div>
+    </div>
+  </section>
+
+  <!-- 도움말 -->
+  <section id="help" class="view">
+    <div class="card">
+      <h2>도움말</h2>
+      <ul class="tips">
+        <li><span class="sq blue"><svg class="ic"><use href="#i-share"/></svg></span><div><b>공유 점검</b><br><span class="cap">내 드라이브 전체의 공유 상태를 보고 한꺼번에 바꾸기</span></div></li>
+        <li><span class="sq amber"><svg class="ic"><use href="#i-idscan"/></svg></span><div><b>개인정보 점검</b><br><span class="cap">고른 파일·폴더에서 주민번호 등 찾기</span></div></li>
+        <li><span class="sq green"><svg class="ic"><use href="#i-lock"/></svg></span><div><b>암호화 관리</b><br><span class="cap">드라이브에서 고른 파일 암호화·열기·풀기</span></div></li>
+      </ul>
+      <button id="guideBtn" class="btn primary blue"><svg class="ic"><use href="#i-book"/></svg><span>설명서 열기</span></button>
+    </div>
+  </section>
+
+  <!-- 암호화 관리 -->
   <main>
-    <aside class="card">
-      <div id="vaultCard" class="vaultCard">
-        <div id="vaultSetup" hidden>
-          <b>🛟 처음 한 번 설정</b>
-          <label class="radio"><input type="radio" name="setupMode" value="have" checked> 복구 키가 있어요 <span class="muted">(데스크톱 앱의 35자)</span></label>
+    <aside>
+      <div id="vaultCard">
+        <div id="vaultSetup" class="card form" hidden>
+          <b>처음 한 번 설정</b>
+          <label class="radio"><input type="radio" name="setupMode" value="have" checked> 복구 키가 있어요 <span class="cap">(데스크톱 앱의 35자)</span></label>
           <label class="radio"><input type="radio" name="setupMode" value="new"> 없어요, 새로 만들기</label>
-          <input id="setupKey" placeholder="복구 키 35자 (예: ABCDE-FGHIJ-…)" autocomplete="off">
+          <input id="setupKey" placeholder="복구 키 35자" autocomplete="off">
           <div id="newKeyBox" class="newKeyBox" hidden>
-            <p class="small"><b>종이에 적어 두세요.</b> 다시 볼 수 없습니다.</p>
+            <p class="cap"><b>종이에 적어 두세요.</b> 다시 볼 수 없습니다.</p>
             <code id="newKeyText"></code>
             <label class="radio"><input type="checkbox" id="newKeySaved"> 종이에 적었습니다</label>
           </div>
           <input id="setupPw" type="password" placeholder="개인 비밀번호 (8자 이상)" autocomplete="new-password">
           <input id="setupPw2" type="password" placeholder="개인 비밀번호 확인" autocomplete="new-password">
-          <button id="setupGo" class="filled wide">설정 완료</button>
+          <button id="setupGo" class="btn primary green wide">설정 완료</button>
         </div>
-        <form id="vaultUnlock" hidden autocomplete="off">
-          <b>🔒 잠겨 있습니다</b>
+        <form id="vaultUnlock" class="card form" hidden autocomplete="off">
+          <b><svg class="ic"><use href="#i-lock"/></svg> 잠겨 있습니다</b>
           <input id="vaultPw" type="password" placeholder="개인 비밀번호" autocomplete="current-password">
-          <button type="submit" class="filled">잠금 풀기</button>
-          <button type="button" id="forgotBtn" class="text">비밀번호를 잊었나요?</button>
+          <button type="submit" class="btn primary green wide">잠금 풀기</button>
+          <button type="button" id="forgotBtn" class="btn ghost">비밀번호를 잊었나요?</button>
         </form>
-        <form id="vaultForgot" hidden autocomplete="off">
-          <b>🛟 복구 키로 열기</b>
+        <form id="vaultForgot" class="card form" hidden autocomplete="off">
+          <b>복구 키로 열기</b>
           <input id="forgotKey" placeholder="복구 키 35자" autocomplete="off">
           <input id="forgotPw" type="password" placeholder="새 개인 비밀번호 (8자 이상)" autocomplete="new-password">
           <input id="forgotPw2" type="password" placeholder="새 개인 비밀번호 확인" autocomplete="new-password">
-          <button type="submit" class="filled">새 비밀번호로 열기</button>
-          <button type="button" id="forgotCancel" class="text">취소</button>
+          <button type="submit" class="btn primary green wide">새 비밀번호로 열기</button>
+          <button type="button" id="forgotCancel" class="btn ghost">취소</button>
         </form>
-        <div id="vaultOpen" hidden><svg class="ic"><use href="#i-unlock"/></svg> <b>열림</b> <span id="lockInfo" class="muted"></span> <button id="lockNow" class="text">잠그기</button></div>
+        <div id="vaultOpen" class="strip green" hidden><svg class="ic"><use href="#i-unlock"/></svg><span class="grow">잠금 풀림 <span id="lockInfo"></span></span><button id="lockNow" class="stripBtn">잠그기</button></div>
         <p id="vaultMsg" class="message"></p>
       </div>
-      <div class="asideHead">
-        <div class="seg" role="tablist">
-          <button id="scopeFolder" class="on" role="tab" title="드라이브에서 지금 열어 둔 폴더">📁 이 폴더</button>
-          <button id="scopeAll" role="tab">전체</button>
-        </div>
-        <button id="refresh" class="icon" data-tip="새로고침" aria-label="새로고침"><svg class="ic"><use href="#i-refresh"/></svg></button>
-      </div>
       <p id="driveLink" class="driveLink" hidden></p>
-      <div id="selCard" class="selCard" hidden>
-        <div class="selHead"><b id="selTitle"></b></div>
-        <ul id="selList"></ul>
-        <button id="selEncrypt" class="filled wide" hidden>🔒 암호화하기</button>
-        <button id="selScan" class="tonal wide" hidden>🔍 개인정보 검사</button>
+      <div id="selCard" class="card" hidden>
+        <div class="listHead"><span class="cap strong">드라이브에서 선택</span><span class="chip green" id="selTitle"></span></div>
+        <ul id="selList" class="rows2"></ul>
+        <button id="selEncrypt" class="btn primary green wide" hidden></button>
+        <button id="selScan" class="btn ghost wide" hidden></button>
       </div>
-      <p id="scopeInfo" class="scopeInfo"></p>
-      <ul id="files"><li class="muted">로그인하면 목록이 보입니다</li></ul>
-      <div class="asideFoot">
-        <button id="listBtn" class="text" aria-pressed="false"><svg class="ic"><use href="#i-list"/></svg> 모든 암호화 파일</button>
-        <button id="newArchive" class="text">➕ 컴퓨터 파일 암호화</button>
+      <div class="listTitle"><b>암호화된 파일</b>
+        <span class="seg" role="tablist"><button id="scopeFolder" class="on" role="tab">이 폴더</button><button id="scopeAll" role="tab">전체</button></span>
+        <button id="refresh" class="icon small" data-tip="새로고침" aria-label="새로고침"><svg class="ic"><use href="#i-refresh"/></svg></button>
       </div>
+      <p id="scopeInfo" class="cap"></p>
+      <div class="card list"><ul id="files" class="rows2"><li class="muted">로그인하면 목록이 보입니다</li></ul></div>
+      <button id="newArchive" class="btn ghost green wide"><svg class="ic"><use href="#i-plus"/></svg><span>컴퓨터에 있는 파일 암호화</span></button>
     </aside>
-    <section id="panel" class="card">
-      <button id="back" class="text back" hidden>← 목록</button>
-      <div id="unlock" hidden>
+    <section id="panel">
+      <button id="back" class="btn ghost back" hidden>← 목록</button>
+      <div id="unlock" class="card" hidden>
         <h2 id="unlockName"></h2>
         <form id="unlockForm" autocomplete="off">
-          <input id="password" type="password" size="44" placeholder="이 파일만의 비밀번호" autocomplete="off">
-          <button type="submit" class="filled">열기</button>
+          <input id="password" type="password" placeholder="이 파일만의 비밀번호" autocomplete="off">
+          <button type="submit" class="btn primary green">열기</button>
         </form>
-        <p class="muted small" id="unlockHint"></p>
+        <p class="cap" id="unlockHint"></p>
       </div>
-      <div id="opened" hidden>
+      <div id="opened" class="card" hidden>
         <div class="openedHead">
           <h2 id="openedName"></h2>
-          <button id="close" class="icon close" data-tip="닫기 (메모리에서 지움)" aria-label="닫기"><svg class="ic"><use href="#i-close"/></svg></button>
+          <button id="close" class="icon" data-tip="닫기 (메모리에서 지움)" aria-label="닫기"><svg class="ic"><use href="#i-close"/></svg></button>
         </div>
         <div class="actions">
-          <button id="bigBtn" class="tonal" hidden><svg class="ic"><use href="#i-expand"/></svg> 크게</button>
-          <button id="save" class="tonal" hidden>💾 저장</button>
-          <button id="restoreBtn" class="tonal">🔓 풀기 (드라이브에)</button>
-          <button id="reencBtn" class="tonal">🔒 고친 파일로 다시 암호화</button>
+          <button id="bigBtn" class="btn outline blue small" hidden><svg class="ic"><use href="#i-expand"/></svg><span>크게</span></button>
+          <button id="save" class="btn outline blue small" hidden>저장</button>
+          <button id="restoreBtn" class="btn outline green small"></button>
+          <button id="reencBtn" class="btn outline green small"></button>
         </div>
         <ul id="members"></ul>
         <p id="notice" class="notice"></p>
         <div id="view"></div>
       </div>
-      <div id="reenc" hidden>
+      <div id="reenc" class="card" hidden>
         <h2 id="reencTitle"></h2>
         <ol class="steps">
-          <li id="pickStep">고친 파일 고르기 <span class="muted small">(같은 이름은 바뀜)</span>
-            <input id="pick" type="file" multiple></li>
-          <li id="rowsStep">암호화할 파일 <table id="reencRows" class="rows"></table></li>
-          <li id="secretInfo"></li>
-          <li id="trashStep"><label><input id="trashOld" type="checkbox" checked> 확인이 끝나면 <b id="trashLabel">예전 보관 파일을 휴지통으로</b></label></li>
+          <li id="pickStep">고친 파일 고르기 <span class="cap">(같은 이름은 바뀜)</span><input id="pick" type="file" multiple></li>
+          <li id="rowsStep">암호화할 파일<table id="reencRows" class="rows"></table></li>
+          <li id="secretInfo" class="cap"></li>
+          <li id="trashStep"><label class="radio"><input id="trashOld" type="checkbox" checked> 확인 후 <b id="trashLabel">예전 보관 파일을 휴지통으로</b></label></li>
         </ol>
-        <p class="muted" id="whereInfo"></p>
-        <button id="reencGo" class="filled">🔒 암호화하기</button> <button id="reencCancel" class="text">취소</button>
+        <p class="cap" id="whereInfo"></p>
+        <div class="actions"><button id="reencGo" class="btn primary green"></button> <button id="reencCancel" class="btn ghost">취소</button></div>
         <p id="reencStatus" class="notice"></p>
       </div>
       <p id="message" class="message"></p>
-      <button id="grantBtn" class="filled" hidden>드라이브 파일 보기 허용</button>
+      <button id="grantBtn" class="btn primary blue" hidden>드라이브 파일 보기 허용</button>
     </section>
   </main>
   <dialog id="saveDialog">
     <h2>풀린 파일을 이 컴퓨터에 저장할까요?</h2>
     <ul>
-      <li>암호가 <b>없는</b> 파일이 <b>다운로드 폴더</b>에 생깁니다. 누구나 열 수 있습니다.</li>
-      <li>크롬 다운로드 목록에도 파일 이름이 남습니다.</li>
-      <li>다 쓰면 파일을 휴지통에 버리고 <b>휴지통도 비우세요</b>. 공용 PC에서는 저장하지 마세요.</li>
+      <li>암호가 <b>없는</b> 파일이 <b>다운로드 폴더</b>에 생깁니다.</li>
+      <li>다 쓰면 휴지통에 버리고 <b>휴지통도 비우세요</b>.</li>
     </ul>
-    <div class="dialogButtons"><button id="saveCancel" class="text">취소</button> <button id="saveOk" class="danger">저장</button></div>
+    <div class="dialogButtons"><button id="saveCancel" class="btn ghost">취소</button> <button id="saveOk" class="btn primary red">저장</button></div>
   </dialog>
   <footer>본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.</footer>
   <script type="module" src="viewer.js"></script>

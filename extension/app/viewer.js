@@ -13,7 +13,7 @@ import { planMembers, reencrypt, ReencryptFailed } from "./lib/reencrypt.js";
 import { parseDriveUrl } from "./lib/driveurl.js";
 import { restoreToDrive, RestoreFailed } from "./lib/restore.js";
 import * as sharing from "./lib/sharing.js";
-import { buildAudit, summary as auditSummary, peopleLine } from "./lib/audit.js";
+import { buildAudit, summary as auditSummary } from "./lib/audit.js";
 import { scanFile } from "./lib/scan.js";
 import { KIND_LABEL, CONFIDENCE_LABEL } from "./lib/detect.js";
 
@@ -91,13 +91,15 @@ function toggle(btn, show) {
 }
 // One view at a time (user request): 암호화 파일 / 공유 점검 / 개인정보 검사 / 설정 / 도움말.
 const VIEW_BUTTONS = { vault: "tabVault", audit: "auditBtn", pii: "piiBtn", settings: "settingsBtn", help: "helpBtn" };
+const VIEW_TITLES = { vault: "암호화 관리", audit: "공유 점검", pii: "개인정보 점검", settings: "설정", help: "도움말" };
 function setView(name) {
   document.body.dataset.view = name;
+  $("pageTitle").textContent = VIEW_TITLES[name] || "";
   for (const [v, id] of Object.entries(VIEW_BUTTONS)) toggle($(id), v === name);
   if (name === "pii") updatePiiHint();
 }
 $("tabVault").onclick = () => setView("vault");
-label($("selScan"), "search", "개인정보 검사");
+label($("selScan"), "idscan", "개인정보 점검");
 label($("restoreBtn"), "unlock", "풀기 (드라이브에)");
 label($("reencBtn"), "lock", "고친 파일로 다시 암호화");
 /** ⛶: this view over the Drive tab, full screen (like the file preview). */
@@ -109,12 +111,6 @@ async function showBig(opts) {
 $("settingsBtn").onclick = () => setView("settings");
 $("helpBtn").onclick = () => setView("help");
 $("guideBtn").onclick = () => window.open(chrome.runtime.getURL("guide.html"), "_blank", "noopener");
-$("listBtn").onclick = () => {
-  const on = !document.body.classList.contains("showList");
-  document.body.classList.toggle("showList", on);
-  toggle($("listBtn"), on);
-  if (on && drive.signedIn()) refresh();
-};
 drive.clientId().then((id) => {
   $("client").value = id;
   if (!id) { $("settings").hidden = false; message("처음 한 번 설정에서 클라이언트 ID를 저장해 주세요."); }
@@ -125,23 +121,61 @@ $("saveClient").onclick = async () => {
 };
 
 // -- account & list --------------------------------------------------------------------------
+let acctEmail = "";
 function setSignedIn(on) {
   $("login").hidden = on;
-  $("logout").hidden = !on;
+  $("acctBtn").hidden = !on;
+  if (!on) { $("acctMenu").hidden = true; acctEmail = ""; return; }
+  (acctEmail ? Promise.resolve(acctEmail) : drive.myEmail()).then((email) => {
+    acctEmail = email;
+    $("acctEmail").textContent = email || "로그인됨";
+    $("avatar").textContent = (email || "?").slice(0, 1).toUpperCase();
+    $("acctName").textContent = document.body.classList.contains("inTab") && email ? email : "로그인됨";
+  }).catch(() => {});
 }
+$("acctBtn").onclick = (ev) => {
+  ev.stopPropagation();
+  const open = $("acctMenu").hidden;
+  $("acctMenu").hidden = !open;
+  $("acctBtn").setAttribute("aria-expanded", String(open));
+};
+document.addEventListener("click", (ev) => {
+  if (!$("acctMenu").hidden && !$("acctMenu").contains(ev.target)) { $("acctMenu").hidden = true; $("acctBtn").setAttribute("aria-expanded", "false"); }
+});
 
 // -- which files to list: the folder open in the Drive tab next to this panel, or all ------------
 let scope = "folder";
 let driveLoc = null; // parseDriveUrl() of the active Drive tab (side panel only)
 
-function fileItem(f) {
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+function sq(iconName, color) { const s = el("span", `sq ${color || ""}`); s.append(icon(iconName)); return s; }
+function iconBtn(iconName, tip, onclick, cls = "") {
+  const b = el("button", `icon ${cls}`);
+  b.dataset.tip = tip;
+  b.setAttribute("aria-label", tip);
+  b.append(icon(iconName));
+  b.onclick = (ev) => { ev.stopPropagation(); onclick(); };
+  return b;
+}
+/** One list row: [icon] name / sub-line [actions] */
+function rowOf(iconEl, name, sub, actions = []) {
   const li = document.createElement("li");
+  const body = el("div", "body");
+  body.append(el("span", "nm", name));
+  if (sub) { const sl = el("span", "sub"); typeof sub === "string" ? (sl.textContent = sub) : sl.append(...sub); body.append(sl); }
+  li.append(iconEl, body);
+  if (actions.length) { const a = el("span", "acts"); a.append(...actions); li.append(a); }
+  return li;
+}
+const displayName = (name) => name.replace(/ \(암호화 [0-9a-f]{8}\)\.(7z|zip)$/, "");
+
+function fileItem(f) {
+  const li = rowOf(sq("lock", "green"), displayName(f.name), (f.createdTime || "").slice(0, 10), [
+    iconBtn("eye", "열기", () => openLarge(f)),
+    iconBtn("unlock", "풀기 (드라이브에)", () => quickRestore(f), "green"),
+  ]);
   li.dataset.id = f.id;
-  li.append(document.createTextNode(f.name));
-  const meta = document.createElement("div");
-  meta.className = "meta";
-  meta.textContent = `${(f.createdTime || "").slice(0, 10)} · ${(Number(f.size || 0) / 1024).toFixed(0)} KB`;
-  li.append(meta);
+  li.title = f.name;
   li.onclick = () => select(f, li);
   if (selected && selected.id === f.id) li.classList.add("on");
   return li;
@@ -154,10 +188,8 @@ async function refresh() {
   const folder = scope === "folder" ? driveLoc?.folder : null;
   $("scopeFolder").classList.toggle("on", scope === "folder");
   $("scopeAll").classList.toggle("on", scope === "all");
-  $("scopeInfo").textContent = scope === "all" ? "이 확장 프로그램이 볼 수 있는 모든 암호화 파일"
-    : folder === "root" ? "드라이브에서 열어 둔 폴더: 내 드라이브"
-    : folder ? "드라이브에서 열어 둔 폴더의 암호화 파일"
-    : "드라이브에서 폴더를 열면 그 폴더의 파일만 보입니다 (지금은 전체)";
+  // only the unusual case needs words (less text): no Drive folder open while "이 폴더" is chosen
+  $("scopeInfo").textContent = scope === "folder" && !folder ? "드라이브에서 폴더를 열면 그 폴더만 보입니다" : "";
   try {
     const files = await drive.listVaultFiles(folder ? { parent: folder } : {});
     setSignedIn(true);
@@ -203,8 +235,6 @@ async function watchDriveTab() {
     $("openTab").hidden = true;
     scope = "all";
     document.querySelector(".seg").hidden = true;
-    document.body.classList.add("showList"); // the full tab has no Drive selection: show the list
-    toggle($("listBtn"), true);
     return;
   }
   const win = await chrome.windows?.getCurrent?.().catch(() => null);
@@ -329,7 +359,7 @@ async function refreshVault() {
   if (!(await keyring.isSetUp())) { showVault("vaultSetup"); return; }
   if (unlocked) {
     showVault("vaultOpen");
-    $("lockInfo").textContent = `· ${await keyring.lockMinutes()}분 동안 안 쓰면 잠김`;
+    $("lockInfo").textContent = `· ${await keyring.lockMinutes()}분 후 자동 잠금`;
     if (pendingOpen) { const f = pendingOpen; pendingOpen = null; if (selected?.id === f.id) await select(f, document.querySelector(`#files li[data-id="${CSS.escape(f.id)}"]`)); }
   } else if ($("vaultForgot").hidden) {
     showVault("vaultUnlock");
@@ -614,7 +644,7 @@ async function showSelection(ids) {
   if (!ids.length) { card.hidden = true; selFiles = []; return; }
   leaveForSelection();
   card.hidden = false;
-  $("selTitle").textContent = `드라이브에서 선택: ${ids.length}개`;
+  $("selTitle").textContent = `${ids.length}개`;
   if (document.body.dataset.view === "pii") updatePiiHint();
   const list = $("selList");
   if (!drive.signedIn()) {
@@ -626,30 +656,26 @@ async function showSelection(ids) {
   const metas = await Promise.all(ids.slice(0, 20).map((id) => drive.getFile(id).catch(() => null)));
   if (driveSel !== ids) return; // selection changed meanwhile
   selFiles = metas.filter(Boolean);
+  if (document.body.dataset.view === "pii") updatePiiHint();
   list.replaceChildren();
   let plain = ids.length - selFiles.length; // unknown ones (no permission yet) count as plain files
   for (const f of selFiles) {
-    const row = li("");
-    row.append(document.createTextNode((f.mimeType === FOLDER ? "📁 " : "") + f.name));
+    const folder = f.mimeType === FOLDER;
+    let row;
     if (drive.isVaultName(f.name)) {
-      const b = Object.assign(document.createElement("span"), { className: "btns" });
-      b.append(
-        label(btn("", "tonal", () => openLarge(f)), "eye", "열기"),
-        label(btn("", "tonal", () => quickRestore(f)), "unlock", "풀기"),
-      );
-      row.append(b);
+      row = rowOf(sq("lock", "green"), displayName(f.name), "암호화됨", [
+        iconBtn("eye", "열기", () => openLarge(f)),
+        iconBtn("unlock", "풀기 (드라이브에)", () => quickRestore(f), "green"),
+      ]);
     } else {
       plain += 1; // files and folders can be encrypted
-      if (f.mimeType !== FOLDER && VIEW_EXT.test(f.name)) {
-        const b = Object.assign(document.createElement("span"), { className: "btns" });
-        b.append(label(btn("", "tonal", () => openLarge(f)), "eye", "미리보기"));
-        row.append(b);
-      }
+      const acts = !folder && VIEW_EXT.test(f.name) ? [iconBtn("eye", "미리보기", () => openLarge(f))] : [];
+      row = rowOf(sq(folder ? "folder" : "file"), f.name, folder ? "폴더" : "", acts);
     }
     list.append(row);
   }
-  if (ids.length > selFiles.length) list.append(li(`이름을 모르는 항목 ${ids.length - selFiles.length}개 — 「암호화하기」를 누르면 권한을 받은 뒤 보입니다`, "muted"));
-  $("selScan").hidden = plain === 0;
+  if (ids.length > selFiles.length) list.append(li(`이름을 모르는 항목 ${ids.length - selFiles.length}개 — 「암호화하기」를 누르면 보입니다`, "muted"));
+  $("selScan").hidden = true; // 개인정보 점검 has its own tab (design A)
   $("selEncrypt").hidden = plain === 0;
   label($("selEncrypt"), "lock", plain === 1 ? "암호화하기" : `암호화하기 (${plain}개를 한 파일로)`);
 }
@@ -696,12 +722,12 @@ function showDriveLink(status) {
   p.hidden = false;
   if (status) {
     watcherSeen = Date.now();
-    p.classList.remove("off");
-    p.textContent = `🔗 드라이브와 연결됨 · 화면의 파일 ${status.items}개 인식`
-      + (status.selected && !status.found ? ` · 선택한 ${status.selected}개를 알아보지 못함` : "");
+    // only problems are shown (less text): connected and working → nothing
+    p.hidden = !(status.selected && !status.found);
+    p.textContent = `드라이브에서 고른 ${status.selected}개를 알아보지 못했습니다 — 드라이브 탭을 새로고침해 주세요`;
   } else if (!watcherSeen) {
     p.classList.add("off");
-    p.textContent = "🔌 드라이브와 연결 안 됨 — 드라이브 탭을 새로고침(F5, Mac은 ⌘R)해 주세요";
+    p.textContent = "드라이브와 연결 안 됨 — 드라이브 탭을 새로고침(F5, Mac은 ⌘R)해 주세요";
   }
 }
 
@@ -720,32 +746,57 @@ async function listenToDrive(win) {
 const PII_MAX_FILES = 500;
 let pii = null; // { results: [], stopping, running }
 
-function closePii() { pii = null; $("piiList").replaceChildren(); $("piiEncrypt").hidden = true; $("piiProgress").textContent = ""; }
+function closePii() {
+  pii = null;
+  $("piiList").replaceChildren();
+  $("piiListCard").hidden = true;
+  $("piiStats").hidden = true;
+  $("piiProgressBar").hidden = true;
+  $("piiEncrypt").hidden = true;
+  $("piiProgress").textContent = "";
+}
 $("piiStop").onclick = () => { if (pii) pii.stopping = true; };
 function updatePiiHint() {
   const n = driveSel.length;
-  $("piiHint").textContent = n ? `드라이브에서 고른 ${n}개를 검사합니다. 종류·건수만 보여 줍니다.` : "드라이브에서 파일·폴더를 고른 뒤 검사하세요. 종류·건수만 보여 줍니다.";
+  const first = selFiles.find((f) => driveSel.includes(f.id));
+  const folder = first?.mimeType === drive.FOLDER_MIME;
+  $("piiIcon").replaceChildren(icon(n === 1 && !folder ? "file" : "folder"));
+  $("piiTarget").textContent = !n ? "드라이브에서 파일·폴더를 고르세요" : n === 1 && first ? first.name : `${n}개 선택`;
+  if (!pii?.results?.length) $("piiHint").textContent = n ? "종류·건수만 보여 줍니다" : "";
   $("piiStart").disabled = !n || !!pii?.running;
 }
 $("piiBtn").onclick = () => setView("pii");
 $("piiBig").onclick = () => showBig({ view: "pii", ids: driveSel });
 
+const SHORT_KIND = { rrn: "주민번호", rrn_suspect: "주민번호 의심", passport: "여권", driver_license: "운전면허", mobile: "휴대전화", landline: "전화", account: "계좌", card: "카드", email: "이메일", address: "주소", student_roster: "명단", sensitive_suspect: "민감정보 의심", filename_hint: "파일명" };
 function drawPiiRow(r) {
-  const row = document.createElement("li");
-  row.append(Object.assign(document.createElement("div"), { className: "nm", textContent: r.file.path || r.file.name }));
-  const kinds = Object.assign(document.createElement("div"), { className: "kinds" });
-  const entries = Object.entries(r.kinds).filter(([k]) => r.status !== "none" || k === "filename_hint");
+  const chips = [];
+  const entries = Object.entries(r.kinds).filter(([k]) => r.status === "found" && k !== "filename_hint")
+    .sort((a, b) => b[1].confidence - a[1].confidence);
   for (const [k, v] of entries) {
-    kinds.append(Object.assign(document.createElement("span"), {
-      className: `kind c${v.confidence}`,
-      textContent: `${KIND_LABEL[k] || k} ${v.count}건 · ${CONFIDENCE_LABEL[v.confidence]}`,
-      title: v.locations.join(", "),
-    }));
+    const c = el("span", `chip ${v.confidence >= 3 ? "red" : "amber"}`, `${SHORT_KIND[k] || KIND_LABEL[k] || k} ${v.count}`);
+    c.title = `${KIND_LABEL[k] || k} · ${CONFIDENCE_LABEL[v.confidence]} · ${v.locations.join(", ")}`;
+    chips.push(c);
   }
-  if (r.status === "none") kinds.append(Object.assign(document.createElement("span"), { className: "kind none", textContent: "찾지 못함" }));
-  if (r.status === "unscannable") kinds.append(Object.assign(document.createElement("span"), { className: "kind skip", textContent: `검사 불가: ${r.reason}` }));
-  row.append(kinds);
-  return row;
+  if (r.status === "none") chips.push(el("span", "chip green", "없음"));
+  if (r.status === "unscannable") chips.push(el("span", "chip", `검사 불가 · ${r.reason}`));
+  const li = document.createElement("li");
+  li.style.alignItems = "flex-start";
+  const body = el("div", "body");
+  body.append(el("span", "nm", r.file.path || r.file.name));
+  const k = el("span", "kinds"); k.append(...chips); body.append(k);
+  li.append(sq("file", r.status === "found" ? "amber" : ""), body);
+  return li;
+}
+function piiStats(results) {
+  const found = results.filter((r) => r.status === "found").length;
+  const none = results.filter((r) => r.status === "none").length;
+  const skip = results.filter((r) => r.status === "unscannable").length;
+  const s = $("piiStats");
+  s.hidden = false;
+  s.replaceChildren(...[[found, "개인정보 있음", "red"], [none, "없음", "green"], [skip, "검사 불가", "gray"]].map(([n, t, c]) => {
+    const d = el("div", `stat ${c}`); d.append(el("b", "", String(n)), el("span", "", t)); return d;
+  }));
 }
 
 $("selScan").onclick = () => { setView("pii"); runPii(); };
@@ -759,6 +810,8 @@ async function runPii() {
     pii = { results: [], stopping: false, running: true };
     $("piiStop").hidden = false;
     $("piiStart").disabled = true;
+    $("piiProgressBar").hidden = false;
+    $("piiBar").style.width = "0%";
     // folders → every file inside (with its path)
     const files = [];
     for (const f of chosen) {
@@ -771,17 +824,22 @@ async function runPii() {
     const { pdfTextPages } = await import("./lib/pdf.js");
     for (const [i, f] of files.slice(0, PII_MAX_FILES).entries()) {
       if (!pii || pii.stopping) break;
-      $("piiProgress").textContent = `검사 중… ${i + 1}/${files.length} (메모리에서만)`;
+      $("piiProgress").textContent = `검사 중… ${i + 1}/${files.length}`;
+      $("piiBar").style.width = `${Math.round(((i + 1) / Math.min(files.length, PII_MAX_FILES)) * 100)}%`;
       const r = await scanFile(f, { fetch: drive.fetchContent, parseXml, pdfText: pdfTextPages });
       if (!pii) return;
       pii.results.push(r);
+      $("piiListCard").hidden = false;
       $("piiList").append(drawPiiRow(r));
+      piiStats(pii.results);
     }
     const found = pii.results.filter((r) => r.status === "found");
     const skipped = pii.results.filter((r) => r.status === "unscannable").length;
-    $("piiProgress").textContent = `${pii.stopping ? "중지함 — " : "✓ "}${pii.results.length}개 검사 · 개인정보 있음 ${found.length}개 · 검사 불가 ${skipped}개`;
+    $("piiProgress").textContent = "";
+    $("piiHint").textContent = `${pii.stopping ? "중지함 · " : ""}${pii.results.length}개 검사 완료${skipped ? ` · 검사 불가 ${skipped}개는 안전하다는 뜻이 아님` : ""}`;
+    label($("piiStart"), "refresh", "다시 검사");
     $("piiEncrypt").hidden = !found.length;
-    label($("piiEncrypt"), "lock", `개인정보가 있는 ${found.length}개 암호화`);
+    label($("piiEncrypt"), "lock", `개인정보 파일 ${found.length}개 암호화`);
   } catch (e) { $("piiProgress").textContent = e.message; } finally {
     if (pii) pii.running = false;
     $("piiStop").hidden = true;
@@ -801,39 +859,54 @@ $("piiEncrypt").onclick = () => {
 const PAGE = 200;
 let audit = null; // { me, internal, items, filter, picked: Set, shown, lastDone, stopping }
 
+// filter: null = all, "link" = link-shared (edit or view), 2 = external accounts, 1 = domain
+const matches = (it, f) => f === null || (f === "link" ? it.exposure >= 3 : it.exposure === f);
 function auditVisible() {
-  return audit.items.filter((it) => audit.filter === null || it.exposure === audit.filter);
+  return audit.items.filter((it) => matches(it, audit.filter));
 }
+const ACTION_SHORT = { restrict_all: "모두 '제한됨'으로", remove_link: "링크 공개 끄기", link_to_view: "링크: 편집 → 보기", restrict_domain: "도메인 공개 끄기", remove_external: "외부 사용자 빼기", editors_to_viewers: "편집자 → 뷰어" };
+/** Who else can see it, without repeating the link state shown in the chip. */
+function whoLine(views) {
+  const people = views.filter((v) => (v.type === "user" || v.type === "group") && !v.owner && !v.me);
+  const dom = views.find((v) => v.type === "domain");
+  const parts = [];
+  if (dom) parts.push(`${dom.domain} 전체`);
+  if (people.length) parts.push(people.length === 1 ? people[0].email : `${people[0].email} 외 ${people.length - 1}명`);
+  return parts.join(" · ") || (views.some((v) => v.type === "anyone") ? "링크가 있는 누구나" : "");
+}
+const EXP_CHIP = { 4: ["링크 · 편집", "red"], 3: ["링크 · 보기", "red"], 2: ["외부 계정", "amber"], 1: ["도메인", ""] };
 
 function drawAudit() {
   const sum = auditSummary(audit.items);
+  $("auditTotal").textContent = sum.total.toLocaleString();
+  $("auditTotal").style.cursor = "pointer";
+  $("auditTotal").onclick = () => { audit.filter = null; audit.shown = PAGE; drawAudit(); };
   const cards = $("auditCards");
   cards.hidden = false;
   cards.replaceChildren();
-  const card = (label, n, filter, cls = "") => {
-    const b = Object.assign(document.createElement("button"), { className: `${cls} ${audit.filter === filter ? "on" : ""}` });
-    b.append(Object.assign(document.createElement("b"), { textContent: n.toLocaleString() }), Object.assign(document.createElement("span"), { textContent: label }));
-    b.onclick = () => { audit.filter = filter; audit.shown = PAGE; drawAudit(); };
+  const stat = (n, label, filter, color) => {
+    const b = el("button", `stat ${color} ${audit.filter === filter ? "on" : ""}`);
+    b.append(el("b", "", n.toLocaleString()), el("span", "", label));
+    b.onclick = () => { audit.filter = audit.filter === filter ? null : filter; audit.shown = PAGE; drawAudit(); };
     cards.append(b);
   };
-  card("공유된 항목 전체", sum.total, null);
-  for (const e of [4, 3, 2, 1]) card(sharing.EXPOSURE_LABEL[e], sum.counts[e], e, `e${e}`);
+  stat(sum.counts[3] + sum.counts[4], "링크 공개", "link", "red");
+  stat(sum.counts[2], "외부 계정", 2, "amber");
+  stat(sum.counts[1], "도메인", 1, "gray");
   const vis = auditVisible();
   const list = $("auditList");
   list.replaceChildren();
+  $("auditListCard").hidden = false;
   for (const it of vis.slice(0, audit.shown)) {
-    const row = document.createElement("li");
     const cb = Object.assign(document.createElement("input"), { type: "checkbox", checked: audit.picked.has(it.file.id) });
+    cb.setAttribute("aria-label", `${it.file.name} 고르기`);
     cb.onchange = () => { cb.checked ? audit.picked.add(it.file.id) : audit.picked.delete(it.file.id); pickedChanged(); };
-    const mid = document.createElement("div");
-    const nm = Object.assign(document.createElement("div"), { className: "nm", textContent: (it.file.mimeType === drive.FOLDER_MIME ? "📁 " : "") + it.file.name });
-    nm.append(Object.assign(document.createElement("span"), { className: `exp e${it.exposure}`, textContent: sharing.EXPOSURE_LABEL[it.exposure] }));
-    mid.append(nm);
-    if (it.path) mid.append(Object.assign(document.createElement("div"), { className: "path", textContent: it.path }));
-    const who = Object.assign(document.createElement("div"), { className: "who", textContent: peopleLine(it.views) });
-    if (it.views.some((v) => v.likely)) who.append(Object.assign(document.createElement("span"), { className: "badge", textContent: "일부는 상위 폴더에서" }));
-    mid.append(who);
     const isFolder = it.file.mimeType === drive.FOLDER_MIME;
+    const [chipText, chipColor] = EXP_CHIP[it.exposure] || ["", ""];
+    const sub = [el("span", `chip ${chipColor}`, chipText), el("span", "", whoLine(it.views))];
+    if (it.views.some((v) => v.likely)) sub.push(el("span", "badge", "일부 상위 폴더에서"));
+    const row = rowOf(sq(isFolder ? "folder" : "file"), it.file.name, sub);
+    if (it.path) row.title = it.path + it.file.name;
     const id = encodeURIComponent(it.file.id);
     const open = Object.assign(document.createElement("a"), {
       className: "go", target: "_blank", rel: "noopener noreferrer",
@@ -841,11 +914,13 @@ function drawAudit() {
     });
     open.dataset.tip = isFolder ? "드라이브에서 폴더 열기" : "드라이브에서 파일 열기";
     open.setAttribute("aria-label", open.dataset.tip);
+    open.className = "icon";
     open.append(icon(isFolder ? "folder" : "file"));
-    row.append(cb, mid, open);
+    row.prepend(cb);
+    const acts = el("span", "acts"); acts.append(open); row.append(acts);
     list.append(row);
   }
-  if (!vis.length) list.append(li(audit.items.length ? "이 칸에 해당하는 항목이 없습니다" : "공유된 항목이 없습니다 👍", "muted"));
+  if (!vis.length) list.append(li(audit.items.length ? "이 종류는 없습니다" : "밖으로 공유된 항목이 없습니다", "muted"));
   $("auditMore").hidden = vis.length <= audit.shown;
   $("auditMore").textContent = `더 보기 (${(vis.length - audit.shown).toLocaleString()}개 남음)`;
   $("auditTools").hidden = !vis.length;
@@ -855,7 +930,7 @@ function drawAudit() {
 
 function pickedChanged() {
   const picked = audit.items.filter((it) => audit.picked.has(it.file.id));
-  $("auditPicked").textContent = picked.length ? `${picked.length.toLocaleString()}개 고름` : "";
+  $("auditPicked").textContent = `${picked.length.toLocaleString()}개 선택`;
   $("auditDo").hidden = !audit.items.length;
   let n = 0;
   const reasons = new Map();
@@ -866,7 +941,7 @@ function pickedChanged() {
   }
   $("auditPlan").textContent = picked.length
     ? `바뀌는 권한 ${n}개` + [...reasons].map(([r, c]) => ` · 건너뜀 ${c}개(${r})`).join("") + (n ? " · 알림 메일 없음" : "")
-    : "목록에서 바꿀 항목을 고르세요 (위의 칸을 누르면 그 종류만 보입니다).";
+    : "바꿀 항목을 고르세요";
   $("auditGo").disabled = n === 0;
 }
 
@@ -877,7 +952,7 @@ async function ensureAudit() {
   if (!audit) {
     const me = await drive.myEmail().catch(() => "");
     audit = { me, internal: sharing.internalDomains(me), items: [], raw: [], filter: null, picked: new Set(), shown: PAGE };
-    $("auditAction").replaceChildren(...Object.entries(sharing.ACTIONS).map(([k, label]) => Object.assign(document.createElement("option"), { value: k, textContent: label })));
+    $("auditAction").replaceChildren(...Object.entries(sharing.ACTIONS).map(([k, full]) => Object.assign(document.createElement("option"), { value: k, textContent: ACTION_SHORT[k] || full, title: full })));
   }
 }
 $("auditMore").onclick = () => { audit.shown += PAGE; drawAudit(); };
@@ -903,8 +978,8 @@ $("auditStart").onclick = async () => {
     audit.picked = new Set();
     audit.filter = null;
     audit.shown = PAGE;
-    $("auditProgress").textContent = `${r.stopped ? "중지함 — 지금까지 " : "✓ "}파일 ${r.seen.toLocaleString()}개 확인 · 밖으로 공유된 것 ${audit.items.length.toLocaleString()}개`;
-    $("auditStart").textContent = "다시 점검";
+    $("auditProgress").textContent = `${r.stopped ? "중지함 · " : ""}파일 ${r.seen.toLocaleString()}개 확인 · ${new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`;
+    label($("auditStart"), "refresh", "다시 점검");
     drawAudit();
   } catch (e) { $("auditStatus").textContent = e.message; } finally {
     busy = false;
