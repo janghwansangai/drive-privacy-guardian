@@ -1891,6 +1891,8 @@ class MainWindow(QMainWindow):
             if result.safe_to_trash
             else "⚠ 보관 파일 확인 실패 — 원본은 그대로입니다"
         )
+        # the job is over: its files are no longer "chosen" (user report: checks stayed on)
+        self.model.set_checked(list(result.members) + [s.file_id for s in result.skipped], False)
         names = self._names()
         dialog = ArchiveResultDialog(result, names, self, precheck=self._archive_precheck)
         self.ctx.show_dialog(dialog)
@@ -2097,6 +2099,7 @@ class MainWindow(QMainWindow):
         )
         if renamed:
             self.ctx.notify(self, "보관 파일 풀기", renamed.strip())
+        self.model.set_checked([result.archive_id], False)
         plan = archive_trash_plan(result)
         names = {result.archive_id: result.archive_name}
         self._pending_next = lambda: self.run_plan(

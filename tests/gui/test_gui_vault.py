@@ -92,6 +92,7 @@ def test_archive_flow_end_to_end(qtbot: Any, env: Env) -> None:
     qtbot.waitUntil(lambda: window.task is None, timeout=20000)
     assert env.fake.visibility(env.fake.items[fid]) == "limited"  # step 1 happened
     assert "✓ 암호화 완료" in seen["buttons"]  # the final dialog says "done", not "close"
+    assert fid not in window.model.checked  # user report: the processed file stayed checked
     uploaded = [
         it
         for it in env.fake.items.values()
