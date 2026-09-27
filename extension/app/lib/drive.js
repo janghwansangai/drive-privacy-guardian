@@ -237,3 +237,75 @@ export async function createFolder(name, parent) {
     body: JSON.stringify({ name: clean, mimeType: FOLDER_MIME, ...(parent ? { parents: [parent] } : {}) }),
   })).json();
 }
+
+// -- sharing (D-091): read and change permissions of files the user chose in Drive -------------
+const PERM_FIELDS = "id,type,role,emailAddress,domain,allowFileDiscovery,permissionDetails(inherited,permissionType)";
+const idOk = (id) => /^[\w-]+$/.test(id);
+
+export async function myEmail() {
+  const url = "https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)";
+  return (await (await authed(url)).json()).user?.emailAddress || "";
+}
+
+export async function listPermissions(fileId) {
+  if (!idOk(fileId)) throw new Error("파일 ID 형식이 아닙니다");
+  const out = [];
+  let pageToken = "";
+  do {
+    const url = new URL(`${API}/${encodeURIComponent(fileId)}/permissions`);
+    url.search = new URLSearchParams({ supportsAllDrives: "true", pageSize: "100", fields: `nextPageToken,permissions(${PERM_FIELDS})`, ...(pageToken ? { pageToken } : {}) }).toString();
+    const body = await (await authed(url)).json();
+    out.push(...(body.permissions || []));
+    pageToken = body.nextPageToken || "";
+  } while (pageToken);
+  return out;
+}
+
+/** Everything under a folder that is shared (for the folder audit), with its permissions. */
+export async function listSharedInFolder(folder, limit = 3000) {
+  const found = [];
+  let seen = 0;
+  const queue = [{ id: folder.id, path: "" }];
+  while (queue.length) {
+    const { id, path } = queue.shift();
+    if (!idOk(id)) continue;
+    let pageToken = "";
+    do {
+      const url = new URL(API);
+      url.search = new URLSearchParams({
+        q: `'${id}' in parents and trashed = false`, pageSize: "1000",
+        fields: `nextPageToken,files(id,name,mimeType,shared,permissions(${PERM_FIELDS}))`,
+        supportsAllDrives: "true", includeItemsFromAllDrives: "true", ...(pageToken ? { pageToken } : {}),
+      }).toString();
+      const body = await (await authed(url)).json();
+      for (const f of body.files) {
+        if (++seen > limit) throw new Error(`폴더 안 항목이 너무 많습니다 (${limit}개 초과) — 하위 폴더를 골라 조사하거나 데스크톱 앱을 쓰세요`);
+        if (f.mimeType === FOLDER_MIME) queue.push({ id: f.id, path: `${path}${f.name}/` });
+        if (f.shared) found.push({ ...f, path: `${path}${f.name}`, permissions: f.permissions || (await listPermissions(f.id)) });
+      }
+      pageToken = body.nextPageToken || "";
+    } while (pageToken);
+  }
+  return { items: found, seen };
+}
+
+/** Remove one person's / the link's access to a file (not the file itself). */
+export async function deletePermission(fileId, permId) {
+  if (!idOk(fileId) || !idOk(permId)) throw new Error("ID 형식이 아닙니다");
+  await authed(`${API}/${encodeURIComponent(fileId)}/permissions/${encodeURIComponent(permId)}?supportsAllDrives=true`, { method: "DELETE" });
+}
+
+export async function updatePermission(fileId, permId, role) {
+  if (!idOk(fileId) || !idOk(permId)) throw new Error("ID 형식이 아닙니다");
+  await authed(`${API}/${encodeURIComponent(fileId)}/permissions/${encodeURIComponent(permId)}?supportsAllDrives=true&fields=id`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }),
+  });
+}
+
+/** Re-create a permission when undoing (no notification e-mail). */
+export async function createPermission(fileId, perm) {
+  if (!idOk(fileId)) throw new Error("파일 ID 형식이 아닙니다");
+  const person = perm.type === "user" || perm.type === "group";
+  const url = `${API}/${encodeURIComponent(fileId)}/permissions?supportsAllDrives=true&fields=id${person ? "&sendNotificationEmail=false" : ""}`;
+  await authed(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(perm) });
+}

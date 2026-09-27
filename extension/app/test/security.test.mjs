@@ -118,7 +118,11 @@ test("vendored pdf.js is the verified build; GPL fonts and the scripting engine 
 
 test("E3 writes: upload and trash only — no permanent delete, trash only after both checks", () => {
   const d = src("lib/drive.js");
-  assert.doesNotMatch(d, /method:\s*"DELETE"|emptyTrash/);
+  assert.doesNotMatch(d, /emptyTrash/);
+  // DELETE only removes a permission (someone's access), never a file (D-091)
+  const deletes = [...d.matchAll(/authed\(([^,]+), \{ method: "DELETE" \}\)/g)].map((m) => m[1]);
+  assert.deepEqual(deletes, ["`${API}/${encodeURIComponent(fileId)}/permissions/${encodeURIComponent(permId)}?supportsAllDrives=true`"]);
+  assert.equal((d.match(/"DELETE"/g) || []).length, 1);
   assert.match(d, /JSON\.stringify\(\{ trashed: true \}\)/);
   const r = src("lib/reencrypt.js");
   assert.match(r, /if \(trashOld && trashIds\.length && uploadVerified\)/);

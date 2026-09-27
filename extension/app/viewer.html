@@ -101,7 +101,8 @@
       <div id="selCard" class="selCard" hidden>
         <div class="selHead"><b id="selTitle"></b></div>
         <ul id="selList"></ul>
-        <button id="selEncrypt" class="filled wide" hidden>🔒 선택한 파일 암호화</button>
+        <button id="selEncrypt" class="filled wide" hidden>🔒 암호화하기</button>
+        <button id="selShare" class="tonal wide" hidden>👥 공유 권한 보기·바꾸기</button>
         <p id="selInfo" class="scopeInfo"></p>
       </div>
       <p id="scopeInfo" class="scopeInfo"></p>
@@ -132,6 +133,19 @@
         <ul id="members"></ul>
         <p id="notice" class="notice"></p>
         <div id="view"></div>
+      </div>
+      <div id="share" hidden>
+        <div class="openedHead"><h2>👥 공유 권한</h2><button id="shareClose" class="icon close" title="닫기" aria-label="닫기">✕</button></div>
+        <p id="shareInfo" class="small muted"></p>
+        <div id="shareList"></div>
+        <button id="shareDeep" class="tonal" hidden>📁 폴더 안 파일까지 조사</button>
+        <div class="shareDo">
+          <label class="small">할 일<select id="shareAction"></select></label>
+          <p id="sharePlan" class="small"></p>
+          <button id="shareGo" class="filled" disabled>변경 실행</button>
+          <button id="shareUndo" class="tonal" hidden>↩ 되돌리기</button>
+        </div>
+        <p id="shareStatus" class="notice"></p>
       </div>
       <div id="reenc" hidden>
         <h2 id="reencTitle"></h2>

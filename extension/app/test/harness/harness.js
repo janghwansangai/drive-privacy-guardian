@@ -16,6 +16,25 @@ const FILES = [
   { id: "fe2Archive000300000000", name: "보관_2026-09-27_9c8d7e6f.7z", size: "90000", createdTime: "2026-09-25T00:00:00Z" },
 ];
 const built = {};
+// fake sharing (D-091): who can see what
+const ME = "teacher@school.example";
+const PERMS = {
+  plainDocx000000000000001: [
+    { id: "own", type: "user", role: "owner", emailAddress: ME },
+    { id: "anyone", type: "anyone", role: "writer" },
+    { id: "ext1", type: "user", role: "writer", emailAddress: "parent@gmail.com" },
+  ],
+  folderClass0000000000001: [
+    { id: "own", type: "user", role: "owner", emailAddress: ME },
+    { id: "col", type: "user", role: "writer", emailAddress: "colleague@school.example" },
+  ],
+  childCsv000000000000001: [
+    { id: "own", type: "user", role: "owner", emailAddress: ME },
+    { id: "col", type: "user", role: "writer", emailAddress: "colleague@school.example", permissionDetails: [{ inherited: true }] },
+    { id: "anyone", type: "anyone", role: "reader" },
+  ],
+};
+window.harnessPerms = PERMS;
 const SYN_URL = "/tests/fixtures/synthetic/";
 async function e2Archive() {
   if (built.fe2) return built.fe2;
@@ -115,6 +134,16 @@ window.fetch = async (input, init) => {
       FILES.find((f) => f.id === id).size = String(built[id].length);
       return new Response(JSON.stringify({ id }), { headers: { "content-type": "application/json" } });
     }
+    if (url.pathname === "/drive/v3/about") return new Response(JSON.stringify({ user: { emailAddress: ME } }), { headers: { "content-type": "application/json" } });
+    const pm = /\/files\/([^/]+)\/permissions(?:\/([^/?]+))?$/.exec(url.pathname);
+    if (pm) {
+      const list = (PERMS[pm[1]] = PERMS[pm[1]] || [{ id: "own", type: "user", role: "owner", emailAddress: ME }]);
+      const json = (o) => new Response(JSON.stringify(o), { headers: { "content-type": "application/json" } });
+      if (init?.method === "DELETE") { list.splice(list.findIndex((p) => p.id === pm[2]), 1); return new Response(null, { status: 204 }); }
+      if (init?.method === "PATCH") { list.find((p) => p.id === pm[2]).role = JSON.parse(init.body).role; return json({ id: pm[2] }); }
+      if (init?.method === "POST") { const p = { id: `re${list.length}${Date.now()}`, ...JSON.parse(init.body) }; list.push(p); return json({ id: p.id }); }
+      return json({ permissions: list });
+    }
     if (url.pathname === "/drive/v3/files" && init?.method === "POST") { // new folder
       const meta = JSON.parse(init.body);
       const id = `newfolder${++window.harnessUploads}`.padEnd(24, "0");
@@ -143,7 +172,8 @@ window.fetch = async (input, init) => {
       return realFetch(FIX + encodeURIComponent(f.name));
     }
     const parent = /'([\w-]+)' in parents/.exec(url.searchParams.get("q") || "");
-    const files = parent ? FILES.filter((f) => (f.parents || ["root"]).includes(parent[1])) : FILES;
+    const files = (parent ? FILES.filter((f) => (f.parents || ["root"]).includes(parent[1])) : FILES)
+      .map((f) => ({ ...f, shared: (PERMS[f.id] || []).length > 1, permissions: PERMS[f.id] }));
     return new Response(JSON.stringify({ files }), { headers: { "content-type": "application/json" } });
   }
   return realFetch(input, init);
