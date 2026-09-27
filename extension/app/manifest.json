@@ -5,10 +5,11 @@
   "description": "Drive Privacy Guardian으로 암호화한 파일을 메모리에서만 풀어 바로 봅니다. 구글 외 서버와 통신하지 않습니다.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt61UYZPQDwodE5tFNlsuyJvDS4H46rBQ5cNaQ9D1EPcTyHTI+2zCGQmLnGQoh5P6zBSYazPThl6Rxj5CkdK8g5WC4p7WGIWT9oQ+PZ4BhZHIYSFu8nb6bq4u+C4skMNCtky7cYZkCZUH6hQNQabrsb6CRijv8AHo33CIV6/QqNcbKn6LJDAPtT1b0TenONuPMEpLeJIkEsQEmUhVrBP1+FMOadRhi/2Sk93fQfZHNC+5IH6sOi4pbxNTkyBmYZPdfu8RuCqbRgzb5Ww+E5FIfK6N+36wzfLDRB8jgIThmIAmRSApiP0m7zyGYJdFM+qe/nozZoVV9k5CLp0eLzooqQIDAQAB",
   "minimum_chrome_version": "116",
-  "permissions": ["identity", "storage"],
-  "host_permissions": ["https://www.googleapis.com/*"],
+  "permissions": ["identity", "storage", "sidePanel"],
+  "host_permissions": ["https://www.googleapis.com/*", "https://drive.google.com/*"],
+  "side_panel": { "default_path": "viewer.html" },
   "background": { "service_worker": "background.js", "type": "module" },
-  "action": { "default_title": "암호화된 파일 보기" },
+  "action": { "default_title": "암호화된 파일 보기 (드라이브 옆 패널)" },
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https://www.googleapis.com; img-src 'self' blob: data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
   }

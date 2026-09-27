@@ -8,6 +8,7 @@ import { openArchive, passwordFor, parseRecoveryKey, tagFromName, WrongPassword,
 import { viewModel } from "./lib/view.js";
 import { renderModel } from "./lib/render.js";
 import { planMembers, reencrypt, ReencryptFailed } from "./lib/reencrypt.js";
+import { parseDriveUrl } from "./lib/driveurl.js";
 
 const $ = (id) => document.getElementById(id);
 const IDLE_MS = 10 * 60 * 1000;
@@ -79,33 +80,100 @@ function setSignedIn(on) {
   $("logout").hidden = !on;
 }
 
+// -- which files to list: the folder open in the Drive tab next to this panel, or all ------------
+let scope = "folder";
+let driveLoc = null; // parseDriveUrl() of the active Drive tab (side panel only)
+
+function fileItem(f) {
+  const li = document.createElement("li");
+  li.dataset.id = f.id;
+  li.append(document.createTextNode(f.name));
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = `${(f.createdTime || "").slice(0, 10)} · ${(Number(f.size || 0) / 1024).toFixed(0)} KB`;
+  li.append(meta);
+  li.onclick = () => select(f, li);
+  if (selected && selected.id === f.id) li.classList.add("on");
+  return li;
+}
+
 async function refresh() {
   message("");
   const list = $("files");
   list.replaceChildren(Object.assign(document.createElement("li"), { className: "muted", textContent: "불러오는 중…" }));
+  const folder = scope === "folder" ? driveLoc?.folder : null;
+  $("scopeFolder").classList.toggle("on", scope === "folder");
+  $("scopeAll").classList.toggle("on", scope === "all");
+  $("scopeInfo").textContent = scope === "all" ? "이 확장 프로그램이 볼 수 있는 모든 암호화 파일"
+    : folder === "root" ? "드라이브에서 열어 둔 폴더: 내 드라이브"
+    : folder ? "드라이브에서 열어 둔 폴더의 암호화 파일"
+    : "드라이브에서 폴더를 열면 그 폴더의 파일만 보입니다 (지금은 전체)";
   try {
-    const files = await drive.listVaultFiles();
+    const files = await drive.listVaultFiles(folder ? { parent: folder } : {});
     setSignedIn(true);
     list.replaceChildren();
-    if (!files.length) list.append(Object.assign(document.createElement("li"), { className: "muted", textContent: "암호화된 파일이 없습니다" }));
-    for (const f of files) {
-      const li = document.createElement("li");
-      li.append(document.createTextNode(f.name));
-      const meta = document.createElement("div");
-      meta.className = "meta";
-      meta.textContent = `${(f.createdTime || "").slice(0, 10)} · ${(Number(f.size || 0) / 1024).toFixed(0)} KB`;
-      li.append(meta);
-      li.onclick = () => select(f, li);
-      list.append(li);
-    }
+    if (!files.length) list.append(Object.assign(document.createElement("li"), { className: "muted", textContent: folder ? "이 폴더에는 암호화된 파일이 없습니다" : "암호화된 파일이 없습니다" }));
+    for (const f of files) list.append(fileItem(f));
   } catch (e) {
     list.replaceChildren();
     message(e.message);
   }
 }
 
+$("scopeFolder").onclick = () => { scope = "folder"; if (drive.signedIn()) refresh(); };
+$("scopeAll").onclick = () => { scope = "all"; if (drive.signedIn()) refresh(); };
+
+/** Follow the Drive tab: list its folder; a previewed encrypted file is selected right away. */
+async function followDrive(url) { return followLoc(parseDriveUrl(url || "")); }
+
+async function followLoc(loc) {
+  const same = JSON.stringify(loc) === JSON.stringify(driveLoc);
+  if (same) return;
+  driveLoc = loc;
+  if (!drive.signedIn()) { $("scopeInfo").textContent = loc ? "로그인하면 드라이브에서 열어 둔 폴더의 암호화 파일이 보입니다" : ""; return; }
+  if (loc?.file) {
+    if (reenc || (selected && selected.id === loc.file)) return;
+    const f = await drive.getFile(loc.file);
+    if (f && drive.isVaultName(f.name)) {
+      const li = fileItem(f);
+      $("files").prepend(li);
+      await select(f, li);
+      return;
+    }
+  }
+  if (scope === "folder") await refresh();
+}
+
+async function watchDriveTab() {
+  const me = await chrome.tabs.getCurrent?.();
+  if (me) { // full-tab mode: no Drive tab to follow
+    document.body.classList.add("inTab");
+    $("openTab").hidden = true;
+    scope = "all";
+    document.querySelector(".seg").hidden = true;
+    return;
+  }
+  const win = await chrome.windows?.getCurrent?.().catch(() => null);
+  const check = async () => {
+    const [tab] = await chrome.tabs.query({ active: true, ...(win ? { windowId: win.id } : { currentWindow: true }) });
+    try { await followDrive(tab?.url); } catch (e) { message(e.message); }
+  };
+  let timer = null;
+  const soon = () => { clearTimeout(timer); timer = setTimeout(check, 300); };
+  chrome.tabs.onActivated.addListener((info) => { if (!win || info.windowId === win.id) soon(); });
+  chrome.tabs.onUpdated.addListener((_id, change, tab) => { if (change.url && tab.active && (!win || tab.windowId === win.id)) soon(); });
+  check();
+}
+
 $("login").onclick = async () => {
-  try { await drive.signIn({ interactive: true }); setSignedIn(true); await refresh(); }
+  try {
+    await drive.signIn({ interactive: true });
+    setSignedIn(true);
+    const loc = driveLoc;
+    driveLoc = undefined; // re-apply the Drive tab's folder / file now that we can list
+    if (loc?.file) await followLoc(loc);
+    else { driveLoc = loc; await refresh(); }
+  }
   catch (e) { message(e.message); }
 };
 $("logout").onclick = () => { forget(); rememberedKey = null; drive.signOut(); setSignedIn(false); $("files").replaceChildren(); $("unlock").hidden = true; };
@@ -218,6 +286,27 @@ $("saveOk").onclick = () => {
 };
 
 $("close").onclick = () => { forget(); $("unlock").hidden = !selected; };
+$("back").onclick = () => {
+  forget();
+  closeReenc();
+  selected = null;
+  $("unlock").hidden = true;
+  document.querySelectorAll("#files li").forEach((x) => x.classList.remove("on"));
+};
+$("openTab").onclick = () => chrome.runtime.sendMessage({ type: "openTab" });
+
+// Narrow side panel: show either the list or the open file (body.focus), with "← 목록" to go back.
+const focusTargets = ["unlock", "opened", "reenc"].map($);
+const updateFocus = () => {
+  const on = focusTargets.some((e) => !e.hidden);
+  if (document.body.classList.contains("focus") === on) return; // setting `hidden` again would re-trigger
+  document.body.classList.toggle("focus", on);
+  $("back").hidden = !on;
+};
+const focusWatch = new MutationObserver(updateFocus);
+for (const e of focusTargets) focusWatch.observe(e, { attributes: true, attributeFilter: ["hidden"] });
+$("back").hidden = true;
+watchDriveTab().catch(() => {});
 touch();
 
 // -- E3: re-encrypt and upload -----------------------------------------------------------------

@@ -57,8 +57,13 @@ async function authed(url, init = {}) {
   return res;
 }
 
-export async function listVaultFiles() {
-  const q = "trashed = false and (mimeType = 'application/x-7z-compressed' or mimeType = 'application/zip')";
+export const isVaultName = (name) => VAULT_NAME.test(name || "");
+
+/** Encrypted archives visible to this app; `parent` limits it to one folder ("root" = My Drive). */
+export async function listVaultFiles({ parent } = {}) {
+  if (parent && !/^[\w-]+$/.test(parent)) throw new Error("폴더 ID 형식이 아닙니다");
+  const q = "trashed = false and (mimeType = 'application/x-7z-compressed' or mimeType = 'application/zip')" +
+    (parent ? ` and '${parent}' in parents` : "");
   const found = [];
   let pageToken = "";
   do {
@@ -73,6 +78,19 @@ export async function listVaultFiles() {
     pageToken = body.nextPageToken || "";
   } while (pageToken);
   return found.sort((a, b) => (b.createdTime || "").localeCompare(a.createdTime || ""));
+}
+
+/** One file's metadata, or null if this app cannot see it (drive.file). */
+export async function getFile(id) {
+  if (!/^[\w-]+$/.test(id)) return null;
+  const url = `${API}/${encodeURIComponent(id)}?supportsAllDrives=true&fields=id,name,size,createdTime,parents,trashed`;
+  try {
+    const f = await (await authed(url)).json();
+    return f.trashed ? null : f;
+  } catch (e) {
+    if (e.status === 404 || e.status === 403) return null;
+    throw e;
+  }
 }
 
 /** Download into memory; `onProgress(done, total)` is called while it streams. */

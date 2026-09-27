@@ -2,10 +2,10 @@
 // that serves the synthetic fixture archives. No network, no Google account. Not shipped.
 const FIX = "../fixtures/";
 const FILES = [
-  { id: "f7z", parents: ["folderA"], name: "보관_2026-09-27_0a1b2c3d.7z", size: "50000", createdTime: "2026-09-27T00:00:00Z" },
-  { id: "fzip", name: "보관_2026-09-27_4e5f6a7b.zip", size: "50000", createdTime: "2026-09-26T00:00:00Z" },
+  { id: "f7zArchive0001", parents: ["folderA123456"], name: "보관_2026-09-27_0a1b2c3d.7z", size: "50000", createdTime: "2026-09-27T00:00:00Z" },
+  { id: "fzipArchive0002", name: "보관_2026-09-27_4e5f6a7b.zip", size: "50000", createdTime: "2026-09-26T00:00:00Z" },
   // E2 formats: built in the page with the extension's own 7z writer (recovery-key password)
-  { id: "fe2", name: "보관_2026-09-27_9c8d7e6f.7z", size: "90000", createdTime: "2026-09-25T00:00:00Z" },
+  { id: "fe2Archive0003", name: "보관_2026-09-27_9c8d7e6f.7z", size: "90000", createdTime: "2026-09-25T00:00:00Z" },
 ];
 const built = {};
 async function e2Archive() {
@@ -42,6 +42,23 @@ globalThis.chrome = {
       return `${u.searchParams.get("redirect_uri")}#${p}`;
     },
   },
+  // Side panel next to a fake Drive tab (?mode=tab = the full-tab viewer instead).
+  tabs: {
+    getCurrent: async () => (new URLSearchParams(location.search).get("mode") === "tab" ? { id: 1 } : undefined),
+    query: async () => [{ id: 2, active: true, windowId: 1, url: window.harnessDriveUrl }],
+    onActivated: { addListener: () => {} },
+    onUpdated: { addListener: (fn) => { window.harnessTabListeners.push(fn); } },
+  },
+  windows: { getCurrent: async () => ({ id: 1 }) },
+  runtime: { sendMessage: (m) => { window.harnessMessages.push(m); } },
+};
+window.harnessTabListeners = [];
+window.harnessMessages = [];
+window.harnessDriveUrl = "https://drive.google.com/drive/folders/folderA123456";
+/** Simulate the user navigating the Drive tab. */
+window.harnessNavigate = (url) => {
+  window.harnessDriveUrl = url;
+  for (const fn of window.harnessTabListeners) fn(2, { url }, { id: 2, active: true, windowId: 1, url });
 };
 const realFetch = window.fetch.bind(window);
 window.harnessCalls = [];
@@ -68,13 +85,19 @@ window.fetch = async (input, init) => {
       return new Response(JSON.stringify({ id, trashed: true }), { headers: { "content-type": "application/json" } });
     }
     const m = /\/files\/([^/?]+)$/.exec(url.pathname);
+    if (m && url.searchParams.get("alt") !== "media") {
+      const f = FILES.find((x) => x.id === decodeURIComponent(m[1]));
+      return f ? new Response(JSON.stringify(f), { headers: { "content-type": "application/json" } }) : new Response("{}", { status: 404 });
+    }
     if (m && url.searchParams.get("alt") === "media") {
       const f = FILES.find((x) => x.id === decodeURIComponent(m[1]));
-      if (f.id === "fe2") return new Response(await e2Archive());
+      if (f.id === "fe2Archive0003") return new Response(await e2Archive());
       if (built[f.id]) return new Response(built[f.id]);
       return realFetch(FIX + encodeURIComponent(f.name));
     }
-    return new Response(JSON.stringify({ files: FILES }), { headers: { "content-type": "application/json" } });
+    const parent = /'([\w-]+)' in parents/.exec(url.searchParams.get("q") || "");
+    const files = parent ? FILES.filter((f) => (f.parents || ["root"]).includes(parent[1])) : FILES;
+    return new Response(JSON.stringify({ files }), { headers: { "content-type": "application/json" } });
   }
   return realFetch(input, init);
 };

@@ -3,26 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="referrer" content="no-referrer">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>🔐 암호화된 파일 보기</title>
   <link rel="stylesheet" href="viewer.css">
 </head>
 <body>
-  <header>
-    <h1>🔐 암호화된 파일 보기 <small>Drive Privacy Guardian</small></h1>
+  <header class="bar">
+    <div class="brand"><span class="logo" aria-hidden="true">🔐</span><div><h1>암호화 파일</h1><small>Drive Privacy Guardian</small></div></div>
     <div class="account">
-      <span id="status">로그인 전</span>
-      <button id="login">구글 로그인</button>
-      <button id="logout" hidden>로그아웃</button>
-      <button id="helpBtn" title="도움말">❓ 도움말</button>
-      <button id="settingsBtn" title="설정">⚙ 설정</button>
+      <span id="status" class="chip">로그인 전</span>
+      <button id="login" class="filled">로그인</button>
+      <button id="logout" class="text" hidden>로그아웃</button>
+      <button id="openTab" class="icon" title="새 탭에서 크게 보기" aria-label="새 탭에서 크게 보기">↗</button>
+      <button id="helpBtn" class="icon" title="도움말" aria-label="도움말">?</button>
+      <button id="settingsBtn" class="icon" title="설정" aria-label="설정">⚙</button>
     </div>
   </header>
-  <p class="memory">풀린 내용은 <b>이 창의 메모리에만</b> 있고, 「💾 저장」을 누를 때만 파일로 저장합니다. 창을 닫거나 10분 동안 쓰지 않으면 지워집니다.</p>
+  <p class="memory">🛡 풀린 내용은 <b>이 패널의 메모리에만</b> 있습니다. 닫거나 10분 동안 쓰지 않으면 지워집니다.</p>
 
   <section id="help" hidden>
     <h2>도움말</h2>
     <ol>
-      <li><b>보기</b>: 왼쪽에서 암호화된 파일을 고르고 비밀번호 또는 <b>복구 키(35자)</b>를 넣으면, 파일을 <b>이 창의 메모리에서만</b> 풀어 보여 줍니다.
+      <li><b>드라이브 옆에서 보기</b>: 구글 드라이브를 연 채로 도구 모음의 확장 프로그램 아이콘을 누르면 이 패널이 드라이브 옆에 열립니다. 드라이브에서 폴더를 열면 「📁 이 폴더」에 그 폴더의 암호화 파일이 보이고, 암호화 파일을 더블클릭해 미리보기를 열면 그 파일이 바로 선택됩니다.</li>
+      <li><b>보기</b>: 목록에서 암호화된 파일을 고르고 비밀번호 또는 <b>복구 키(35자)</b>를 넣으면, 파일을 <b>이 창의 메모리에서만</b> 풀어 보여 줍니다.
         한글(HWP·HWPX)·엑셀·워드·PDF·사진·CSV·TXT를 볼 수 있습니다. 한글·워드는 굵게·크기·색·정렬 같은 기본 모양만 보이며, 쪽 모양·그림·머리말은 다를 수 있습니다.</li>
       <li><b>💾 저장</b>: 지금 보는 파일을 암호 없이 다운로드 폴더에 저장합니다. 다 쓰면 휴지통에 버리고 비우세요.</li>
       <li><b>🔒 고친 파일로 다시 암호화</b>: 저장해서 고친 파일을 골라 새 보관 파일을 만들고 드라이브에 올립니다. 다시 풀어 비교하고, 올린 파일을 다시 받아 비교한 뒤에만 예전 파일을 휴지통으로 옮깁니다.</li>
@@ -37,21 +40,29 @@
     <h2>설정</h2>
     <p>이 확장 프로그램의 리디렉션 주소 (구글 콘솔의 웹 애플리케이션 클라이언트에 등록): <code id="redirect"></code></p>
     <label>OAuth 클라이언트 ID <input id="client" size="72" placeholder="1234-abc.apps.googleusercontent.com"></label>
-    <button id="saveClient">저장</button> <span id="clientSaved"></span>
+    <button id="saveClient" class="filled">저장</button> <span id="clientSaved"></span>
   </section>
 
   <main>
-    <aside>
-      <div class="asideHead"><h2>암호화된 파일</h2><button id="refresh">새로고침</button></div>
-      <button id="newArchive" class="wide">➕ 새 파일 암호화해 올리기</button>
+    <aside class="card">
+      <div class="asideHead">
+        <div class="seg" role="tablist">
+          <button id="scopeFolder" class="on" role="tab" title="드라이브에서 지금 열어 둔 폴더">📁 이 폴더</button>
+          <button id="scopeAll" role="tab">전체</button>
+        </div>
+        <button id="refresh" class="icon" title="새로고침" aria-label="새로고침">⟳</button>
+      </div>
+      <p id="scopeInfo" class="scopeInfo"></p>
       <ul id="files"><li class="muted">로그인하면 목록이 보입니다</li></ul>
+      <button id="newArchive" class="tonal wide">➕ 새 파일 암호화해 올리기</button>
     </aside>
-    <section id="panel">
+    <section id="panel" class="card">
+      <button id="back" class="text back" hidden>← 목록</button>
       <div id="unlock" hidden>
         <h2 id="unlockName"></h2>
         <form id="unlockForm" autocomplete="off">
           <input id="password" type="password" size="44" placeholder="비밀번호 또는 복구 키(35자)" autocomplete="off">
-          <button type="submit">열기</button>
+          <button type="submit" class="filled">열기</button>
           <label class="remember"><input id="remember" type="checkbox"> 복구 키를 이 창이 열려 있는 동안만 기억</label>
         </form>
         <p class="muted">복구 키로 만든 파일은 종이에 적어 둔 복구 키(35자)를 넣어도 열립니다.</p>
@@ -59,9 +70,11 @@
       <div id="opened" hidden>
         <div class="openedHead">
           <h2 id="openedName"></h2>
-          <button id="save" hidden>💾 이 파일 저장</button>
-          <button id="reencBtn">🔒 고친 파일로 다시 암호화</button>
-          <button id="close">닫기 (메모리에서 지우기)</button>
+          <button id="close" class="icon close" title="닫기 (메모리에서 지우기)" aria-label="닫기">✕</button>
+        </div>
+        <div class="actions">
+          <button id="save" class="tonal" hidden>💾 저장</button>
+          <button id="reencBtn" class="tonal">🔒 고친 파일로 다시 암호화</button>
         </div>
         <ul id="members"></ul>
         <p id="notice" class="notice"></p>
@@ -81,7 +94,7 @@
           <li id="trashStep"><label><input id="trashOld" type="checkbox" checked> 확인이 끝나면 <b>예전 보관 파일을 휴지통으로</b> (30일 안에 복원 가능)</label></li>
         </ol>
         <p class="muted" id="whereInfo"></p>
-        <button id="reencGo" class="primaryBlue">🔒 암호화해서 드라이브에 올리기</button> <button id="reencCancel">취소</button>
+        <button id="reencGo" class="filled">🔒 암호화해서 드라이브에 올리기</button> <button id="reencCancel" class="text">취소</button>
         <p id="reencStatus" class="notice"></p>
       </div>
       <p id="message" class="message"></p>
@@ -94,9 +107,9 @@
       <li>크롬 다운로드 목록에도 파일 이름이 남습니다.</li>
       <li>다 쓰면 파일을 휴지통에 버리고 <b>휴지통도 비우세요</b>. 공용 PC에서는 저장하지 마세요.</li>
     </ul>
-    <div class="dialogButtons"><button id="saveCancel">취소</button> <button id="saveOk" class="primary">저장</button></div>
+    <div class="dialogButtons"><button id="saveCancel" class="text">취소</button> <button id="saveOk" class="danger">저장</button></div>
   </dialog>
-  <footer>본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다. · 한글 뷰어는 내용 확인용이며 원본 모양과 다를 수 있습니다.</footer>
+  <footer>본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다. · 뷰어는 내용 확인용이며 원본 모양과 다를 수 있습니다.</footer>
   <script type="module" src="viewer.js"></script>
 </body>
 </html>

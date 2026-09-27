@@ -11,7 +11,9 @@ const src = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
 const manifest = JSON.parse(src("manifest.json"));
 
 test("network: only Google sign-in and the Drive API", () => {
-  assert.deepEqual(manifest.host_permissions, ["https://www.googleapis.com/*"]);
+  // drive.google.com is only there so the side panel can read the Drive tab's URL (which folder
+  // is open); nothing is fetched from it and no code is injected into it.
+  assert.deepEqual(manifest.host_permissions, ["https://www.googleapis.com/*", "https://drive.google.com/*"]);
   const csp = manifest.content_security_policy.extension_pages;
   assert.match(csp, /connect-src 'self' https:\/\/www\.googleapis\.com;/);
   assert.match(csp, /script-src 'self' 'wasm-unsafe-eval';/);
@@ -26,8 +28,11 @@ test("network: only Google sign-in and the Drive API", () => {
 });
 
 test("minimal permissions, no content scripts, no remote code", () => {
-  assert.deepEqual(manifest.permissions.sort(), ["identity", "storage"]);
+  assert.deepEqual([...manifest.permissions].sort(), ["identity", "sidePanel", "storage"]);
   assert.equal(manifest.content_scripts, undefined);
+  assert.ok(!manifest.permissions.includes("scripting") && !manifest.permissions.includes("tabs"));
+  assert.equal(manifest.side_panel.default_path, "viewer.html");
+  for (const f of SHIPPED) assert.doesNotMatch(src(f), /chrome\.scripting|executeScript|insertCSS/, f);
   assert.equal(manifest.web_accessible_resources, undefined);
   for (const f of SHIPPED) {
     const s = src(f);
