@@ -18,6 +18,7 @@ DIST = ROOT / "dist"
 INCLUDE = [
     "manifest.json",
     "background.js",
+    "drive_watch.js",
     "viewer.html",
     "viewer.css",
     "viewer.js",

@@ -43,7 +43,7 @@ test("recovery key: new archive gets its own tag and opens with the same key; ol
   const drive = fakeDrive();
   const { files } = planMembers(existing(), [{ name: "메모.txt", bytes: enc("edited") }]);
   const steps = [];
-  const r = await reencrypt({ files, secret: { raw }, parent: "folderA", oldId: "OLD", trashOld: true, drive, onStep: (s) => steps.push(s) });
+  const r = await reencrypt({ files, secret: { raw }, parent: "folderA", trashIds: ["OLD"], trashOld: true, drive, onStep: (s) => steps.push(s) });
   assert.match(r.name, /^보관_\d{4}-\d{2}-\d{2}_[0-9a-f]{8}\.7z$/);
   assert.ok(r.verified && r.uploadVerified && r.trashedOld && !r.parentFallback);
   assert.deepEqual(drive.calls.map((c) => c[0]), ["upload", "download", "trash"]);
@@ -58,7 +58,7 @@ test("recovery key: new archive gets its own tag and opens with the same key; ol
 
 test("upload check fails → the old archive is NOT trashed", async () => {
   const drive = fakeDrive({ corruptUpload: true });
-  const r = await reencrypt({ files: existing(), secret: { password: "Typed-pass-99" }, parent: "p", oldId: "OLD", trashOld: true, drive });
+  const r = await reencrypt({ files: existing(), secret: { password: "Typed-pass-99" }, parent: "p", trashIds: ["OLD"], trashOld: true, drive });
   assert.equal(r.uploadVerified, false);
   assert.equal(r.trashedOld, false);
   assert.ok(!drive.calls.some((c) => c[0] === "trash"));
@@ -66,7 +66,7 @@ test("upload check fails → the old archive is NOT trashed", async () => {
 
 test("typed password is reused; trash only when asked; folder refused → top of My Drive", async () => {
   const drive = fakeDrive({ denyParent: true });
-  const r = await reencrypt({ files: existing(), secret: { password: "Typed-pass-99" }, parent: "p", oldId: "OLD", trashOld: false, drive });
+  const r = await reencrypt({ files: existing(), secret: { password: "Typed-pass-99" }, parent: "p", trashIds: ["OLD"], trashOld: false, drive });
   assert.ok(r.parentFallback);
   assert.deepEqual(drive.calls.map((c) => c[0]), ["upload", "upload", "download"]);
   assert.deepEqual([drive.calls[0][2], drive.calls[1][2]], ["p", null]);
@@ -77,7 +77,7 @@ test("nothing to archive / other upload errors stop before touching the old arch
   await assert.rejects(reencrypt({ files: new Map(), secret: { password: "x" }, drive: fakeDrive() }), ReencryptFailed);
   const drive = fakeDrive();
   drive.upload = async () => { const e = new Error("구글 드라이브 오류 (500)"); e.status = 500; throw e; };
-  await assert.rejects(reencrypt({ files: existing(), secret: { password: "Typed-pass-99" }, parent: "p", oldId: "OLD", trashOld: true, drive }), /예전 보관 파일은 그대로/);
+  await assert.rejects(reencrypt({ files: existing(), secret: { password: "Typed-pass-99" }, parent: "p", trashIds: ["OLD"], trashOld: true, drive }), /예전 보관 파일은 그대로/);
 });
 
 test("desktop-made archive → re-encrypted by the extension keeps every file byte-identical", async () => {
@@ -89,4 +89,15 @@ test("desktop-made archive → re-encrypted by the extension keeps every file by
   const back = await openArchive(drive.store.get(r.id).bytes, await passwordFor(r.name, recoveryKey()));
   assert.deepEqual([...back.keys()].sort(), [...members.keys()].sort());
   for (const [n, d] of members) assert.deepEqual(back.get(n), d, n);
+});
+
+test("several Drive originals are trashed only after both checks; partial failures are reported", async () => {
+  const drive = fakeDrive();
+  const failing = new Set(["B"]);
+  drive.trash = async (id) => { drive.calls.push(["trash", id]); if (failing.has(id)) throw new Error("403"); };
+  const r = await reencrypt({ files: existing(), secret: { password: "Typed-pass-99" }, parent: "p", trashIds: ["A", "B", "C"], trashOld: true, drive });
+  assert.deepEqual(drive.calls.filter((c) => c[0] === "trash").map((c) => c[1]), ["A", "B", "C"]);
+  assert.equal(r.trashedOld, false);
+  assert.equal(r.trashFailed, 1);
+  await assert.rejects(reencrypt({ files: existing(), secret: { password: "x-12345678" }, trashIds: ["bad id"], trashOld: true, drive }), ReencryptFailed);
 });

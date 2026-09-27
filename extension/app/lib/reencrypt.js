@@ -55,12 +55,14 @@ export async function passwordForNew(secret, name) {
 
 /**
  * drive: { upload(name, parent, bytes), download({ id, size }), trash(id) }
- * Returns { name, id, verified, uploadVerified, trashedOld, parentFallback }.
+ * trashIds: the replaced archive, or the Drive originals that were just encrypted.
+ * Returns { name, id, verified, uploadVerified, trashedOld, trashFailed, parentFallback }.
  */
-export async function reencrypt({ files, secret, parent, oldId, trashOld, drive, onStep = () => {} }) {
+export async function reencrypt({ files, secret, parent, trashIds = [], trashOld, drive, onStep = () => {} }) {
   if (!files.size) throw new ReencryptFailed("보관할 파일이 없습니다");
   const name = newArchiveName();
   const password = await passwordForNew(secret, name);
+  if (trashIds.some((id) => typeof id !== "string" || !/^[\w-]+$/.test(id))) throw new ReencryptFailed("파일 ID 형식이 아닙니다");
   onStep("암호화하는 중…");
   const blob = await create7z(files, password);
   onStep("검증하는 중 (다시 풀어서 비교)…");
@@ -87,11 +89,16 @@ export async function reencrypt({ files, secret, parent, oldId, trashOld, drive,
   try {
     uploadVerified = (await sha256hex(await drive.download({ id: meta.id, size: blob.length }))) === digest;
   } catch { uploadVerified = false; }
-  let trashedOld = false;
-  if (trashOld && oldId && uploadVerified) {
-    onStep("예전 보관 파일을 휴지통으로…");
-    try { await drive.trash(oldId); trashedOld = true; } catch { trashedOld = false; }
+  let trashed = 0;
+  if (trashOld && trashIds.length && uploadVerified) {
+    onStep("원래 파일을 휴지통으로…");
+    for (const id of trashIds) {
+      try { await drive.trash(id); trashed += 1; } catch { /* reported below */ }
+    }
   }
-  blob.fill(0);
-  return { name, id: meta.id, verified: true, uploadVerified, trashedOld, parentFallback };
+  return {
+    name, id: meta.id, verified: true, uploadVerified,
+    trashedOld: trashIds.length > 0 && trashed === trashIds.length, trashFailed: trashIds.length - trashed,
+    parentFallback,
+  };
 }

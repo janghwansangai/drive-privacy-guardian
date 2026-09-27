@@ -5,9 +5,13 @@ const FILES = [
   { id: "f7zArchive0001", parents: ["folderA123456"], name: "보관_2026-09-27_0a1b2c3d.7z", size: "50000", createdTime: "2026-09-27T00:00:00Z" },
   { id: "fzipArchive0002", name: "보관_2026-09-27_4e5f6a7b.zip", size: "50000", createdTime: "2026-09-26T00:00:00Z" },
   // E2 formats: built in the page with the extension's own 7z writer (recovery-key password)
+  // ordinary Drive files (visible only after the full scope is granted)
+  { id: "plainDocx000000000000001", plain: true, parents: ["folderA123456"], name: "가정통신문_체험학습.docx", mimeType: "application/octet-stream", size: "9000", createdTime: "2026-09-20T00:00:00Z" },
+  { id: "googleDoc000000000000002", plain: true, parents: ["folderA123456"], name: "회의록", mimeType: "application/vnd.google-apps.document", createdTime: "2026-09-21T00:00:00Z" },
   { id: "fe2Archive0003", name: "보관_2026-09-27_9c8d7e6f.7z", size: "90000", createdTime: "2026-09-25T00:00:00Z" },
 ];
 const built = {};
+const SYN_URL = "/tests/fixtures/synthetic/";
 async function e2Archive() {
   if (built.fe2) return built.fe2;
   const { create7z, parseRecoveryKey, derivePassword } = await import("../../lib/vault.js");
@@ -38,6 +42,7 @@ globalThis.chrome = {
     getRedirectURL: () => "https://gjlomabldjleleakkeffjojhjdgeekgj.chromiumapp.org/",
     launchWebAuthFlow: async ({ url }) => {
       const u = new URL(url);
+      if ((u.searchParams.get("scope") || "").split(" ").includes("https://www.googleapis.com/auth/drive")) window.harnessFull = true;
       const p = new URLSearchParams({ access_token: "fake-token", expires_in: "3600", state: u.searchParams.get("state"), scope: u.searchParams.get("scope") });
       return `${u.searchParams.get("redirect_uri")}#${p}`;
     },
@@ -50,7 +55,16 @@ globalThis.chrome = {
     onUpdated: { addListener: (fn) => { window.harnessTabListeners.push(fn); } },
   },
   windows: { getCurrent: async () => ({ id: 1 }) },
-  runtime: { sendMessage: (m) => { window.harnessMessages.push(m); } },
+  runtime: {
+    id: "harness-ext",
+    sendMessage: async (m) => { window.harnessMessages.push(m); return null; },
+    onMessage: { addListener: (fn) => { window.harnessMsgListeners.push(fn); } },
+  },
+};
+window.harnessMsgListeners = [];
+/** Simulate drive_watch.js in the Drive tab sending a message. */
+window.harnessFromDrive = (msg) => {
+  for (const fn of window.harnessMsgListeners) fn(msg, { id: "harness-ext", tab: { id: 2, windowId: 1 }, url: "https://drive.google.com/drive/folders/folderA123456" }, () => {});
 };
 window.harnessTabListeners = [];
 window.harnessMessages = [];
@@ -69,7 +83,7 @@ window.fetch = async (input, init) => {
     window.harnessCalls.push(`${init?.method || "GET"} ${url.pathname}`);
     if (url.pathname.startsWith("/upload/") && init?.method === "POST") {
       const meta = JSON.parse(init.body);
-      const id = `up${++window.harnessUploads}`;
+      const id = `uploaded${++window.harnessUploads}`.padEnd(24, "0");
       FILES.unshift({ id, name: meta.name, parents: meta.parents, size: "0", createdTime: new Date().toISOString() });
       return new Response("{}", { headers: { Location: `https://www.googleapis.com/upload/drive/v3/files?upload_id=${id}` } });
     }
@@ -80,19 +94,23 @@ window.fetch = async (input, init) => {
       return new Response(JSON.stringify({ id }), { headers: { "content-type": "application/json" } });
     }
     if (init?.method === "PATCH") {
+      window.harnessTrashed = (window.harnessTrashed || []).concat(decodeURIComponent(/\/files\/([^/?]+)/.exec(url.pathname)[1]));
       const id = decodeURIComponent(/\/files\/([^/?]+)/.exec(url.pathname)[1]);
       FILES.splice(FILES.findIndex((f) => f.id === id), 1);
       return new Response(JSON.stringify({ id, trashed: true }), { headers: { "content-type": "application/json" } });
     }
+    const ex = /\/files\/([^/?]+)\/export$/.exec(url.pathname);
+    if (ex) return realFetch(SYN_URL + encodeURIComponent("가정통신문_체험학습.docx")); // any docx will do
     const m = /\/files\/([^/?]+)$/.exec(url.pathname);
     if (m && url.searchParams.get("alt") !== "media") {
-      const f = FILES.find((x) => x.id === decodeURIComponent(m[1]));
+      const f = FILES.find((x) => x.id === decodeURIComponent(m[1]) && (!x.plain || window.harnessFull));
       return f ? new Response(JSON.stringify(f), { headers: { "content-type": "application/json" } }) : new Response("{}", { status: 404 });
     }
     if (m && url.searchParams.get("alt") === "media") {
       const f = FILES.find((x) => x.id === decodeURIComponent(m[1]));
       if (f.id === "fe2Archive0003") return new Response(await e2Archive());
       if (built[f.id]) return new Response(built[f.id]);
+      if (f.plain) return realFetch(SYN_URL + encodeURIComponent(f.name));
       return realFetch(FIX + encodeURIComponent(f.name));
     }
     const parent = /'([\w-]+)' in parents/.exec(url.searchParams.get("q") || "");

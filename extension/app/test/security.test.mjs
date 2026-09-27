@@ -6,7 +6,7 @@ import path from "node:path";
 import { HERE } from "./helpers.mjs";
 
 const ROOT = path.resolve(HERE, "..");
-const SHIPPED = ["viewer.js", "background.js", ...fs.readdirSync(path.join(ROOT, "lib")).map((f) => `lib/${f}`)];
+const SHIPPED = ["viewer.js", "background.js", "drive_watch.js", ...fs.readdirSync(path.join(ROOT, "lib")).map((f) => `lib/${f}`)];
 const src = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
 const manifest = JSON.parse(src("manifest.json"));
 
@@ -22,14 +22,18 @@ test("network: only Google sign-in and the Drive API", () => {
   const NAMESPACES = new Set(["http://schemas.openxmlformats.org/officeDocument/2006/relationships"]);
   for (const f of SHIPPED) {
     for (const url of (src(f).match(/https?:\/\/[^\s"'`)]+/g) || []).filter((u) => !NAMESPACES.has(u))) {
-      assert.match(url, /^https:\/\/(www\.googleapis\.com|accounts\.google\.com)\//, `${f}: ${url}`);
+      // drive.google.com appears only as a sender check (startsWith) — never fetched (see connect-src).
+      assert.match(url, /^https:\/\/(www\.googleapis\.com|accounts\.google\.com|drive\.google\.com)\//, `${f}: ${url}`);
     }
   }
 });
 
 test("minimal permissions, no content scripts, no remote code", () => {
   assert.deepEqual([...manifest.permissions].sort(), ["identity", "sidePanel", "storage"]);
-  assert.equal(manifest.content_scripts, undefined);
+  // One content script, on Drive only (D-086); what it may do is checked below.
+  assert.deepEqual(manifest.content_scripts, [
+    { matches: ["https://drive.google.com/*"], js: ["drive_watch.js"], run_at: "document_idle", all_frames: false },
+  ]);
   assert.ok(!manifest.permissions.includes("scripting") && !manifest.permissions.includes("tabs"));
   assert.equal(manifest.side_panel.default_path, "viewer.html");
   for (const f of SHIPPED) assert.doesNotMatch(src(f), /chrome\.scripting|executeScript|insertCSS/, f);
@@ -62,10 +66,15 @@ test("saving happens only from the confirmed dialog button", () => {
   assert.match(src("viewer.html"), /<dialog id="saveDialog">[\s\S]*다운로드 폴더/);
 });
 
-test("drive.file scope only (no restricted Drive scopes)", () => {
+test("drive.file by default; the full drive scope only on the user's explicit request (D-086)", () => {
   const s = src("lib/drive.js");
   assert.match(s, /auth\/drive\.file"/);
-  assert.doesNotMatch(s, /auth\/drive\.readonly|auth\/drive\.metadata|auth\/drive"/);
+  assert.doesNotMatch(s, /auth\/drive\.readonly|auth\/drive\.metadata/);
+  assert.match(s, /let wantFull = false;/);
+  assert.equal((s.match(/wantFull = true/g) || []).length, 1, "only requestFullAccess() turns it on");
+  const req = s.slice(s.indexOf("export async function requestFullAccess"), s.indexOf("async function authed"));
+  assert.match(req, /wantFull = true/);
+  assert.match(src("viewer.js"), /requestFullAccess\(\)/);
 });
 
 test("HWP notice is kept (Hancom published format, D-048)", () => {
@@ -101,6 +110,20 @@ test("E3 writes: upload and trash only — no permanent delete, trash only after
   assert.doesNotMatch(d, /method:\s*"DELETE"|emptyTrash/);
   assert.match(d, /JSON\.stringify\(\{ trashed: true \}\)/);
   const r = src("lib/reencrypt.js");
-  assert.match(r, /if \(trashOld && oldId && uploadVerified\)/);
+  assert.match(r, /if \(trashOld && trashIds\.length && uploadVerified\)/);
   assert.ok(r.indexOf("verifyArchive(") < r.indexOf("drive.upload("), "verify before upload");
+});
+
+test("Drive page watcher only reports file IDs to this extension (D-086)", () => {
+  const w = src("drive_watch.js");
+  // talks only to this extension, never to the network or storage
+  assert.doesNotMatch(w, /fetch\(|XMLHttpRequest|WebSocket|sendBeacon|chrome\.storage|localStorage|indexedDB|postMessage|chrome\.tabs/);
+  // never changes the Drive page
+  assert.doesNotMatch(w, /\.(innerHTML|outerHTML|textContent|innerText|value)\s*=|appendChild|append\(|prepend\(|insertAdjacent|setAttribute|\.style\b|createElement|remove\(\)/);
+  // the messages carry IDs only
+  const sends = [...w.matchAll(/send\(\{([^}]*)\}\)/g)].map((m) => m[1].trim());
+  assert.deepEqual(sends, ['type: "driveSelection", ids', 'type: "driveOpen", id']);
+  // the receivers check who sent it
+  assert.match(src("viewer.js"), /sender\.id !== chrome\.runtime\.id \|\| !sender\.tab \|\| !sender\.url\?\.startsWith\("https:\/\/drive\.google\.com\/"\)/);
+  assert.match(src("background.js"), /if \(sender\.id !== chrome\.runtime\.id\) return;/);
 });

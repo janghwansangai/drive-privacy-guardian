@@ -154,6 +154,7 @@ async function watchDriveTab() {
     return;
   }
   const win = await chrome.windows?.getCurrent?.().catch(() => null);
+  listenToDrive(win).catch(() => {});
   const check = async () => {
     const [tab] = await chrome.tabs.query({ active: true, ...(win ? { windowId: win.id } : { currentWindow: true }) });
     try { await followDrive(tab?.url); } catch (e) { message(e.message); }
@@ -185,7 +186,7 @@ let encrypted = null; // { id, bytes } — the still-encrypted download, reused 
 async function select(file, li) {
   forget();
   document.querySelectorAll("#files li").forEach((x) => x.classList.remove("on"));
-  li.classList.add("on");
+  li?.classList.add("on");
   selected = file;
   $("unlockName").textContent = file.name;
   $("unlock").hidden = false;
@@ -309,8 +310,83 @@ $("back").hidden = true;
 watchDriveTab().catch(() => {});
 touch();
 
+// -- files selected / double-clicked in the Drive tab (drive_watch.js sends their IDs) ------------
+let driveSel = []; // Drive IDs selected in the Drive tab
+let selFiles = []; // their metadata, when this app may see them
+
+const li = (text, cls) => Object.assign(document.createElement("li"), { textContent: text, className: cls || "" });
+
+async function showSelection(ids) {
+  driveSel = ids;
+  const card = $("selCard");
+  if (!ids.length) { card.hidden = true; selFiles = []; return; }
+  card.hidden = false;
+  $("selTitle").textContent = `드라이브에서 선택: ${ids.length}개`;
+  const list = $("selList");
+  if (!drive.signedIn()) {
+    list.replaceChildren(li("로그인하면 선택한 파일이 보입니다", "muted"));
+    $("selEncrypt").hidden = true;
+    return;
+  }
+  const metas = await Promise.all(ids.slice(0, 20).map((id) => drive.getFile(id).catch(() => null)));
+  if (driveSel !== ids) return; // selection changed meanwhile
+  selFiles = metas.filter(Boolean);
+  list.replaceChildren();
+  let plain = ids.length - selFiles.length; // unknown ones (no permission yet) count as plain files
+  for (const f of selFiles) {
+    const row = li("");
+    row.append(document.createTextNode(f.name));
+    if (drive.isVaultName(f.name)) {
+      const b = Object.assign(document.createElement("button"), { className: "tonal", textContent: "열기" });
+      b.onclick = () => select(f, null);
+      row.append(b);
+    } else if (f.mimeType === "application/vnd.google-apps.folder") {
+      row.append(Object.assign(document.createElement("span"), { className: "muted", textContent: "폴더" }));
+    } else plain += 1;
+    list.append(row);
+  }
+  if (ids.length > selFiles.length) list.append(li(`이름을 모르는 파일 ${ids.length - selFiles.length}개 — 「암호화」를 누르면 권한을 받은 뒤 보입니다`, "muted"));
+  $("selEncrypt").hidden = plain === 0;
+  $("selEncrypt").textContent = `🔒 선택한 파일 암호화 (${plain}개)`;
+  $("selInfo").textContent = plain ? "드라이브에서 바로 암호화해 같은 폴더에 올립니다. 처음 한 번 드라이브 파일 읽기·쓰기 권한을 묻습니다." : "";
+}
+
+async function openDriveFile(id) {
+  if (!drive.signedIn()) { message("로그인하면 더블클릭한 암호화 파일이 바로 열립니다."); return; }
+  const f = await drive.getFile(id);
+  if (f && drive.isVaultName(f.name) && !(selected && selected.id === f.id)) await select(f, null);
+}
+
+$("selEncrypt").onclick = async () => {
+  try {
+    await drive.requestFullAccess();
+    const metas = (await Promise.all(driveSel.map((id) => drive.getFile(id).catch(() => null)))).filter(Boolean);
+    const files = metas.filter((f) => !drive.isVaultName(f.name) && f.mimeType !== "application/vnd.google-apps.folder");
+    if (!files.length) { message("암호화할 수 있는 파일이 없습니다 (폴더·보관 파일은 제외)."); return; }
+    forget();
+    $("unlock").hidden = true;
+    openReenc("drive", files);
+  } catch (e) { message(e.message); }
+};
+
+async function listenToDrive(win) {
+  chrome.runtime.onMessage.addListener((msg, sender) => {
+    if (sender.id !== chrome.runtime.id || !sender.tab || !sender.url?.startsWith("https://drive.google.com/")) return;
+    if (win && sender.tab.windowId !== win.id) return; // another window's Drive tab
+    const ok = (id) => typeof id === "string" && /^[\w-]{20,}$/.test(id);
+    if (msg?.type === "driveSelection" && Array.isArray(msg.ids)) showSelection(msg.ids.filter(ok).slice(0, 50)).catch((e) => message(e.message));
+    if (msg?.type === "driveOpen" && ok(msg.id)) {
+      chrome.runtime.sendMessage({ type: "takePendingOpen", windowId: win?.id }).catch(() => {}); // handled here
+      openDriveFile(msg.id).catch((e) => message(e.message));
+    }
+  });
+  // The panel may have been opened by that very double-click: ask for it.
+  const pending = await chrome.runtime.sendMessage({ type: "takePendingOpen", windowId: win?.id }).catch(() => null);
+  if (pending?.id) openDriveFile(pending.id).catch(() => {});
+}
+
 // -- E3: re-encrypt and upload -----------------------------------------------------------------
-let reenc = null; // { mode: "edit"|"new", existing: Map, picked: [{name, bytes}], removed: Set }
+let reenc = null; // { mode: "edit"|"new"|"drive", existing: Map, picked: [{name, bytes}], removed: Set, driveFiles? }
 
 function closeReenc() {
   if (reenc) for (const p of reenc.picked) p.bytes.fill(0);
@@ -322,17 +398,22 @@ function closeReenc() {
   $("reencStatus").textContent = "";
 }
 
-function openReenc(mode) {
+function openReenc(mode, driveFiles = []) {
   closeReenc();
   message("");
-  reenc = { mode, existing: mode === "edit" ? current.members : new Map(), picked: [], removed: new Set() };
+  reenc = { mode, existing: mode === "edit" ? current.members : new Map(), picked: [], removed: new Set(), driveFiles };
   $("reenc").hidden = false;
   $("reencGo").disabled = false;
-  $("reencTitle").textContent = mode === "edit" ? `다시 암호화: ${current.file.name}` : "새 파일 암호화해 올리기";
+  $("reencTitle").textContent = mode === "edit" ? `다시 암호화: ${current.file.name}`
+    : mode === "drive" ? `드라이브 파일 암호화: ${driveFiles.length}개` : "새 파일 암호화해 올리기";
+  $("pickStep").hidden = mode === "drive";
   $("secretStep").hidden = mode === "edit";
-  $("trashStep").hidden = mode !== "edit";
+  $("trashStep").hidden = mode === "new";
+  $("trashLabel").textContent = mode === "drive" ? "원래 파일을 휴지통으로" : "예전 보관 파일을 휴지통으로";
   $("secretInfo").hidden = mode !== "edit";
-  if (mode === "edit") {
+  if (mode === "drive") {
+    $("whereInfo").textContent = "보관 파일은 원래 파일과 같은 폴더에 올립니다. 구글 문서·시트·프레젠테이션은 Office 파일(docx·xlsx·pptx)로 바꿔 암호화합니다.";
+  } else if (mode === "edit") {
     $("secretInfo").textContent = current.secret.raw
       ? "비밀번호: 복구 키로 새 파일의 비밀번호를 만듭니다 (데스크톱 앱에서도 복구 키로 열림)."
       : "비밀번호: 이 파일을 열 때 넣은 비밀번호를 그대로 씁니다.";
@@ -345,7 +426,9 @@ function openReenc(mode) {
 }
 
 function drawRows() {
-  const { rows } = planMembers(reenc.existing, reenc.picked, reenc.removed);
+  const rows = reenc.mode === "drive"
+    ? reenc.driveFiles.map((f) => ({ name: f.name, id: f.id, state: reenc.removed.has(f.id) ? "뺌" : "암호화" }))
+    : planMembers(reenc.existing, reenc.picked, reenc.removed).rows;
   const t = $("reencRows");
   t.replaceChildren();
   if (!rows.length) {
@@ -358,9 +441,10 @@ function drawRows() {
     const tdName = Object.assign(document.createElement("td"), { textContent: r.name });
     const tdState = Object.assign(document.createElement("td"), { className: `state ${r.state}`, textContent: r.state });
     const tdX = document.createElement("td");
-    if (r.state === "그대로" || r.state === "뺌") {
+    if (r.state === "그대로" || r.state === "뺌" || r.state === "암호화") {
+      const key = r.id || r.name;
       const cb = Object.assign(document.createElement("input"), { type: "checkbox", checked: r.state === "뺌", title: "빼기" });
-      cb.onchange = () => { cb.checked ? reenc.removed.add(r.name) : reenc.removed.delete(r.name); drawRows(); };
+      cb.onchange = () => { cb.checked ? reenc.removed.add(key) : reenc.removed.delete(key); drawRows(); };
       tdX.append(cb);
     }
     tr.append(tdName, tdState, tdX);
@@ -388,6 +472,7 @@ $("pick").onchange = async () => {
 
 async function newSecret() {
   const typed = $("newSecret").value;
+  if (!typed && rememberedKey) return { raw: rememberedKey }; // the recovery key remembered in this panel
   const raw = await parseRecoveryKey(typed);
   if (raw) return { raw };
   if (typed.length < 8) throw new ReencryptFailed("복구 키가 아니면 8자 이상 비밀번호를 넣어 주세요 (복구 키는 35자, 오타 확인)");
@@ -399,20 +484,44 @@ $("reencGo").onclick = async () => {
   if (!reenc) return;
   const status = (t) => { $("reencStatus").textContent = t; };
   $("reencGo").disabled = true;
+  let fetched = [];
   try {
-    const { files } = planMembers(reenc.existing, reenc.picked, reenc.removed);
     const secret = reenc.mode === "edit" ? current.secret : await newSecret();
     const old = reenc.mode === "edit" ? current.file : null;
+    let files;
+    let parent = old?.parents?.[0] || null;
+    let trashIds = old ? [old.id] : [];
+    if (reenc.mode === "drive") {
+      const chosen = reenc.driveFiles.filter((f) => !reenc.removed.has(f.id));
+      if (!chosen.length) throw new ReencryptFailed("암호화할 파일을 하나 이상 남겨 주세요");
+      files = new Map();
+      for (const [i, f] of chosen.entries()) {
+        status(`드라이브에서 받는 중… ${i + 1}/${chosen.length} (메모리에만)`);
+        const got = await drive.fetchContent(f);
+        fetched.push(got.bytes);
+        let name = got.name.replace(/[\\/]/g, "_");
+        for (let n = 2; files.has(name); n++) name = got.name.replace(/(\.[^.]*)?$/, ` (${n})$1`);
+        files.set(name, got.bytes);
+      }
+      parent = chosen[0].parents?.[0] || null;
+      trashIds = chosen.map((f) => f.id);
+    } else {
+      files = planMembers(reenc.existing, reenc.picked, reenc.removed).files;
+    }
     const result = await reencrypt({
-      files, secret,
-      parent: old?.parents?.[0] || null,
-      oldId: old?.id, trashOld: !!old && $("trashOld").checked,
+      files, secret, parent, trashIds,
+      trashOld: reenc.mode !== "new" && $("trashOld").checked,
       drive, onStep: status,
     });
     const lines = [`✓ 완료: ${result.name} (풀어서 비교 확인됨)`];
     lines.push(result.uploadVerified ? "✓ 올린 파일을 다시 받아 확인했습니다." : "⚠ 올린 파일 확인에 실패했습니다 — 예전 보관 파일은 지우지 않았습니다. 새 파일을 열어 확인해 보세요.");
     if (result.parentFallback) lines.push("ℹ 원래 폴더에 올릴 권한이 없어 내 드라이브 맨 위에 올렸습니다.");
     if (old && $("trashOld").checked && result.trashedOld) lines.push("🗑 예전 보관 파일을 휴지통으로 옮겼습니다 (30일 안에 복원 가능).");
+    if (reenc.mode === "drive" && $("trashOld").checked && result.uploadVerified) {
+      lines.push(result.trashFailed
+        ? `⚠ 원래 파일 ${result.trashFailed}개는 휴지통으로 옮기지 못했습니다 (소유자가 아니거나 권한 없음). 드라이브에서 확인하세요.`
+        : `🗑 원래 파일 ${trashIds.length}개를 휴지통으로 옮겼습니다 (30일 안에 복원 가능).`);
+    }
     if (secret.password && reenc.mode === "new") lines.push("⚠ 직접 정한 비밀번호는 저장되지 않습니다. 잊으면 열 수 없습니다.");
     if (reenc.picked.length) lines.push("🧹 이 컴퓨터에서 고른 파일(암호 없음)은 다 썼으면 휴지통에 버리고 비우세요.");
     const keep = lines.join("\n");
@@ -422,7 +531,9 @@ $("reencGo").onclick = async () => {
     await refresh();
     message(keep, true);
   } catch (e) {
-    status(e instanceof ReencryptFailed ? e.message : `실패: ${e.message || "알 수 없는 오류"} — 예전 보관 파일은 그대로입니다.`);
+    status(e instanceof ReencryptFailed ? e.message : `실패: ${e.message || "알 수 없는 오류"} — 드라이브의 원래 파일은 그대로입니다.`);
     $("reencGo").disabled = false;
+  } finally {
+    for (const b of fetched) b.fill(0); // downloaded originals: best-effort wipe
   }
 };

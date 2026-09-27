@@ -8,6 +8,9 @@
   "permissions": ["identity", "storage", "sidePanel"],
   "host_permissions": ["https://www.googleapis.com/*", "https://drive.google.com/*"],
   "side_panel": { "default_path": "viewer.html" },
+  "content_scripts": [
+    { "matches": ["https://drive.google.com/*"], "js": ["drive_watch.js"], "run_at": "document_idle", "all_frames": false }
+  ],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_title": "암호화된 파일 보기 (드라이브 옆 패널)" },
   "content_security_policy": {

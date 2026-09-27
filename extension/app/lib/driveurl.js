@@ -1,6 +1,7 @@
 // What the Drive tab is showing, from its URL only (no code is injected into Drive).
 //   /drive/folders/<id>, /drive/u/1/folders/<id>  → { folder: id }
 //   /drive/my-drive, /drive/u/0/my-drive, /drive/ → { folder: "root" }
+//   /drive/home (files from many folders), search, recent, shared… → null (the panel shows all)
 //   /file/d/<id>/view, /open?id=<id>              → { file: id }
 //   anything else (search, recent, shared, other sites) → null
 
@@ -16,6 +17,6 @@ export function parseDriveUrl(text) {
   if (/^\/open$/.test(u.pathname) && ID.test(u.searchParams.get("id") || "")) return { file: u.searchParams.get("id") };
   m = /^\/drive\/folders\/([^/?#]+)/.exec(path);
   if (m && ID.test(m[1])) return { folder: m[1] };
-  if (/^\/drive\/(my-drive|home)?\/?$/.test(path)) return { folder: "root" };
+  if (/^\/drive\/(my-drive)?\/?$/.test(path)) return { folder: "root" };
   return null;
 }
