@@ -25,6 +25,7 @@ export async function renderPdf(bytes, box, onNotice) {
     isEvalSupported: false,
     enableXfa: false,
     useSystemFonts: true,
+    verbosity: 0, // errors only: font-substitution warnings would show up on chrome://extensions
   });
   let cancelled = false;
   const handle = { destroy: () => { cancelled = true; task.destroy(); } };
