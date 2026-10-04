@@ -85,9 +85,18 @@ jobs:
           (cd dist && sha256sum DrivePrivacyGuardian-Extension-*.zip > SHA256SUMS-Extension.txt)
       - name: One checksum file for everything
         run: |
-          cat dist/SHA256SUMS-*.txt | sort -k2 > dist/SHA256SUMS.txt
+          # the build jobs' checksums must still match after the artifact transfer
+          cat dist/SHA256SUMS-*.txt > /tmp/build-sums.txt
+          (cd dist && sha256sum -c /tmp/build-sums.txt)
           rm dist/SHA256SUMS-*.txt
-          cd dist && sha256sum -c SHA256SUMS.txt
+          # Version-less copies so the website can link straight to
+          # releases/latest/download/<name> without changing on every release.
+          cd dist
+          cp DrivePrivacyGuardian-*-Windows-x64.zip DrivePrivacyGuardian-Windows-x64.zip
+          cp DrivePrivacyGuardian-*-macOS-arm64.dmg DrivePrivacyGuardian-macOS-arm64.dmg
+          cp DrivePrivacyGuardian-Extension-*.zip DrivePrivacyGuardian-Extension.zip
+          sha256sum DrivePrivacyGuardian-* | sort -k2 > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/DrivePrivacyGuardian-*

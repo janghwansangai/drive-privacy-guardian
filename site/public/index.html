@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>개인정보 보안관</title>
+<meta name="description" content="구글 드라이브의 공유 권한 점검, 개인정보 점검, 파일 암호화를 내 컴퓨터 안에서 하는 무료 도구">
+<link rel="stylesheet" href="site.css">
+<script src="site.js" defer></script>
+</head>
+<body>
+<header class="bar"><div class="wrap">
+  <a class="brand" href="#"><span class="badge">★</span>개인정보 보안관</a>
+  <nav><a href="#about">소개</a><a href="#usage">사용법</a><a href="#install">설치</a><a class="dlb" href="#download">다운로드</a></nav>
+</div></header>
+
+<main>
+<div class="wrap">
+  <div class="hero">
+    <h1>구글 드라이브 속 <em>개인정보</em>,<br>내 컴퓨터 안에서 지킵니다</h1>
+    <p>공유 권한 점검 · 개인정보 점검 · 암호화 관리를 한곳에서. 파일 내용은 외부 서버로 보내지 않습니다.</p>
+    <a class="btn pri" href="#download">무료 다운로드</a><a class="btn sec" href="#usage">사용법 보기</a>
+  </div>
+
+  <div class="show" id="usage">
+    <div class="tabs" role="tablist">
+      <button class="tab on" role="tab" aria-selected="true" data-i="0" style="--c:var(--blue)"><b>공유 점검</b><small>링크 공개·외부 공유 정리</small></button>
+      <button class="tab" role="tab" aria-selected="false" data-i="1" style="--c:var(--amber)"><b>개인정보 점검</b><small>주민번호·연락처 찾기</small></button>
+      <button class="tab" role="tab" aria-selected="false" data-i="2" style="--c:var(--green)"><b>암호화 관리</b><small>암호화·열기·풀기</small></button>
+      <button class="tab" role="tab" aria-selected="false" data-i="3" style="--c:var(--green)"><b>파일 보기</b><small>받지 않고 바로 보기</small></button>
+      <button class="tab" role="tab" aria-selected="false" data-i="4" style="--c:var(--ink)"><b>처음 설정</b><small>복구 키·비밀번호</small></button>
+    </div>
+    <div class="stage">
+      <div class="phone"><img id="shot" src="img/04-audit.png" alt="공유 점검 화면" width="600" height="1290"></div>
+      <div class="steps" id="steps"></div>
+    </div>
+  </div>
+  <template id="t0"><h3>위험한 공유 정리</h3><ol><li>「점검 시작」 — 내 드라이브 전체를 훑습니다</li><li>링크 공개 / 외부 계정 / 도메인 칸을 눌러 걸러 보기</li><li>체크 → 조치 고르고 「바꾸기」</li><li>잘못 바꿨으면 「되돌리기」</li></ol></template>
+  <template id="t1"><h3>개인정보 파일 찾기</h3><ol><li>드라이브에서 파일·폴더 선택</li><li>「검사」</li><li>「주민번호 30」처럼 종류별 건수 확인</li><li>「개인정보 파일 암호화」로 바로 잠그기</li></ol></template>
+  <template id="t2"><h3>암호화하고 열기</h3><ol><li>드라이브에서 파일 선택 → 「암호화하기」</li><li>이름은 「상담기록.hwp (암호화 …).7z」처럼 그대로</li><li>드라이브에서 더블클릭하면 크게 열림</li><li>「풀기」 → 같은 폴더에 원래대로</li><li>15분 동안 안 쓰면 자동 잠금</li></ol></template>
+  <template id="t3"><h3>바로 보기</h3><ol><li>한글·엑셀·워드·PDF·사진을 패널에서 바로</li><li>풀린 내용은 메모리에만 — 닫으면 지워짐</li><li>고친 파일은 「다시 암호화」로 올리기</li></ol></template>
+  <template id="t4"><h3>처음 한 번</h3><ol><li>위쪽 「로그인」 → 권한 항목 모두 체크</li><li>복구 키를 만들어 종이에 적어 두기</li><li>개인 비밀번호 정하기 — 끝</li></ol></template>
+
+  <section id="about">
+    <h2>안심하고 쓸 수 있게</h2>
+    <div class="grid3">
+      <div class="card"><span class="ic">🔒</span><h3>내 컴퓨터에서만</h3><p>검사와 암호화는 모두 내 기기에서. 통계 수집·광고·AI 전송 없음.</p></div>
+      <div class="card"><span class="ic">🗑</span><h3>지우지 않습니다</h3><p>원본은 확인 뒤 휴지통으로만. 영구 삭제는 하지 않습니다.</p></div>
+      <div class="card"><span class="ic">🛟</span><h3>복구 키</h3><p>비밀번호를 잊어도 종이에 적은 복구 키 하나로 모두 엽니다.</p></div>
+    </div>
+  </section>
+
+  <section id="install">
+    <h2>설치</h2>
+    <div class="grid3">
+      <div class="card"><span class="ic">⊞</span><h3>Windows 앱</h3><ol><li>zip을 오른쪽 클릭 → <b>압축 풀기</b></li><li><b>Drive Privacy Guardian.exe</b> 실행</li><li>"PC 보호" 화면 → <b>추가 정보 → 실행</b></li></ol></div>
+      <div class="card"><span class="ic">🍎</span><h3>Mac 앱</h3><ol><li>dmg를 열고 앱을 <b>응용 프로그램</b>으로 끌기</li><li>앱을 열면 경고 → <b>완료</b></li><li><b>시스템 설정 → 개인정보 보호 및 보안 → 그래도 열기</b></li></ol></div>
+      <div class="card"><span class="ic">🧩</span><h3>크롬 확장 프로그램</h3><ol><li>zip 압축 풀기</li><li><code>chrome://extensions</code> → <b>개발자 모드</b> 켜기</li><li><b>압축해제된 확장 프로그램을 로드</b> → 풀린 폴더</li></ol></div>
+    </div>
+    <p class="note">무료 배포라 코드 서명이 없어 처음 한 번만 실행을 허용하면 됩니다. 학교 관리 PC에서 개발자 모드가 막혀 있으면 데스크톱 앱을 쓰세요.</p>
+  </section>
+
+  <section id="download">
+    <h2>다운로드</h2>
+    <div class="dl">
+      <a class="dc" href="https://github.com/janghwansangai/drive-privacy-guardian/releases/latest/download/DrivePrivacyGuardian-Windows-x64.zip"><span class="ic">⊞</span><span><b>Windows용</b><small>10/11 · 64비트 · zip</small></span><span class="ar">↓</span></a>
+      <a class="dc" href="https://github.com/janghwansangai/drive-privacy-guardian/releases/latest/download/DrivePrivacyGuardian-macOS-arm64.dmg"><span class="ic">🍎</span><span><b>Mac용</b><small>Apple 칩(M1 이후) · dmg</small></span><span class="ar">↓</span></a>
+      <a class="dc" href="https://github.com/janghwansangai/drive-privacy-guardian/releases/latest/download/DrivePrivacyGuardian-Extension.zip"><span class="ic">🧩</span><span><b>크롬 확장 프로그램</b><small>zip</small></span><span class="ar">↓</span></a>
+    </div>
+    <p class="note center">파일이 진짜인지 확인하려면 <a href="https://github.com/janghwansangai/drive-privacy-guardian/releases/latest/download/SHA256SUMS.txt">SHA256SUMS.txt</a> 값과 비교하세요.</p>
+  </section>
+</div>
+</main>
+<footer><div class="wrap">개인정보 보안관 · 무료 오픈소스 · <a href="https://github.com/janghwansangai/drive-privacy-guardian">GitHub</a> · 화면의 이름과 숫자는 예시 데이터입니다.</div></footer>
+</body>
+</html>
