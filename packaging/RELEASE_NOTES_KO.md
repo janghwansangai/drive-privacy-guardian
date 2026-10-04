@@ -1,11 +1,23 @@
-## Drive Privacy Guardian
+## 개인정보 보안관
 
-구글 드라이브 공유 권한·개인정보 포함 파일을 **내 컴퓨터 안에서만** 점검하는 무료 앱입니다. 구글 외 어떤 서버와도 통신하지 않습니다.
+구글 드라이브의 **공유권한 점검 · 개인정보 점검 · 암호화 관리**를 내 컴퓨터 안에서만 하는 무료 앱입니다. 구글 외 어떤 서버와도 통신하지 않습니다.
+
+소개·사용법: https://privacy-guardian.janhan97.workers.dev
+
+### v0.2.0 새 기능
+- **크롬 확장 프로그램**: 구글 드라이브 옆 패널에서 공유 점검 · 개인정보 점검 · 암호화 관리
+  - 드라이브에서 선택한 파일·폴더를 바로 암호화, 더블클릭으로 크게 보기, 같은 폴더에 풀기
+  - 한글·엑셀·워드·PDF·사진 미리보기 (메모리에서만)
+  - 복구 키 = 만능 키, 개인 비밀번호 한 번으로 잠금 해제, 15분 자동 잠금
+  - 로그인 한 번, 그림 설명서
+- 암호화 파일 이름에 원래 이름 표시: `상담기록.hwp (암호화 a1b2c3d4).7z`
+- 데스크톱 앱: 처리한 항목의 체크 해제, 이름을 「개인정보 보안관」으로
 
 ### 받을 파일
-- **Mac (Apple 칩)**: `DrivePrivacyGuardian-*-macOS-arm64.dmg`
-- **Windows 10/11 (64비트)**: `DrivePrivacyGuardian-*-Windows-x64.zip`
-- **크롬 확장 프로그램(선택)**: `DrivePrivacyGuardian-Extension-*.zip` — 암호화된 파일을 크롬에서 메모리로만 풀어 보기(한글·엑셀 등). 설치: `docs/EXTENSION_SETUP_KO.md`
+- **Windows 10/11 (64비트)**: `DrivePrivacyGuardian-Windows-x64.zip`
+- **Mac (Apple 칩)**: `DrivePrivacyGuardian-macOS-arm64.dmg` (또는 `.zip`)
+- **크롬 확장 프로그램**: `DrivePrivacyGuardian-Extension.zip` — 설치: `docs/EXTENSION_SETUP_KO.md`
+- 버전 번호가 붙은 파일은 같은 내용입니다.
 - `SHA256SUMS.txt`: 파일 확인용 체크섬
 
 ### 처음 실행할 때 (코드 서명 없음)
