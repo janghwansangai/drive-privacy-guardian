@@ -17,7 +17,7 @@ from dpg.core.logging import get_logger
 
 log = get_logger("gui")
 
-CAFFEINATE = Path("/usr/bin/caffeinate")
+CAFFEINATE = "/usr/bin/caffeinate"
 _ES_CONTINUOUS = 0x80000000
 _ES_SYSTEM_REQUIRED = 0x00000001
 
@@ -39,9 +39,9 @@ class KeepAwake:
         if self.active:
             return
         try:
-            if sys.platform == "darwin" and CAFFEINATE.exists():
+            if sys.platform == "darwin" and Path(CAFFEINATE).exists():
                 self._proc = subprocess.Popen(  # noqa: S603 — fixed system binary, no shell
-                    [str(CAFFEINATE), "-i", "-w", str(os.getpid())],
+                    [CAFFEINATE, "-i", "-w", str(os.getpid())],
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
