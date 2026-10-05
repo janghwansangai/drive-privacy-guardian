@@ -186,3 +186,39 @@ def test_detections_survive_for_unchanged_files(tmp_path: Path) -> None:
     gets = fake.call_count("files.get_media")
     DetectRunner(client, store).run(inc.scan_id, inc.items)
     assert fake.call_count("files.get_media") == gets + 1
+
+
+def test_stopped_detection_goes_on_with_the_rest(tmp_path: Path) -> None:
+    """Stop the personal-data check part way, start again: only the files not read yet."""
+    import threading
+
+    from dpg.core.detect.runner import DetectCancelled, DetectProgress, DetectRunner
+
+    fake = FakeDrive(me=ME)
+    for i in range(10):
+        fake.add_file(f"문서{i}.txt", content=f"내용 {i}".encode())
+    client = DriveClient(fake.service())
+    store = _store(tmp_path / "a.db")
+    scope = AuditScope.parse("mine")
+    first = AuditRunner(client, store, account=ME).run(scope)
+    cancel = threading.Event()
+
+    def stop_after_four(p: DetectProgress) -> None:
+        if p.done >= 4:
+            cancel.set()
+
+    with pytest.raises(DetectCancelled):
+        DetectRunner(client, store, on_progress=stop_after_four, cancel=cancel).run(
+            first.scan_id, first.items
+        )
+    assert len(store.load_detections(first.scan_id)) == 4  # each file is saved as it is read
+    downloads = fake.call_count("files.get_media")
+    again = AuditRunner(client, store, account=ME).run_incremental(scope)  # what 「검사 시작」 does
+    assert again is not None
+    seen: list[int] = []
+    DetectRunner(client, store, on_progress=lambda p: seen.append(p.done)).run(
+        again.scan_id, again.items
+    )
+    assert fake.call_count("files.get_media") == downloads + 6  # only the other six
+    assert seen[0] == 5  # the count goes on from where it stopped
+    assert len(store.load_detections(again.scan_id)) == 10
