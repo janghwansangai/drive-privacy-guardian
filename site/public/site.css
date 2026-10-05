@@ -108,3 +108,9 @@ th{color:var(--muted);font-weight:600;font-size:14px}
 .lead2{color:var(--muted);margin:0 0 16px}
 .extra .grid3 .card{background:var(--ground)}
 .extra .card .ic{background:var(--ink);color:var(--gold);font-weight:700;font-size:16px}
+.shot.wide{margin:10px 0 4px;border-radius:10px}
+ol.big .shot{margin:10px 0;max-width:100%}
+.usageLinks{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:18px}
+.usageLinks a{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 16px;text-decoration:none;color:var(--text);font-weight:600}
+.shot{background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.shot img{display:block;max-width:100%;height:auto}
