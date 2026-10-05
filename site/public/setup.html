@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>구글 설정 안내 · 개인정보 보안관</title>
+<meta name="description" content="개인정보 보안관을 내 구글 계정으로 쓰기 위한 처음 한 번 설정(약 10분, 무료)">
+<link rel="stylesheet" href="site.css">
+<script src="setup.js" defer></script>
+</head>
+<body>
+<header class="bar"><div class="wrap">
+  <a class="brand" href="./"><span class="badge">★</span>개인정보 보안관</a>
+  <nav><a href="./#usage">사용법</a><a href="./#install">설치</a><a href="setup.html" aria-current="page">구글 설정</a><a class="dlb" href="./#download">다운로드</a></nav>
+</div></header>
+
+<main class="wrap narrow">
+  <div class="hero left">
+    <h1>처음 한 번, 내 구글 프로젝트 만들기</h1>
+    <p>개인정보 보안관은 <b>내가 만든 로그인 열쇠</b>로 구글에 로그인합니다. 그래서 파일과 로그인 정보가 <b>내 컴퓨터 ↔ 구글</b> 사이에서만 오가고, 개발자를 포함한 누구에게도 전달되지 않습니다.</p>
+    <div class="facts"><span>⏱ 약 10분</span><span>💳 무료 · 결제 정보 없음</span><span>🔁 처음 한 번만</span></div>
+  </div>
+
+  <p class="note box">학교에서 관리자가 만든 클라이언트를 받았다면 이 안내는 건너뛰고 받은 값을 바로 넣으세요.<br>데스크톱 앱과 크롬 확장 프로그램을 둘 다 쓰면 <b>같은 프로젝트 하나</b>에 열쇠를 두 개(5-A, 5-B) 만들면 됩니다.</p>
+
+  <ol class="big">
+    <li id="s1">
+      <h2>프로젝트 만들기</h2>
+      <a class="go" href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">구글 콘솔에서 열기 ↗</a>
+      <ol><li>앱에서 쓸 구글 계정으로 로그인 (처음이면 약관 동의)</li>
+        <li>프로젝트 이름: <code>보안관-개인용</code> (아무 이름이나 괜찮음) → <b>만들기</b></li>
+        <li>화면 위쪽에 방금 만든 프로젝트가 선택됐는지 확인</li></ol>
+    </li>
+    <li id="s2">
+      <h2>Google Drive API 켜기</h2>
+      <a class="go" href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener">구글 콘솔에서 열기 ↗</a>
+      <ol><li><b>사용</b>(Enable) 버튼 누르기</li></ol>
+    </li>
+    <li id="s3">
+      <h2>앱 정보 입력</h2>
+      <p class="path"><span>Google 인증 플랫폼</span><span>브랜딩</span></p>
+      <a class="go" href="https://console.cloud.google.com/auth/branding" target="_blank" rel="noopener">구글 콘솔에서 열기 ↗</a>
+      <ol><li>"구성되지 않음"이 보이면 <b>시작하기</b></li>
+        <li>앱 이름: <code>개인정보 보안관 (개인용)</code></li>
+        <li>사용자 지원 이메일 · 개발자 연락처: <b>내 이메일</b></li>
+        <li>사용자 유형(대상): <b>외부</b> → 동의 → <b>만들기</b></li></ol>
+    </li>
+    <li id="s4">
+      <h2>나를 테스트 사용자로 추가</h2>
+      <p class="path"><span>Google 인증 플랫폼</span><span>대상</span><span>테스트 사용자</span></p>
+      <a class="go" href="https://console.cloud.google.com/auth/audience" target="_blank" rel="noopener">구글 콘솔에서 열기 ↗</a>
+      <ol><li><b>+ 사용자 추가</b> → 로그인할 <b>내 이메일</b> → 저장</li></ol>
+      <p class="warn">이걸 빠뜨리면 로그인할 때 <b>"액세스 차단됨 · 403 access_denied"</b>가 나옵니다.</p>
+    </li>
+    <li id="s5">
+      <h2>로그인 열쇠(클라이언트) 만들기</h2>
+      <p class="path"><span>Google 인증 플랫폼</span><span>클라이언트</span><span>+ 클라이언트 만들기</span></p>
+      <a class="go" href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener">구글 콘솔에서 열기 ↗</a>
+      <div class="split">
+        <div class="card">
+          <span class="pill">5-A</span><h3>데스크톱 앱용</h3>
+          <ol><li>애플리케이션 유형: <b>데스크톱 앱</b></li>
+            <li>이름: <code>보안관-데스크톱</code> → <b>만들기</b></li>
+            <li><b>JSON 다운로드</b> → <code>client_secret_….json</code> 저장</li>
+            <li>앱 첫 화면 → <b>개인 설정</b> → <b>JSON 파일 선택…</b></li>
+            <li><b>원본 파일을 휴지통으로 이동</b> → 휴지통도 비우기</li></ol>
+        </div>
+        <div class="card">
+          <span class="pill">5-B</span><h3>크롬 확장 프로그램용</h3>
+          <ol><li>애플리케이션 유형: <b>웹 애플리케이션</b></li>
+            <li>이름: <code>보안관-확장</code></li>
+            <li><b>승인된 리디렉션 URI</b> → <b>+ URI 추가</b> → 아래 주소 붙여 넣기
+              <div class="copy"><code id="redirect">https://gjlomabldjleleakkeffjojhjdgeekgj.chromiumapp.org/</code><button type="button" data-copy="redirect">복사</button></div></li>
+            <li><b>만들기</b> → <b>클라이언트 ID</b>만 복사 (보안 비밀번호는 필요 없음)</li>
+            <li>확장 프로그램 패널 → <b>⚙ 설정</b> → 클라이언트 ID 붙여 넣고 <b>저장</b></li></ol>
+        </div>
+      </div>
+      <p class="warn">열쇠(JSON 파일·클라이언트 ID)는 남에게 보내거나 공유 드라이브에 올리지 마세요.</p>
+    </li>
+    <li id="s6">
+      <h2>로그인</h2>
+      <ol><li>앱(또는 확장 프로그램)에서 <b>로그인</b> → 계정 선택</li>
+        <li>"Google에서 확인하지 않은 앱" → <b>고급</b> → <b>(앱 이름)(으)로 이동</b> 또는 <b>계속</b><br><span class="cap">내가 직접 만든 앱이라 구글 공개 심사를 받지 않아서 나오는 화면입니다. 정상입니다.</span></li>
+        <li>권한 화면에서 <b>모든 항목 체크</b> → <b>계속</b></li></ol>
+    </li>
+    <li id="s7" class="opt">
+      <h2>(선택) 7일마다 다시 로그인하지 않게</h2>
+      <p class="path"><span>Google 인증 플랫폼</span><span>대상</span><span>앱 게시</span></p>
+      <ol><li>테스트 상태에서는 구글 정책상 로그인이 <b>7일 뒤 풀립니다</b>.</li>
+        <li><b>앱 게시</b> → 확인하면 "프로덕션"이 되어 풀리지 않습니다. 나만 쓰는 열쇠라 인원 한도(100명)는 상관없습니다.</li></ol>
+    </li>
+  </ol>
+
+  <section id="trouble">
+    <h2>막히면</h2>
+    <table>
+      <tr><th>화면에 보이는 문구</th><th>해결</th></tr>
+      <tr><td>액세스 차단됨 · 403 access_denied</td><td>4단계: 로그인한 계정을 테스트 사용자로 추가</td></tr>
+      <tr><td>Google Drive API가 사용 설정되지 않음</td><td>2단계 후 1~2분 기다렸다 다시 로그인</td></tr>
+      <tr><td>redirect_uri_mismatch (확장 프로그램)</td><td>5-B의 리디렉션 주소를 끝의 <code>/</code>까지 그대로 붙여 넣었는지 확인</td></tr>
+      <tr><td>'웹 애플리케이션' 유형의 클라이언트 (데스크톱 앱)</td><td>5-A를 <b>데스크톱 앱</b> 유형으로 다시 만들기</td></tr>
+      <tr><td>invalid_client</td><td>열쇠를 지웠거나 잘못 복사함 → 5단계 다시</td></tr>
+      <tr><td>프로젝트를 만들 권한 없음 · admin_policy_enforced</td><td>학교 계정 정책 때문입니다. 학교 관리자에게 <b>조직 내부용 클라이언트</b>를 요청하세요.</td></tr>
+    </table>
+    <p class="note">로그인 권한을 직접 끊으려면 <a href="https://myaccount.google.com/connections" target="_blank" rel="noopener">구글 계정 → 연결된 앱</a>에서 앱을 고르고 <b>액세스 권한 삭제</b>.</p>
+  </section>
+</main>
+<footer><div class="wrap">개인정보 보안관 · 무료 오픈소스 · <a href="https://github.com/janghwansangai/drive-privacy-guardian">GitHub</a></div></footer>
+</body>
+</html>
