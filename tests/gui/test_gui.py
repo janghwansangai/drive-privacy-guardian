@@ -19,7 +19,7 @@ from dpg.gui import main_window as mw
 from dpg.gui.context import AppContext, Prefs
 from dpg.gui.main_window import MainWindow, ReviewDialog, SettingsDialog, folder_id_from
 from dpg.gui.results_model import COL_NAME, COL_PRIVACY
-from dpg.gui.wizard import PAGE_CLIENT, PAGE_GUIDE, PAGE_LOGIN, SetupWizard
+from dpg.gui.wizard import PAGE_CLIENT, PAGE_GUIDE, PAGE_LOGIN, PAGE_MODE, SetupWizard
 from tests.fakes.fake_drive import FakeDrive
 from tests.fakes.fake_google_auth import FakeGoogle, MemorySecretStore
 
@@ -152,6 +152,35 @@ def test_wizard_starts_at_login_when_client_exists(qtbot: Any, env: Env) -> None
     wizard = SetupWizard(env.ctx)
     qtbot.addWidget(wizard)
     assert wizard.startId() == PAGE_LOGIN
+
+
+def test_wizard_login_page_switches_to_a_new_client(qtbot: Any, env: Env) -> None:
+    assert env.ctx is not None
+    env.ctx.manager.import_client(env.google.client_json())
+    wizard = SetupWizard(env.ctx)
+    qtbot.addWidget(wizard)
+    wizard.restart()
+    assert "사용 중인 열쇠" in wizard.login_page.key_label.text()
+    wizard.login_page.switch_btn.click()
+    assert env.ctx.manager.client() is None
+    assert wizard.currentId() == PAGE_MODE
+
+
+def test_switch_client_from_main_window(
+    qtbot: Any, env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert env.ctx is not None
+    _login(env)
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    assert "열쇠:" in window.account_label.text()
+    setups: list[bool] = []
+    monkeypatch.setattr(window, "run_setup", lambda: setups.append(True) or False)
+    window.switch_btn.click()
+    assert setups == [True]
+    assert env.ctx.manager.client() is None
+    assert not env.ctx.manager.status().logged_in
+    assert window.result is None
 
 
 # --- main window ------------------------------------------------------------------------------

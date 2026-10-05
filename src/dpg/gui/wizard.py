@@ -245,10 +245,18 @@ class LoginPage(QWizardPage):
         self.cancel_btn.clicked.connect(self.cancel_event.set)
         self.status = _wrap("")
         self.url_label = _wrap("")
+        self.key_label = _wrap("")
+        self.switch_btn = QPushButton("다른 열쇠로 바꾸기")
+        self.switch_btn.setToolTip(
+            "브라우저에 '액세스 차단됨'이나 내 것이 아닌 앱 이름이 나오면 "
+            "예전 열쇠가 남아 있는 것입니다. 새 클라이언트 JSON을 고르세요."
+        )
+        self.switch_btn.clicked.connect(self.switch_client)
         buttons = QHBoxLayout()
         buttons.addWidget(self.login_btn)
         buttons.addWidget(self.cancel_btn)
         buttons.addStretch()
+        buttons.addWidget(self.switch_btn)
         layout = QVBoxLayout(self)
         layout.addWidget(_wrap(LEVEL_EXPLAIN_KO[level]))
         self.steps = QLabel(LOGIN_STEPS_HTML)
@@ -263,8 +271,16 @@ class LoginPage(QWizardPage):
         layout.addWidget(self.status)
         layout.addWidget(self.url_label)
         layout.addStretch()
+        layout.addWidget(self.key_label)
 
     def initializePage(self) -> None:
+        client = self.ctx.manager.client()
+        self.key_label.setText(
+            f"사용 중인 열쇠: {client.project_id or client.display_id} 프로젝트 — "
+            "브라우저에 '액세스 차단됨'이 나오면 「다른 열쇠로 바꾸기」"
+            if client
+            else ""
+        )
         st = self.ctx.manager.status()
         if st.logged_in and st.level is not None and st.level >= self.level:
             self.done = True
@@ -320,6 +336,24 @@ class LoginPage(QWizardPage):
 
     def isComplete(self) -> bool:
         return self.done
+
+    def switch_client(self) -> None:
+        if not self.ctx.confirm(
+            self,
+            "다른 열쇠로 바꾸기",
+            "이 컴퓨터에 저장된 로그인 열쇠와 로그인 정보를 지우고 처음 화면으로 돌아갑니다.\n"
+            "구글 드라이브의 파일, 암호화된 파일, 복구 키는 그대로입니다.",
+            "바꾸기",
+            "취소",
+        ):
+            return
+        self.cleanup()
+        self.ctx.manager.remove_client()
+        self.done = False
+        self.status.setText("")
+        wizard = self.wizard()
+        wizard.setStartId(PAGE_MODE)
+        wizard.restart()
 
     def cleanup(self) -> None:
         self.cancel_event.set()

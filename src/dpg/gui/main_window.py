@@ -557,7 +557,14 @@ class MainWindow(QMainWindow):
         self.account_label = QLabel()
         self.logout_btn = QPushButton("로그아웃")
         self.logout_btn.clicked.connect(self._account_clicked)
+        self.switch_btn = QPushButton("🔁 계정·열쇠 바꾸기")
+        self.switch_btn.setToolTip(
+            "다른 구글 계정이나 새 로그인 열쇠(클라이언트 JSON)로 바꿉니다. "
+            "로그인 화면에 '액세스 차단됨'이나 다른 앱 이름이 나올 때 누르세요."
+        )
+        self.switch_btn.clicked.connect(self.switch_client)
         account_row.addWidget(self.account_label, 1)
+        account_row.addWidget(self.switch_btn)
         account_row.addWidget(self.logout_btn)
         layout.addLayout(account_row)
 
@@ -775,11 +782,15 @@ class MainWindow(QMainWindow):
 
     def refresh_account(self) -> None:
         st = self.ctx.manager.status()
+        client = self.ctx.manager.client()
+        key = f"  ·  열쇠: {client.project_id}" if client and client.project_id else ""
         if st.logged_in:
             level = LEVEL_LABEL_KO[st.level] if st.level else "권한 없음"
-            self.account_label.setText(f"로그인: {st.account or '(계정 미확인)'}  ·  권한: {level}")
+            self.account_label.setText(
+                f"로그인: {st.account or '(계정 미확인)'}  ·  권한: {level}{key}"
+            )
         else:
-            self.account_label.setText("로그인되어 있지 않습니다.")
+            self.account_label.setText(f"로그인되어 있지 않습니다.{key}")
         self.logout_btn.setText("로그아웃" if st.logged_in else "🔑 로그인")
         self.logout_btn.setToolTip(
             "로그아웃하고 구글에 저장된 앱 권한을 철회합니다"
@@ -837,15 +848,40 @@ class MainWindow(QMainWindow):
                 "확인하지 못했습니다.\nhttps://myaccount.google.com/connections 에서 "
                 "앱 연결을 직접 해제해 주세요.",
             )
-        # Don't leave one account's results on screen for whoever logs in next.
+        self._clear_session()
+        self.progress_label.setText(
+            "로그아웃했습니다. 다시 쓰려면 오른쪽 위 「🔑 로그인」을 누르세요."
+        )
+        self.refresh_account()
+
+    def _clear_session(self) -> None:
+        """Stop running work and don't leave one account's results for whoever logs in next."""
         self.cancel_event.set()
         self.wait_for_tasks()
         self.result, self.detections, self._live_token = None, None, None
         self.model.set_items([])
         self._update_dashboard([])
-        self.progress_label.setText(
-            "로그아웃했습니다. 다시 쓰려면 오른쪽 위 「🔑 로그인」을 누르세요."
-        )
+
+    def switch_client(self) -> None:
+        """Another account or a new OAuth client: drop the saved one and rerun the wizard."""
+        if not self.ctx.confirm(
+            self,
+            "계정·열쇠 바꾸기",
+            "이 컴퓨터의 로그인 정보와 로그인 열쇠(클라이언트)를 지우고 설정 마법사를 엽니다.\n"
+            "새 클라이언트 JSON 파일을 고른 뒤 바꿀 계정으로 로그인하면 됩니다.\n\n"
+            "구글 드라이브의 파일, 암호화된 파일, 복구 키는 그대로입니다.\n"
+            "진행 중인 검사는 멈춥니다(다음에 같은 계정으로 이어서 할 수 있습니다).",
+            "바꾸기",
+            "취소",
+        ):
+            return
+        self._clear_session()
+        self.ctx.manager.remove_client()
+        self.progress_label.setText("로그인 열쇠를 지웠습니다. 설정 마법사에서 새 열쇠를 고르세요.")
+        if self.run_setup():
+            self.progress_label.setText(
+                "✓ 바꾼 계정으로 로그인했습니다. 「▶ 검사 시작」을 눌러 주세요."
+            )
         self.refresh_account()
 
     def open_settings(self) -> None:
