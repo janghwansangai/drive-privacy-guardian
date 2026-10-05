@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from dpg.core.logging import get_logger
 
@@ -19,6 +20,10 @@ log = get_logger("gui")
 CAFFEINATE = Path("/usr/bin/caffeinate")
 _ES_CONTINUOUS = 0x80000000
 _ES_SYSTEM_REQUIRED = 0x00000001
+
+
+def _kernel32(ctypes: Any) -> Any:
+    return getattr(ctypes, "windll").kernel32  # noqa: B009 — Windows-only attribute
 
 
 class KeepAwake:
@@ -44,9 +49,7 @@ class KeepAwake:
             elif sys.platform == "win32":
                 import ctypes
 
-                ctypes.windll.kernel32.SetThreadExecutionState(  # type: ignore[attr-defined]
-                    _ES_CONTINUOUS | _ES_SYSTEM_REQUIRED
-                )
+                _kernel32(ctypes).SetThreadExecutionState(_ES_CONTINUOUS | _ES_SYSTEM_REQUIRED)
                 self._windows = True
         except OSError as exc:  # not being able to stay awake must never stop a scan
             log.info("keep-awake unavailable (%s)", type(exc).__name__)
@@ -62,5 +65,5 @@ class KeepAwake:
         if self._windows:
             import ctypes
 
-            ctypes.windll.kernel32.SetThreadExecutionState(_ES_CONTINUOUS)  # type: ignore[attr-defined]
+            _kernel32(ctypes).SetThreadExecutionState(_ES_CONTINUOUS)
             self._windows = False

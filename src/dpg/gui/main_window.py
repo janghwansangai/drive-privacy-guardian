@@ -1190,6 +1190,7 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setEnabled(running)
         self.scope_combo.setEnabled(not running)
         self.logout_btn.setEnabled(not running)
+        self.switch_btn.setEnabled(not running)
         self.progress_bar.setRange(0, 0 if running else 1)
         self.progress_bar.setValue(0 if running else 1)
 
