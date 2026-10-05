@@ -147,6 +147,10 @@ def test_second_incremental_continues_from_the_first(tmp_path: Path) -> None:
     assert two.changed == {ids["b"]}
     full = AuditRunner(client, _store(tmp_path / "b.db"), account=ME).run(scope)
     assert _by_id(two.items) == _by_id(full.items)
+    # only the latest result is kept: earlier copies would grow the file by a whole drive each
+    scans = store._db.execute("SELECT scan_id FROM scans WHERE scope = 'mine'").fetchall()
+    assert [r[0] for r in scans] == [two.scan_id]
+    assert store.count_items(one.scan_id) == 0
 
 
 def test_expired_token_or_no_history_means_full_audit(tmp_path: Path) -> None:

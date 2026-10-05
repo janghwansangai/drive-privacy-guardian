@@ -92,12 +92,19 @@ class DriveClient:
         max_retries: int = 6,
         sleep: Callable[[float], None] = time.sleep,
         rng: random.Random | None = None,
+        on_offline: Callable[[float], bool] | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._service = service
         self._max_retries = max_retries
         self._sleep = sleep
         self._rng = rng or random.Random()  # noqa: S311 — jitter, not security
         self.retries = 0  # observable for tests / progress UI
+        # Long scans: when the connection stays down after the retries, ask this callback
+        # (given seconds offline so far) whether to wait and try again instead of failing.
+        self._on_offline = on_offline
+        self._clock = clock
+        self._offline_since: float | None = None
 
     # -- plumbing -------------------------------------------------------------------------------
 
@@ -114,7 +121,9 @@ class DriveClient:
         attempt = 0
         while True:
             try:
-                return request.execute(num_retries=0)
+                result = request.execute(num_retries=0)
+                self._offline_since = None
+                return result
             except HttpError as exc:
                 status = int(exc.resp.status)
                 reason = http_reason(exc)
@@ -133,6 +142,13 @@ class DriveClient:
                 raise AuthError("로그인 정보를 갱신하지 못했습니다.") from None
             except (OSError, httplib2.HttpLib2Error, google.auth.exceptions.TransportError):
                 if attempt >= self._max_retries:
+                    if self._on_offline is not None:
+                        now = self._clock()
+                        if self._offline_since is None:
+                            self._offline_since = now
+                        if self._on_offline(now - self._offline_since):
+                            attempt = 0  # the callback waited: start a fresh round of retries
+                            continue
                     raise NetworkError() from None
             # exponential backoff with full jitter, capped at 32 s
             delay = self._rng.uniform(0, min(32.0, 2.0**attempt))

@@ -3,7 +3,9 @@
 Phases (the checkpoint records which one is next, so an interrupted scan resumes):
   public  -> visibility queries: which files are link-public (fast signal, also covers files
              whose permission list we cannot read)
-  list    -> files.list pages (or folder-by-folder BFS); every page is saved with its token
+  list    -> files.list pages (or folder-by-folder BFS); every page is saved with its token.
+             A big drive (> SPLIT_ITEMS) is listed in createdTime windows instead, so an
+             expired page token (long pause, lost connection) costs one window, not the drive
   perms   -> permissions.list only where files.list did not include them
   analyze -> classify every item, store plaintext status/exposure/score
 
@@ -12,10 +14,12 @@ Only read requests are issued (DriveClient has no write methods).
 
 from __future__ import annotations
 
+import datetime as dt
 import threading
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from itertools import pairwise
 from typing import Any
 
 from dpg.core.audit.analyze import (
@@ -33,6 +37,38 @@ from dpg.core.store.audit_store import AuditStore, ItemRow
 log = get_logger("audit")
 
 PERM_BATCH = 50
+SPLIT_ITEMS = 10_000  # past this many items, list in createdTime windows (see _windows)
+WINDOWS_FROM = 2012  # one window for everything older, then half-years up to now
+
+
+def _windows(now: dt.datetime) -> list[list[str | None]]:
+    """Half-open createdTime ranges covering all time: [None, 2012-01) … [last half-year, None)."""
+    edges = [
+        f"{y}-{m:02d}-01T00:00:00"
+        for y in range(WINDOWS_FROM, now.year + 1)
+        for m in (1, 7)
+        if (y, m) <= (now.year, now.month)
+    ]
+    middle: list[list[str | None]] = [[a, b] for a, b in pairwise(edges)]
+    return [[None, edges[0]], *middle, [edges[-1], None]]
+
+
+def window_label(window: list[str | None]) -> str:
+    lo = window[0]
+    if lo is None:
+        return f"{WINDOWS_FROM}년 이전"
+    half = "상반기" if lo[5:7] == "01" else "하반기"
+    return f"{lo[:4]}년 {half}" + ("~" if window[1] is None else "")
+
+
+def _window_query(window: list[str | None]) -> str:
+    lo, hi = window
+    parts = []
+    if lo is not None:
+        parts.append(f"createdTime >= '{lo}'")
+    if hi is not None:
+        parts.append(f"createdTime < '{hi}'")
+    return " and ".join(parts)
 
 
 class AuditCancelled(Exception):
@@ -41,19 +77,20 @@ class AuditCancelled(Exception):
 
 @dataclass(frozen=True)
 class AuditScope:
-    kind: str  # mine | shared | drive | folder
+    kind: str  # mine | public | shared | drive | folder
     target: str | None = None
 
     @classmethod
     def parse(cls, text: str) -> AuditScope:
         kind, _, target = text.partition(":")
         kind = kind.strip().lower()
-        if kind in ("mine", "shared") and not target:
+        if kind in ("mine", "public", "shared") and not target:
             return cls(kind)
         if kind in ("drive", "folder") and target.strip():
             return cls(kind, target.strip())
         raise ValueError(
-            "범위는 mine, shared, drive:<공유드라이브ID>, folder:<폴더ID> 중 하나여야 합니다."
+            "범위는 mine, public, shared, drive:<공유드라이브ID>, folder:<폴더ID> "
+            "중 하나여야 합니다."
         )
 
     @property
@@ -64,6 +101,7 @@ class AuditScope:
     def label_ko(self) -> str:
         return {
             "mine": "내 소유 파일",
+            "public": "링크로 공개된 내 파일",
             "shared": "나에게 공유됨",
             "drive": "공유 드라이브",
             "folder": "특정 폴더",
@@ -77,6 +115,9 @@ class Progress:
     perms_done: int = 0
     perms_total: int = 0
     retries: int = 0
+    window: int = 0  # 1-based, when a big drive is listed in createdTime windows
+    windows: int = 0
+    window_label: str = ""
 
 
 @dataclass
@@ -129,6 +170,10 @@ class AuditRunner:
     def _scope_query(self, scope: AuditScope, extra: str | None = None) -> str:
         parts = ["trashed = false"]
         if scope.kind == "mine":
+            parts.insert(0, "'me' in owners")
+        elif scope.kind == "public":
+            # Quick check: only what anyone with the link can open (V4: the two public values).
+            parts.insert(0, "(visibility = 'anyoneWithLink' or visibility = 'anyoneCanFind')")
             parts.insert(0, "'me' in owners")
         elif scope.kind == "shared":
             parts.insert(0, "sharedWithMe")
@@ -199,6 +244,7 @@ class AuditRunner:
             self.store.set_status(scan_id, "failed", type(exc).__name__)
             raise
         self.store.set_status(scan_id, "done")
+        self.store.delete_scans_before(scope.key, scan_id)
         result = AuditResult(scan_id, scope, items, resumed, bool(cp.get("incomplete")))
         result.counts = summarize(items)
         result.changes_token = cp.get("changes_token")
@@ -219,8 +265,10 @@ class AuditRunner:
         Returns None when an incremental audit is not possible (no previous audit, no token,
         token expired, or the "shared with me" scope) — the caller then runs a full audit.
         """
-        if scope.kind == "shared":
-            return None  # "shared with me" membership is not visible in a change record
+        if scope.kind in ("shared", "public"):
+            # "shared with me" membership is not in a change record; the public list is quick
+            # to re-read in full (and link visibility is not a file field to filter changes by)
+            return None
         prev = self.store.latest_done_scan(scope.key)
         token = prev.checkpoint.get("changes_token") if prev is not None else None
         if prev is None or not token:
@@ -268,6 +316,7 @@ class AuditRunner:
             self.store.set_status(scan_id, "failed", type(exc).__name__)
             raise
         self.store.set_status(scan_id, "done")
+        self.store.delete_scans_before(scope.key, scan_id)
         result = AuditResult(scan_id, scope, items, False, bool(cp.get("incomplete")))
         result.counts = summarize(items)
         result.incremental, result.changed, result.content_changed = True, changed, content
@@ -385,7 +434,7 @@ class AuditRunner:
                 cp["changes_token"] = self.client.start_page_token(self._changes_drive(scope))
             except DriveHttpError as exc:
                 log.info("no changes token (%s): next audit will be a full one", exc.status)
-        if scope.kind == "mine":
+        if scope.kind in ("mine", "public"):
             cp["root_id"] = self.client.get_file("root")["id"]
 
     def _phase_list(self, scan_id: int, scope: AuditScope, cp: dict[str, Any]) -> None:
@@ -393,29 +442,65 @@ class AuditRunner:
             self._list_folder_tree(scan_id, scope, cp)
             return
         drive_id = scope.target if scope.kind == "drive" else None
-        q = self._scope_query(scope)
+        base = self._scope_query(scope)
         listed = self.store.count_items(scan_id)
+        if cp.get("windows") is None and listed >= SPLIT_ITEMS and not cp.get("page_token"):
+            self._start_windows(cp)  # resuming a big drive whose listing had not started over
         while True:
             self._check_cancel()
+            windows = cp.get("windows")
+            if windows is not None and cp["window"] >= len(windows):
+                return
+            q = base if windows is None else f"{base} and {_window_query(windows[cp['window']])}"
             token = cp.get("page_token")
             try:
                 page = self.client.list_files_page(q=q, page_token=token, drive_id=drive_id)
             except DriveHttpError as exc:
                 if token and exc.status == 400:
-                    # Page tokens expire after some hours: restart listing, keep saved rows.
+                    # Page tokens expire after some hours: restart this listing (or just this
+                    # window), keep the saved rows.
                     log.info("page token rejected on resume; relisting")
                     cp["page_token"] = None
+                    if windows is None and listed >= SPLIT_ITEMS:
+                        self._start_windows(cp)
                     continue
                 raise
             rows = [self._row_for(m) for m in page.items]
             if page.incomplete:
                 cp["incomplete"] = True
-            cp["page_token"] = page.next_token
-            self.store.save_items(scan_id, rows, cp)
             listed += len(rows)
-            self._progress(phase="list", listed=listed)
-            if not page.next_token:
+            cp["page_token"] = page.next_token
+            done = False
+            if windows is None:
+                if page.next_token and listed >= SPLIT_ITEMS:
+                    # A big drive: go on in windows so an interruption costs one window. The
+                    # pages already read are saved; re-reading them only updates those rows.
+                    self._start_windows(cp)
+                elif not page.next_token:
+                    done = True
+            elif not page.next_token:
+                cp["window"] += 1
+            self.store.save_items(scan_id, rows, cp)
+            windows = cp.get("windows")
+            if windows is not None and cp["window"] < len(windows):
+                self._progress(
+                    phase="list",
+                    listed=listed,
+                    window=cp["window"] + 1,
+                    windows=len(windows),
+                    window_label=window_label(windows[cp["window"]]),
+                )
+            else:
+                self._progress(phase="list", listed=listed)
+            if done:
                 return
+
+    @staticmethod
+    def _start_windows(cp: dict[str, Any]) -> None:
+        cp["windows"] = _windows(dt.datetime.now(dt.UTC))
+        cp["window"] = 0
+        cp["page_token"] = None
+        log.info("big drive: listing in %s createdTime windows", len(cp["windows"]))
 
     def _list_folder_tree(self, scan_id: int, scope: AuditScope, cp: dict[str, Any]) -> None:
         if scope.target is None:

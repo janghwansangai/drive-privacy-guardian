@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import datetime as dt
 import threading
+import time
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +79,7 @@ from dpg.core.vault.recovery import (
 from dpg.gui.actions_ui import ActionDialog, HistoryDialog, ResultDialog
 from dpg.gui.checklist_ui import ChecklistDialog
 from dpg.gui.context import RETENTION_CHOICES, AppContext
+from dpg.gui.keepawake import KeepAwake
 from dpg.gui.results_model import (
     COL_ADVICE,
     COL_CHECK,
@@ -119,8 +122,45 @@ PHASE_KO = {
     "analyze": "분석 중…",
 }
 
+# Past this many files, the every-minute refresh would re-copy and re-analyse the whole drive
+# whenever anything changes (it is used elsewhere all day): pause it, check on demand instead.
+LIVE_MAX_ITEMS = 50_000
+OFFLINE_WAIT_LIMIT = 60 * 60  # seconds a scan waits for the connection to come back
+OFFLINE_STEP = 20
+DETECT_GUIDE_MIN_ITEMS = 5_000  # explain first when the drive is big (or not audited yet)
+
+DETECT_GUIDE_KO = (
+    "개인정보 찾기는 문서(한글·워드·엑셀·PDF·텍스트 등)를 하나씩 내려받아 이 컴퓨터의 "
+    "메모리에서 읽습니다. 내용은 저장하지 않습니다.\n\n"
+    "• 걸리는 시간: 문서 크기와 인터넷 속도에 따라 문서 1개에 1초~수 초입니다. "
+    "문서가 수만 개면 몇 시간에서 하루 이상 걸릴 수 있습니다. 진행 중에 남은 시간을 보여 줍니다.\n"
+    "• 처음에는 「공유된 파일만」을 체크하거나 「특정 폴더」로 시작하는 것을 권합니다"
+    "(「취소」를 누르고 바꾸세요).\n"
+    "• 중단해도 검사한 파일은 기억합니다. 다시 시작하면 나머지만 이어서 합니다.\n"
+    "• 전원을 연결해 두세요. 검사 중에는 컴퓨터가 저절로 잠들지 않게 합니다"
+    "(노트북 덮개를 닫으면 잠듭니다). 인터넷이 끊기면 최대 60분 기다렸다가 이어서 합니다.\n"
+    "• 권장: 메모리 8GB 이상. 50MB가 넘는 파일은 건너뜁니다."
+)
+
+
+@dataclass(frozen=True)
+class OfflineWait:
+    waited: int  # seconds without a connection so far
+
+
+def _duration_ko(seconds: float) -> str:
+    minutes = max(1, round(seconds / 60))
+    if minutes < 60:
+        return f"{minutes}분"
+    hours, rest = divmod(minutes, 60)
+    if hours < 48:
+        return f"{hours}시간 {rest}분" if rest else f"{hours}시간"
+    return f"{hours // 24}일 {hours % 24}시간"
+
+
 SCOPE_CHOICES = [
     ("mine", "내 소유 파일"),
+    ("public", "링크로 공개된 내 파일만 (빠름)"),
     ("shared", "나에게 공유된 파일"),
     ("drive", "공유 드라이브"),
     ("folder", "특정 폴더 (폴더 ID 또는 주소)"),
@@ -485,6 +525,8 @@ class MainWindow(QMainWindow):
         self.ctx = ctx
         self.task: Task | None = None
         self.cancel_event = threading.Event()
+        self.keep_awake = KeepAwake()
+        self._rate: tuple[str, float, int] | None = None
         self.result: AuditResult | None = None
         self.detections: dict[str, FileDetection] | None = None
         self._tasks: set[Task] = set()
@@ -585,6 +627,13 @@ class MainWindow(QMainWindow):
             "파일 내용을 이 컴퓨터의 메모리에서만 읽어 주민번호·연락처 등을 찾습니다. "
             "처음 사용할 때 '파일 내용 읽기' 권한을 추가로 요청합니다."
         )
+        self.detect_shared_check = QCheckBox("공유된 파일만")
+        self.detect_shared_check.setEnabled(False)
+        self.detect_shared_check.setToolTip(
+            "링크·외부 계정·도메인으로 공유된 파일만 내용을 읽습니다. 밖으로 나갈 수 있는 "
+            "파일부터 빠르게 확인할 수 있습니다. 끄면 모든 문서를 읽습니다(오래 걸림)."
+        )
+        self.detect_check.toggled.connect(self.detect_shared_check.setEnabled)
         self.restart_check = QCheckBox("처음부터 다시")
         self.restart_check.setToolTip("체크하지 않으면 중단된 감사를 이어서 진행합니다.")
         self.start_btn = QPushButton("▶ 검사 시작")
@@ -600,6 +649,7 @@ class MainWindow(QMainWindow):
         scope_row.addWidget(self.folder_edit, 1)
         scope_row.addStretch()
         scope_row.addWidget(self.detect_check)
+        scope_row.addWidget(self.detect_shared_check)
         scope_row.addWidget(self.restart_check)
         scope_row.addWidget(self.start_btn)
         scope_row.addWidget(self.cancel_btn)
@@ -616,9 +666,15 @@ class MainWindow(QMainWindow):
             "앱이 열려 있는 동안 1분마다 구글 드라이브의 '변경 목록'만 확인합니다. "
             "바뀐 것이 없으면 아주 작은 요청 하나로 끝나고, 바뀐 파일만 다시 검사합니다."
         )
+        self.live_btn = QPushButton("끄기")
+        self.live_btn.setToolTip(
+            "드라이브 변경 자동 반영을 끄거나 켭니다 (설정에서도 바꿀 수 있음)"
+        )
+        self.live_btn.clicked.connect(self.toggle_live)
         progress_row.addWidget(self.progress_bar, 1)
         progress_row.addWidget(self.progress_label, 2)
         progress_row.addWidget(self.live_label)
+        progress_row.addWidget(self.live_btn)
         scope_col.addLayout(progress_row)
         layout.addWidget(scope_box)
 
@@ -943,7 +999,7 @@ class MainWindow(QMainWindow):
 
     def current_scope(self) -> AuditScope | None:
         key = self.scope_combo.currentData()
-        if key in ("mine", "shared"):
+        if key in ("mine", "public", "shared"):
             return AuditScope(key)
         if key == "drive":
             drive_id = self.drive_combo.currentData()
@@ -974,8 +1030,20 @@ class MainWindow(QMainWindow):
             )
         else:
             detect = self.detect_check.isChecked()
+            big = self.result is None or len(self.result.items) > DETECT_GUIDE_MIN_ITEMS
+            if (
+                detect
+                and big
+                and not self.detect_shared_check.isChecked()
+                and scope.kind != "folder"
+                and not self.ctx.confirm(
+                    self, "개인정보 찾기 안내", DETECT_GUIDE_KO, "그대로 시작", "취소"
+                )
+            ):
+                return
             if detect and not self.ensure_detect_permission():
                 return
+        shared_only = detect and self.detect_shared_check.isChecked()
         self._auto_run = auto
         self.cancel_event.clear()
         self._set_running(True)
@@ -985,12 +1053,19 @@ class MainWindow(QMainWindow):
         cancel = self.cancel_event
 
         def work(progress: Any) -> Any:
+            def offline(waited: float) -> bool:
+                """Connection lost mid-scan: wait (up to an hour), go on where it stopped."""
+                if waited >= OFFLINE_WAIT_LIMIT or cancel.is_set():
+                    return False
+                progress(OfflineWait(int(waited)))
+                return not cancel.wait(OFFLINE_STEP)
+
             account = manager.verify()
             if account is None:
                 raise NotLoggedIn("계정을 확인하지 못했습니다. 다시 로그인해 주세요.")
             store = self._open_store(account)
             try:
-                client = DriveClient(factory(manager))
+                client = DriveClient(factory(manager), on_offline=offline)
                 runner = AuditRunner(
                     client,
                     store,
@@ -1007,9 +1082,16 @@ class MainWindow(QMainWindow):
                 detections = None
                 if detect:
                     # files unchanged since the last detection keep their result (copied)
+                    targets = result.items
+                    if shared_only:
+                        targets = [
+                            a
+                            for a in result.items
+                            if a.exposure is None or a.exposure > Exposure.RESTRICTED
+                        ]
                     detections = DetectRunner(
                         client, store, on_progress=progress, cancel=cancel
-                    ).run(result.scan_id, result.items)
+                    ).run(result.scan_id, targets)
                 return result, detections
             finally:
                 store.close()
@@ -1035,6 +1117,12 @@ class MainWindow(QMainWindow):
         ):
             return
         if self.task is not None:
+            return
+        if len(self.result.items) > LIVE_MAX_ITEMS:
+            self.live_label.setText(
+                f"🔄 자동 반영 쉼 — 파일이 많아({len(self.result.items):,}개) 자동으로 확인하지 "
+                "않습니다. 필요할 때 「검사 시작」"
+            )
             return
         token = self._live_token
         drive = self.result.scope.target if self.result.scope.kind == "drive" else None
@@ -1078,8 +1166,14 @@ class MainWindow(QMainWindow):
         else:
             self.live_timer.stop()
         self.live_label.setText(
-            "🔄 자동 반영 켜짐 (1분마다 바뀐 파일 확인)" if on else "자동 반영 꺼짐 (설정에서 켜기)"
+            "🔄 자동 반영 켜짐 (1분마다 바뀐 파일 확인)" if on else "자동 반영 꺼짐"
         )
+        self.live_btn.setText("끄기" if on else "켜기")
+
+    def toggle_live(self) -> None:
+        self.ctx.prefs.live_refresh = not self.ctx.prefs.live_refresh
+        self.ctx.prefs.save()
+        self._apply_live_setting()
 
     def cancel_audit(self) -> None:
         self.cancel_event.set()
@@ -1087,6 +1181,11 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setEnabled(False)
 
     def _set_running(self, running: bool) -> None:
+        if running:
+            self.keep_awake.start()
+            self._rate = None
+        else:
+            self.keep_awake.stop()
         self.start_btn.setEnabled(not running)
         self.cancel_btn.setEnabled(running)
         self.scope_combo.setEnabled(not running)
@@ -1094,13 +1193,35 @@ class MainWindow(QMainWindow):
         self.progress_bar.setRange(0, 0 if running else 1)
         self.progress_bar.setValue(0 if running else 1)
 
+    def _speed(self, kind: str, count: int) -> float | None:
+        """Items per minute for the current phase (None until there is enough to measure)."""
+        now = time.monotonic()
+        if self._rate is None or self._rate[0] != kind or count < self._rate[2]:
+            self._rate = (kind, now, count)
+            return None
+        _kind, t0, c0 = self._rate
+        if now - t0 < 30 or count <= c0:
+            return None
+        return (count - c0) / (now - t0) * 60
+
     def _on_progress(self, p: object) -> None:
+        if isinstance(p, OfflineWait):
+            self.progress_label.setText(
+                f"📡 인터넷 연결이 끊겼습니다 — 연결되면 그 자리부터 자동으로 이어서 합니다 "
+                f"(기다린 시간 {p.waited // 60}분, 최대 {OFFLINE_WAIT_LIMIT // 60}분)"
+            )
+            return
         if isinstance(p, DetectProgress):
             self.progress_bar.setRange(0, max(p.total, 1))
             self.progress_bar.setValue(p.done)
             retry = f"  (구글 요청 제한으로 재시도 {p.retries}회)" if p.retries else ""
+            per_min = self._speed("detect", p.done)
+            eta = ""
+            if per_min:
+                eta = f" · 남은 시간 약 {_duration_ko((p.total - p.done) / per_min * 60)}"
             self.progress_label.setText(
-                f"개인정보 탐지 중… {p.done:,}/{p.total:,} (파일 내용은 저장하지 않습니다){retry}"
+                f"개인정보 탐지 중… {p.done:,}/{p.total:,}{eta} (파일 내용은 저장하지 않습니다)"
+                f"{retry}"
             )
             return
         if not isinstance(p, Progress):
@@ -1108,6 +1229,11 @@ class MainWindow(QMainWindow):
         text = PHASE_KO.get(p.phase, p.phase)
         if p.phase == "list":
             text += f" {p.listed:,}개"
+            if p.windows:
+                text += f" · 구간 {p.window}/{p.windows} ({p.window_label})"
+            per_min = self._speed("list", p.listed)
+            if per_min:
+                text += f" · 1분에 약 {per_min:,.0f}개"
         elif p.phase == "perms" and p.perms_total:
             self.progress_bar.setRange(0, p.perms_total)
             self.progress_bar.setValue(p.perms_done)
@@ -2281,6 +2407,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         self.cancel_event.set()
         self.wait_for_tasks()
+        self.keep_awake.stop()
         if self.ctx.prefs.auto_logout_on_exit and self.ctx.manager.status().logged_in:
             self.ctx.manager.logout()
             log.info("auto logout on exit")

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from dpg.core.audit import runner as runner_mod
 from dpg.core.audit.model import Exposure, FileAudit, ItemStatus, Origin
 from dpg.core.audit.runner import AuditCancelled, AuditRunner, AuditScope, Progress
 from dpg.core.drive.client import DriveClient, DriveHttpError
@@ -345,3 +346,100 @@ def test_cancel_on_last_page_is_honoured(store: AuditStore) -> None:
     )
     with pytest.raises(AuditCancelled):
         runner.run(AuditScope.parse("mine"))
+
+
+# --- big drives: createdTime windows, quick public scope ----------------------------------------
+
+
+def _spread_years(fake: FakeDrive) -> None:
+    """Creation times from 2009 to 2026 so every kind of window gets items."""
+    for n, fid in enumerate(i for i in fake.items if i != fake.root_id):
+        year = 2009 + n % 18
+        month = 1 + (n * 5) % 12
+        fake.items[fid].created_time = f"{year}-{month:02d}-15T08:00:00.000Z"
+
+
+def _listing_queries(fake: FakeDrive) -> list[str]:
+    return [
+        kw["q"]
+        for n, kw in fake.calls
+        if n == "files.list" and kw["fields"].startswith("nextPageToken,incomplete")
+    ]
+
+
+def test_big_drive_listed_in_windows_equals_plain_listing(
+    store: AuditStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = _big_drive(30, 100)  # 3,030 items
+    _spread_years(fake)
+    plain = run(fake, store, "mine")
+    monkeypatch.setattr(runner_mod, "SPLIT_ITEMS", 1000)
+    fake.calls.clear()
+    other = AuditStore(store.path.with_name("windows.db"), ColumnCipher(os.urandom(32)))
+    try:
+        windowed = run(fake, other, "mine")
+    finally:
+        other.close()
+    queries = _listing_queries(fake)
+    assert any("createdTime < '2012-01-01T00:00:00'" in q for q in queries)
+    assert any("createdTime >= '2026-07-01T00:00:00'" in q or "2026-01-01" in q for q in queries)
+    assert {k: (a.exposure, a.name) for k, a in windowed.items()} == {
+        k: (a.exposure, a.name) for k, a in plain.items()
+    }
+
+
+def test_big_drive_resumes_at_the_failed_window(
+    store: AuditStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(runner_mod, "SPLIT_ITEMS", 1000)
+    fake = _big_drive(30, 100)
+    _spread_years(fake)
+    failing = "createdTime >= '2018-07-01T00:00:00'"
+    fake.inject_error("files.list", 500, times=None, when=lambda kw: failing in kw.get("q", ""))
+    runner = AuditRunner(
+        DriveClient(fake.service(), sleep=lambda s: None, max_retries=1), store, account=ME
+    )
+    with pytest.raises(DriveHttpError):
+        runner.run(AuditScope.parse("mine"))
+    fake._injections.clear()
+    fake.calls.clear()
+    result = runner.run(AuditScope.parse("mine"))
+    assert result.resumed
+    queries = _listing_queries(fake)
+    assert failing in queries[0]  # went on from the window that failed, not from the start
+    assert not any("createdTime < '2012-01-01T00:00:00'" in q for q in queries)
+    assert len(result.items) == 3030
+
+
+def test_expired_token_on_a_big_drive_switches_to_windows(
+    store: AuditStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(runner_mod, "SPLIT_ITEMS", 1000)
+    fake = _big_drive(30, 100)
+    runner = AuditRunner(DriveClient(fake.service()), store, account=ME)
+    first = runner.run(AuditScope.parse("mine"))  # saves every row once
+    scan_id = store.new_scan(
+        "mine",
+        {"phase": "list", "public": {}, "root_id": fake.root_id, "page_token": "expired-token"},
+    )
+    store.save_items(scan_id, list(store.iter_items(first.scan_id)))
+    store.set_status(scan_id, "failed")
+    fake.calls.clear()
+    result = runner.run(AuditScope.parse("mine"))
+    assert result.resumed
+    assert all("createdTime" in q for q in _listing_queries(fake)[1:])
+    assert len(result.items) == 3030
+
+
+def test_public_scope_lists_only_link_shared_files(
+    my_drive: tuple[FakeDrive, dict[str, str]], store: AuditStore
+) -> None:
+    fake, ids = my_drive
+    items = run(fake, store, "public")
+    assert ids["link_view"] in items
+    assert ids["link_edit"] in items
+    assert ids["findable"] in items
+    assert ids["child_direct"] in items
+    for private in ("private", "external", "internal", "domain", "child"):
+        assert ids[private] not in items
+    assert all(a.exposure >= Exposure.LINK_VIEW for a in items.values())

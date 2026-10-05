@@ -258,6 +258,15 @@ class AuditStore:
             [(scan_id, f) for f in file_ids],
         )
 
+    def delete_scans_before(self, scope: str, scan_id: int) -> int:
+        """Drop this scope's earlier scans once a newer one is done. Only the latest result is
+        ever read, and keeping every incremental copy would grow the file by the whole drive's
+        size each time (a million-file drive: about 1 GB per copy)."""
+        cur = self._db.execute(
+            "DELETE FROM scans WHERE scope = ? AND scan_id < ?", (scope, scan_id)
+        )
+        return int(cur.rowcount)
+
     def purge_older_than(self, days: int) -> int:
         cutoff = _iso(dt.datetime.now(dt.UTC) - dt.timedelta(days=days))
         cur = self._db.execute("DELETE FROM scans WHERE started_at < ?", (cutoff,))

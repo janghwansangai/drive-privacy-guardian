@@ -72,6 +72,61 @@ def test_network_errors_retried_then_reported() -> None:
     assert Flaky.calls == 3
 
 
+def test_long_outage_waits_and_continues_when_asked() -> None:
+    """Long scans: the connection comes back after a while → the same request succeeds."""
+    now = [0.0]
+
+    class Flaky:
+        calls = 0
+
+        def execute(self, num_retries: int = 0) -> dict[str, object]:
+            Flaky.calls += 1
+            if Flaky.calls <= 7:  # 3 attempts + 3 attempts + 1 → then the network is back
+                raise OSError("network down")
+            return {"user": {"emailAddress": "t@example.com"}}
+
+    class Svc:
+        def about(self) -> Svc:
+            return self
+
+        def get(self, **kw: object) -> Flaky:
+            return Flaky()
+
+    waits: list[float] = []
+
+    def offline(waited: float) -> bool:
+        waits.append(waited)
+        now[0] += 20
+        return True
+
+    client = DriveClient(
+        Svc(), sleep=lambda s: None, max_retries=2, on_offline=offline, clock=lambda: now[0]
+    )
+    assert client.about_email() == "t@example.com"
+    assert waits == [0.0, 20.0]
+
+
+def test_long_outage_gives_up_when_the_callback_says_so() -> None:
+    class Down:
+        def execute(self, num_retries: int = 0) -> dict[str, object]:
+            raise OSError("network down")
+
+    class Svc:
+        def about(self) -> Svc:
+            return self
+
+        def get(self, **kw: object) -> Down:
+            return Down()
+
+    asked: list[float] = []
+    client = DriveClient(
+        Svc(), sleep=lambda s: None, max_retries=1, on_offline=lambda w: asked.append(w) or False
+    )
+    with pytest.raises(NetworkError):
+        client.about_email()
+    assert asked == [0.0]
+
+
 # --- store ------------------------------------------------------------------------------------
 
 

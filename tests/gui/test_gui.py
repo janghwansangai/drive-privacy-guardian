@@ -676,3 +676,96 @@ def test_switching_action_in_dropdown_builds_the_right_plan(
         p["type"] == "user" and p.get("emailAddress") == "friend@gmail.example"
         for p in env.fake.effective_permissions(env.fake.items[child])
     )
+
+
+# --- big drives -------------------------------------------------------------------------------
+
+
+def test_live_refresh_can_be_switched_off_on_screen(qtbot: Any, env: Env) -> None:
+    assert env.ctx is not None
+    _login(env)
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    assert env.ctx.prefs.live_refresh
+    window.live_btn.click()
+    assert not env.ctx.prefs.live_refresh
+    assert not window.live_timer.isActive()
+    assert "꺼짐" in window.live_label.text()
+    assert window.live_btn.text() == "켜기"
+    window.live_btn.click()
+    assert env.ctx.prefs.live_refresh
+
+
+def test_live_refresh_pauses_on_a_big_drive(
+    qtbot: Any, env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert env.ctx is not None
+    _login(env)
+    _populate(env.fake)
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    _audit(qtbot, window)
+    assert window.result is not None
+    monkeypatch.setattr(mw, "LIVE_MAX_ITEMS", 2)
+    env.fake.add_file("새 파일.txt")
+    window._live_tick()
+    assert window._live_check is None  # did not even ask Drive
+    assert "자동 반영 쉼" in window.live_label.text()
+
+
+def test_detection_of_shared_files_only(
+    qtbot: Any, env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert env.ctx is not None
+    _login(env)
+    env.ctx.manager.login(AccessLevel.DETECT)
+    ids = _populate(env.fake)
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    window.detect_check.setChecked(True)
+    assert window.detect_shared_check.isEnabled()
+    window.detect_shared_check.setChecked(True)
+    _audit(qtbot, window)
+    assert window.detections is not None
+    assert ids["link"] in window.detections
+    assert ids["ext"] in window.detections
+    assert ids["private"] not in window.detections
+
+
+def test_scan_keeps_the_computer_awake_and_shows_progress(
+    qtbot: Any, env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert env.ctx is not None
+    _login(env)
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    calls: list[str] = []
+    monkeypatch.setattr(window.keep_awake, "start", lambda: calls.append("start"))
+    monkeypatch.setattr(window.keep_awake, "stop", lambda: calls.append("stop"))
+    _audit(qtbot, window)
+    assert calls[:2] == ["start", "stop"]
+    window._on_progress(mw.OfflineWait(125))
+    assert "인터넷 연결이 끊겼습니다" in window.progress_label.text()
+    assert "2분" in window.progress_label.text()
+    window._on_progress(
+        mw.Progress("list", listed=12000, window=3, windows=31, window_label="2013년 상반기")
+    )
+    assert "구간 3/31 (2013년 상반기)" in window.progress_label.text()
+
+
+def test_public_scope_is_offered(qtbot: Any, env: Env) -> None:
+    assert env.ctx is not None
+    _login(env)
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    window.scope_combo.setCurrentIndex(window.scope_combo.findData("public"))
+    scope = window.current_scope()
+    assert scope is not None
+    assert scope.kind == "public"
+
+
+def test_duration_wording() -> None:
+    assert mw._duration_ko(30) == "1분"
+    assert mw._duration_ko(59 * 60) == "59분"
+    assert mw._duration_ko(3 * 3600 + 20 * 60) == "3시간 20분"
+    assert mw._duration_ko(3 * 86400 + 3600) == "3일 1시간"
