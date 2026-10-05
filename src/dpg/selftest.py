@@ -90,6 +90,12 @@ def _qt() -> str:
     label.show()
     app.processEvents()
     label.close()
+    # the main window module and the menu-bar icon of scheduled scans load in this build
+    import dpg.gui.main_window  # noqa: F401
+    from dpg.gui.schedule_ui import badge_icon
+
+    if badge_icon().isNull():
+        raise AssertionError("menu-bar icon could not be drawn")
     import sys
 
     if "PySide6.QtNetwork" in sys.modules:

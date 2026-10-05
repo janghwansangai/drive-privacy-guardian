@@ -1,6 +1,6 @@
 """Drive Privacy Guardian."""
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 # Public source repository (set when the GitHub repository is created). "새 버전 확인" only opens
 # its Releases page in the user's browser — the app itself never checks for updates (SPEC 9).

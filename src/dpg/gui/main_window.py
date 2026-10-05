@@ -10,9 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction, QCloseEvent
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -27,8 +28,10 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QProgressBar,
     QPushButton,
+    QSystemTrayIcon,
     QTableView,
     QTableWidget,
     QTableWidgetItem,
@@ -54,6 +57,7 @@ from dpg.core.extract import UNSCANNABLE_LABEL_KO, Unscannable
 from dpg.core.logging import get_logger
 from dpg.core.organize import build_move_plan, duplicate_groups, new_folder_audit, suggest
 from dpg.core.policy import DetectStatus, FileDetection
+from dpg.core.schedule import Schedule
 from dpg.core.store.audit_store import AuditStore
 from dpg.core.store.wipe import remember_vault_password, vault_names, wipe_local_records
 from dpg.core.vault import archive
@@ -95,6 +99,7 @@ from dpg.gui.results_model import (
     ResultsModel,
     matches_filter,
 )
+from dpg.gui.schedule_ui import ScheduleDialog, badge_icon
 from dpg.gui.tasks import Task, user_message_for
 from dpg.gui.vault_ui import (
     ROOT_ID,
@@ -127,6 +132,8 @@ PHASE_KO = {
 LIVE_MAX_ITEMS = 50_000
 OFFLINE_WAIT_LIMIT = 60 * 60  # seconds a scan waits for the connection to come back
 OFFLINE_STEP = 20
+SCHEDULE_TICK_MS = 30_000
+SCHEDULE_RETRY = dt.timedelta(minutes=10)  # after a failed scheduled run, inside its window
 DETECT_GUIDE_MIN_ITEMS = 5_000  # explain first when the drive is big (or not audited yet)
 
 DETECT_GUIDE_KO = (
@@ -489,6 +496,14 @@ class SettingsDialog(QDialog):
         if dialog.logout.isChecked():
             self.ctx.manager.remove_client()
             self.removed_client = True
+        # Leave nothing that starts by itself: scheduled scans and the login item go too.
+        if self.ctx.prefs.schedule.get("enabled"):
+            self.ctx.prefs.schedule = {**self.ctx.prefs.schedule, "enabled": False}
+            self.ctx.prefs.save()
+        try:
+            self.ctx.autostart.disable()
+        except OSError:
+            log.info("could not remove the login item")
         self.wiped = True
         self.ctx.notify(
             self,
@@ -546,6 +561,28 @@ class MainWindow(QMainWindow):
         self.live_timer.setInterval(60_000)
         self.live_timer.timeout.connect(self._live_tick)
         self._apply_live_setting()
+        # Scheduled scans (D-099)
+        self.now: Any = dt.datetime.now  # injectable clock (tests)
+        self.sched_awake = KeepAwake()
+        self._sched_run = False  # the running task was started by the schedule
+        self._sched_stopping = False  # … and is being stopped because its window ended
+        self._sched_done_for: dt.datetime | None = None  # window (start) already finished
+        self._sched_retry_at: dt.datetime | None = None
+        self._sched_notified_for: dt.datetime | None = None
+        self._quitting = False
+        self._tray_hint_shown = False
+        self.tray: QSystemTrayIcon | None = None
+        self._setup_tray()
+        self.schedule_timer = QTimer(self)
+        self.schedule_timer.setInterval(SCHEDULE_TICK_MS)
+        self.schedule_timer.timeout.connect(self._schedule_tick)
+        self.schedule_timer.start()
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
+        self._last_counts: Counter[str] = Counter()
+        self._sched_no_detect_permission = False
+        self._apply_schedule()
         self.refresh_account()
 
     # -- construction ---------------------------------------------------------------------------
@@ -568,6 +605,15 @@ class MainWindow(QMainWindow):
         vault = QAction("암호화된 파일 보기", self)
         vault.triggered.connect(lambda: self.set_filter("vault"))
         menu.addAction(vault)
+        menu.addSeparator()
+        schedule = QAction("예약 검사…", self)
+        schedule.triggered.connect(self.open_schedule)
+        menu.addAction(schedule)
+        quit_action = QAction("종료", self)
+        quit_action.setShortcut(QKeySequence.StandardKey.Quit)
+        quit_action.setMenuRole(QAction.MenuRole.QuitRole)
+        quit_action.triggered.connect(self.quit_app)
+        menu.addAction(quit_action)
         tools = self.menuBar().addMenu("정리")
         self.archive_action = QAction("선택 파일 암호화 보관…", self)
         self.archive_action.triggered.connect(self.archive_selected)
@@ -673,8 +719,11 @@ class MainWindow(QMainWindow):
         self.live_btn.clicked.connect(self.toggle_live)
         progress_row.addWidget(self.progress_bar, 1)
         progress_row.addWidget(self.progress_label, 2)
+        self.schedule_btn = QPushButton("⏰ 예약")
+        self.schedule_btn.clicked.connect(self.open_schedule)
         progress_row.addWidget(self.live_label)
         progress_row.addWidget(self.live_btn)
+        progress_row.addWidget(self.schedule_btn)
         scope_col.addLayout(progress_row)
         layout.addWidget(scope_box)
 
@@ -959,6 +1008,7 @@ class MainWindow(QMainWindow):
                 "✓ 이 컴퓨터의 기록을 지웠습니다. 다음 검사는 처음부터 합니다."
             )
         self._apply_live_setting()
+        self._apply_schedule()
         if dialog.removed_client:
             self.run_setup()
         self.refresh_account()
@@ -1014,9 +1064,13 @@ class MainWindow(QMainWindow):
             account, self.ctx.manager.secret_store, self.ctx.prefs.retention_days
         )
 
-    def start_audit(self, *, auto: bool = False) -> None:
+    def start_audit(self, *, auto: bool = False, scheduled: Schedule | None = None) -> None:
         """Run an audit. After the first full audit this only re-checks what changed
-        (Drive's change list); '처음부터 다시' forces a full audit."""
+        (Drive's change list); '처음부터 다시' forces a full audit. A scheduled run asks
+        nothing (no dialogs at 3 a.m.) and never starts over."""
+        if scheduled is not None:
+            self._start_scheduled(scheduled)
+            return
         scope = self.current_scope() if not auto or self.result is None else self.result.scope
         if scope is None:
             self.ctx.notify(
@@ -1045,11 +1099,32 @@ class MainWindow(QMainWindow):
                 return
         shared_only = detect and self.detect_shared_check.isChecked()
         self._auto_run = auto
+        restart = self.restart_check.isChecked() and not auto
+        self.progress_label.setText("🔄 드라이브 변경 반영 중…" if auto else "구글 계정 확인 중…")
+        self._run_audit(scope, detect=detect, shared_only=shared_only, restart=restart)
+
+    def _start_scheduled(self, sched: Schedule) -> None:
+        try:
+            scope = AuditScope.parse(sched.scope)
+        except ValueError:
+            scope = AuditScope("mine")
+        level = self.ctx.manager.status().level
+        detect = sched.detect and level is not None and level >= AccessLevel.DETECT
+        self._sched_no_detect_permission = sched.detect and not detect
+        self._sched_run = True
+        self._sched_stopping = False
+        self._auto_run = False
+        self.progress_label.setText(f"⏰ 예약 검사 시작 — {sched.summary_ko()}")
+        self._run_audit(
+            scope, detect=detect, shared_only=detect and sched.detect_shared_only, restart=False
+        )
+
+    def _run_audit(
+        self, scope: AuditScope, *, detect: bool, shared_only: bool, restart: bool
+    ) -> None:
         self.cancel_event.clear()
         self._set_running(True)
-        self.progress_label.setText("🔄 드라이브 변경 반영 중…" if auto else "구글 계정 확인 중…")
         manager, factory, prefs = self.ctx.manager, self.ctx.service_factory, self.ctx.prefs
-        restart = self.restart_check.isChecked() and not auto
         cancel = self.cancel_event
 
         def work(progress: Any) -> Any:
@@ -1174,6 +1249,160 @@ class MainWindow(QMainWindow):
         self.ctx.prefs.live_refresh = not self.ctx.prefs.live_refresh
         self.ctx.prefs.save()
         self._apply_live_setting()
+
+    # -- scheduled scans (D-099) -----------------------------------------------------------------
+
+    def schedule(self) -> Schedule:
+        return Schedule.from_json(self.ctx.prefs.schedule)
+
+    def open_schedule(self) -> None:
+        dialog = ScheduleDialog(self.ctx, self, current_scope=self.current_scope(), now=self.now())
+        if self.ctx.show_dialog(dialog):
+            self._sched_done_for = None
+            self._sched_retry_at = None
+            self._apply_schedule()
+            self._schedule_tick()
+
+    def _setup_tray(self) -> None:
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        tray = QSystemTrayIcon(badge_icon(), self)
+        menu = QMenu(self)
+        show = menu.addAction("열기")
+        show.triggered.connect(self.show_window)
+        run_now = menu.addAction("지금 검사 (이어서)")
+        run_now.triggered.connect(self._run_schedule_now)
+        menu.addSeparator()
+        quit_action = menu.addAction("종료")
+        quit_action.triggered.connect(self.quit_app)
+        tray.setContextMenu(menu)
+        tray.activated.connect(
+            lambda reason: (
+                self.show_window() if reason == QSystemTrayIcon.ActivationReason.Trigger else None
+            )
+        )
+        self._tray_menu = menu
+        self.tray = tray
+
+    def _apply_schedule(self) -> None:
+        sched = self.schedule()
+        now = self.now()
+        if not sched.enabled:
+            self.schedule_btn.setText("⏰ 예약")
+            self.schedule_btn.setToolTip("정해진 시간에 알아서 검사합니다 (예약 꺼짐)")
+            self.sched_awake.stop()
+        else:
+            nxt = sched.next_start(now)
+            active = sched.window_at(now) is not None
+            self.schedule_btn.setText("⏰ 예약 중" if active else f"⏰ {sched.start} 예약")
+            self.schedule_btn.setToolTip(
+                f"{sched.summary_ko()}\n"
+                + (
+                    "지금 예약 시간입니다"
+                    if active
+                    else f"다음: {nxt:%m월 %d일 %H:%M}"
+                    if nxt
+                    else ""
+                )
+            )
+        if self.tray is not None:
+            self.tray.setToolTip(f"개인정보 보안관 · {sched.summary_ko()}")
+            self.tray.setVisible(sched.enabled)
+
+    def show_window(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def quit_app(self) -> None:
+        self._quitting = True
+        self.close()
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.Quit:  # Dock → Quit, Cmd+Q from the system menu
+            self._quitting = True
+        return super().eventFilter(watched, event)
+
+    def _tray_message(self, title: str, text: str) -> None:
+        if self.tray is not None and self.tray.isVisible() and self.schedule().notify:
+            self.tray.showMessage(title, text)
+
+    def _run_schedule_now(self) -> None:
+        if self.task is None and self.ctx.manager.status().logged_in:
+            self.start_audit(scheduled=self.schedule())
+
+    def _schedule_tick(self) -> None:
+        """Every 30 s: inside a window start (or go on with) the scan, at its end stop it."""
+        sched = self.schedule()
+        now = self.now()
+        window = sched.window_at(now)
+        self._apply_schedule()
+        if window is None:
+            self.sched_awake.stop()
+            if self.task is not None and self._sched_run and not self.cancel_event.is_set():
+                self._sched_stopping = True
+                self.cancel_audit()
+            return
+        begin, _finish = window
+        if self._sched_done_for == begin:
+            self.sched_awake.stop()
+            return
+        self.sched_awake.start()  # the whole window, also between retries
+        if self.task is not None or self._live_check is not None:
+            return  # a manual scan (or the live check) is running: go on afterwards
+        if self._sched_retry_at is not None and now < self._sched_retry_at:
+            return
+        if not self.ctx.manager.status().logged_in:
+            if self._sched_notified_for != begin:
+                self._sched_notified_for = begin
+                self.progress_label.setText("⏰ 로그인되어 있지 않아 예약 검사를 하지 못했습니다.")
+                self._tray_message(
+                    "예약 검사를 못 했습니다", "로그인이 필요합니다. 앱을 열어 로그인해 주세요."
+                )
+            return
+        self.start_audit(scheduled=sched)
+
+    def _scheduled_done(self, result: AuditResult, detections: Any) -> None:
+        window = self.schedule().window_at(self.now())
+        self._sched_done_for = window[0] if window else None
+        self._sched_retry_at = None
+        self.sched_awake.stop()
+        c = self._last_counts
+        parts = [f"{result.scope.label_ko} {len(result.items):,}개"]
+        parts.append(f"긴급·높음 {c['urgent']:,}")
+        parts.append(f"링크 공개 {c['link']:,}")
+        parts.append(f"외부 공유 {c['external']:,}")
+        if detections is not None:
+            parts.append(f"개인정보 {c['detected']:,}")
+        elif self._sched_no_detect_permission:
+            parts.append("개인정보는 권한이 없어 건너뜀")
+        text = " · ".join(parts)
+        self.progress_label.setText(f"⏰ 예약 검사 완료 ({self.now():%H:%M}) — {text}")
+        self._tray_message("예약 검사 완료", text)
+
+    def _scheduled_failed(self, exc: BaseException) -> None:
+        if self._sched_stopping:
+            self.progress_label.setText(
+                "⏰ 예약 시간이 끝나 멈췄습니다. 다음 예약 때 그 자리부터 이어서 합니다."
+            )
+            return
+        if isinstance(exc, (ReauthRequired, NotLoggedIn)):
+            window = self.schedule().window_at(self.now())
+            self._sched_done_for = window[0] if window else None
+            self.refresh_account()
+            self._tray_message(
+                "예약 검사를 못 했습니다",
+                "로그인이 만료되었습니다. 앱을 열어 다시 로그인해 주세요.",
+            )
+            return
+        self._sched_retry_at = self.now() + SCHEDULE_RETRY
+        self.progress_label.setText(
+            f"⏰ 예약 검사 중 문제가 생겼습니다: {user_message_for(exc)} — "
+            f"{self._sched_retry_at:%H:%M}에 다시 시도합니다."
+        )
 
     def cancel_audit(self) -> None:
         self.cancel_event.set()
@@ -1308,12 +1537,17 @@ class MainWindow(QMainWindow):
             )
         self.notice_label.setText("\n".join(notices))
         self.notice_label.setVisible(bool(notices))
+        if self._sched_run:
+            self._scheduled_done(result, detections)
 
     def _on_failed(self, exc: object) -> None:
         self._auto_run = False
         if not isinstance(exc, BaseException):
             return
         self.progress_label.setText(f"✗ {user_message_for(exc)}")
+        if self._sched_run:
+            self._scheduled_failed(exc)
+            return
         if isinstance(exc, (ReauthRequired, NotLoggedIn)):
             self.ctx.notify(self, "다시 로그인", user_message_for(exc))
             self.refresh_account()
@@ -1321,6 +1555,8 @@ class MainWindow(QMainWindow):
 
     def _task_finished(self) -> None:
         self.task = None
+        self._sched_run = False
+        self._sched_stopping = False
         self._set_running(False)
         self.refresh_account()
         self._after_task()
@@ -1337,6 +1573,7 @@ class MainWindow(QMainWindow):
                     counts[key] += 1
         for key, label in DASHBOARD:
             self.dash_buttons[key].setText(f"{label}\n{counts[key]:,}")
+        self._last_counts = counts
 
     def set_filter(self, key: str) -> None:
         self.proxy.set_key(key)
@@ -2406,9 +2643,23 @@ class MainWindow(QMainWindow):
             task.wait(timeout_ms)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if not self._quitting and self.tray is not None and self.tray.isVisible():
+            # Scheduled scans need the app running: closing the window only hides it.
+            event.ignore()
+            self.hide()
+            if not self._tray_hint_shown:
+                self._tray_hint_shown = True
+                self.tray.showMessage(
+                    "개인정보 보안관",
+                    "예약 검사를 위해 계속 실행됩니다. 끝내려면 메뉴 막대 아이콘 → 종료.",
+                )
+            return
         self.cancel_event.set()
         self.wait_for_tasks()
         self.keep_awake.stop()
+        self.sched_awake.stop()
+        if self.tray is not None:
+            self.tray.hide()
         if self.ctx.prefs.auto_logout_on_exit and self.ctx.manager.status().logged_in:
             self.ctx.manager.logout()
             log.info("auto logout on exit")

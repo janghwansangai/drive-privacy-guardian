@@ -55,6 +55,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     app.setApplicationName("Drive Privacy Guardian")
     ctx = default_context()
     window = create_window(ctx)
+    if "--background" in args and window.tray is not None and window.tray.isVisible():
+        # Started at login for scheduled scans (D-099): wait in the menu bar, no window.
+        window.tray.showMessage(
+            "개인정보 보안관", f"예약 검사 대기 중 · {window.schedule().summary_ko()}"
+        )
+        return app.exec()
     window.show()
     if not ctx.manager.status().logged_in:
         window.run_setup()

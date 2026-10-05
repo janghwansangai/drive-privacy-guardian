@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import os
 import sys
 from dataclasses import dataclass, field
@@ -38,6 +39,28 @@ class Env:
     ctx: AppContext | None = None
 
 
+class FakeAutostart:
+    """Never touches the real login items of the machine running the tests."""
+
+    def __init__(self) -> None:
+        self.on = False
+        self.fail: Exception | None = None
+
+    def supported(self) -> bool:
+        return True
+
+    def is_enabled(self) -> bool:
+        return self.on
+
+    def enable(self) -> None:
+        if self.fail is not None:
+            raise self.fail
+        self.on = True
+
+    def disable(self) -> None:
+        self.on = False
+
+
 @pytest.fixture
 def env() -> Env:
     e = Env(FakeGoogle(email=ME), MemorySecretStore(), FakeDrive(me=ME))
@@ -55,6 +78,7 @@ def env() -> Env:
         notify=lambda _p, title, text, *a: e.notices.append((title, text)),
         confirm=lambda *a: True,
         prefs=Prefs(),
+        autostart=FakeAutostart(),
     )
     return e
 
@@ -769,3 +793,157 @@ def test_duration_wording() -> None:
     assert mw._duration_ko(59 * 60) == "59분"
     assert mw._duration_ko(3 * 3600 + 20 * 60) == "3시간 20분"
     assert mw._duration_ko(3 * 86400 + 3600) == "3일 1시간"
+
+
+# --- scheduled scans (D-099) ------------------------------------------------------------------
+
+
+def _scheduled_window(env: Env, moment: dt.datetime, **kw: Any) -> MainWindow:
+    from dpg.core.schedule import Schedule
+
+    assert env.ctx is not None
+    env.ctx.prefs.schedule = Schedule(enabled=True, start="22:00", end="06:00", **kw).to_json()
+    window = MainWindow(env.ctx)
+    window.now = lambda: moment
+    return window
+
+
+def test_schedule_dialog_saves_and_turns_on_the_login_item(qtbot: Any, env: Env) -> None:
+    from dpg.gui.schedule_ui import ScheduleDialog
+
+    assert env.ctx is not None
+    dialog = ScheduleDialog(env.ctx, now=dt.datetime(2026, 10, 5, 9, 0))
+    qtbot.addWidget(dialog)
+    dialog.enabled.setChecked(True)
+    for i, box in enumerate(dialog.days):
+        box.setChecked(i < 5)
+    dialog.detect.setChecked(True)
+    dialog.autostart.setChecked(True)
+    assert "다음 예약: 오늘 22:00" in dialog.preview.text()
+    dialog._save()
+    saved = env.ctx.prefs.schedule
+    assert saved["enabled"]
+    assert saved["days"] == [0, 1, 2, 3, 4]
+    assert saved["detect"]
+    assert env.ctx.autostart.on
+
+
+def test_schedule_dialog_reports_a_login_item_it_cannot_make(qtbot: Any, env: Env) -> None:
+    from dpg.gui.autostart import AutostartError
+    from dpg.gui.schedule_ui import ScheduleDialog
+
+    assert env.ctx is not None
+    env.ctx.autostart.fail = AutostartError("앱이 임시 위치에서 실행 중입니다.")
+    dialog = ScheduleDialog(env.ctx)
+    qtbot.addWidget(dialog)
+    dialog.enabled.setChecked(True)
+    dialog.autostart.setChecked(True)
+    dialog._save()
+    assert env.notices[-1] == ("자동으로 켜기", "앱이 임시 위치에서 실행 중입니다.")
+    assert not env.ctx.prefs.schedule.get("enabled")  # nothing saved: the user can fix it
+
+
+def test_scheduled_scan_runs_once_per_window(qtbot: Any, env: Env) -> None:
+    assert env.ctx is not None
+    _login(env)
+    _populate(env.fake)
+    window = _scheduled_window(env, dt.datetime(2026, 10, 5, 23, 0))
+    qtbot.addWidget(window)
+    window._schedule_tick()
+    assert window.task is not None
+    assert window._sched_run
+    qtbot.waitUntil(lambda: window.task is None, timeout=15000)
+    assert window._sched_done_for == dt.datetime(2026, 10, 5, 22, 0)
+    assert "예약 검사 완료" in window.progress_label.text()
+    assert "링크 공개 2" in window.progress_label.text()
+    window._schedule_tick()
+    assert window.task is None  # already done for tonight
+    window.now = lambda: dt.datetime(2026, 10, 6, 22, 30)  # the next night
+    window._schedule_tick()
+    assert window.task is not None
+    qtbot.waitUntil(lambda: window.task is None, timeout=15000)
+
+
+def test_scheduled_scan_stops_when_its_window_ends(qtbot: Any, env: Env) -> None:
+    from dpg.core.audit.runner import AuditCancelled
+
+    assert env.ctx is not None
+    _login(env)
+    window = _scheduled_window(env, dt.datetime(2026, 10, 6, 6, 1))
+    qtbot.addWidget(window)
+    window.task = object()  # type: ignore[assignment]  # a scheduled scan still running
+    window._sched_run = True
+    window._schedule_tick()
+    assert window.cancel_event.is_set()
+    window._on_failed(AuditCancelled())
+    assert "다음 예약 때 그 자리부터 이어서" in window.progress_label.text()
+    window.task = None
+
+
+def test_scheduled_scan_without_login_only_tells(qtbot: Any, env: Env) -> None:
+    assert env.ctx is not None
+    window = _scheduled_window(env, dt.datetime(2026, 10, 5, 23, 0))
+    qtbot.addWidget(window)
+    window._schedule_tick()
+    assert window.task is None
+    assert "로그인되어 있지 않아" in window.progress_label.text()
+    assert env.notices == []  # no dialog popping up in the middle of the night
+
+
+def test_scheduled_detection_without_permission_is_skipped_and_said(qtbot: Any, env: Env) -> None:
+    assert env.ctx is not None
+    _login(env)  # audit permission only
+    _populate(env.fake)
+    window = _scheduled_window(env, dt.datetime(2026, 10, 5, 23, 0), detect=True)
+    qtbot.addWidget(window)
+    window._schedule_tick()
+    qtbot.waitUntil(lambda: window.task is None, timeout=15000)
+    assert window.detections is None
+    assert "개인정보는 권한이 없어 건너뜀" in window.progress_label.text()
+
+
+def test_tray_keeps_the_app_running_when_the_window_closes(
+    qtbot: Any, env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The menu-bar icon path (offscreen has no tray, so pretend there is one)."""
+    from PySide6.QtGui import QCloseEvent
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    monkeypatch.setattr(QSystemTrayIcon, "isSystemTrayAvailable", staticmethod(lambda: True))
+    assert env.ctx is not None
+    _login(env)
+    window = _scheduled_window(env, dt.datetime(2026, 10, 5, 9, 0))
+    qtbot.addWidget(window)
+    assert window.tray is not None
+    assert window.tray.isVisible()
+    assert "매일 22:00~06:00" in window.tray.toolTip()
+    assert not window.tray.icon().isNull()
+    window.show()
+    event = QCloseEvent()
+    window.closeEvent(event)
+    assert not event.isAccepted()  # hidden, still running for the schedule
+    assert not window.isVisible()
+    window.show_window()
+    assert window.isVisible()
+    window._quitting = True
+    event = QCloseEvent()
+    window.closeEvent(event)
+    assert event.isAccepted()
+    assert not window.tray.isVisible()
+
+
+def test_no_schedule_means_no_tray_and_a_normal_close(
+    qtbot: Any, env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PySide6.QtGui import QCloseEvent
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    monkeypatch.setattr(QSystemTrayIcon, "isSystemTrayAvailable", staticmethod(lambda: True))
+    assert env.ctx is not None
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    assert window.tray is not None
+    assert not window.tray.isVisible()
+    event = QCloseEvent()
+    window.closeEvent(event)
+    assert event.isAccepted()

@@ -17,6 +17,8 @@ from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from dpg.core.auth import AuthManager
 from dpg.core.paths import app_data_dir, ensure_private_dir
+from dpg.core.schedule import Schedule
+from dpg.gui import autostart as autostart_mod
 
 
 @dataclass
@@ -30,6 +32,7 @@ class Prefs:
     live_refresh: bool = True  # Phase 7: check Drive's change list every minute while open
     checklist_done: list[str] = field(default_factory=list)  # SPEC 6.7 ticked items
     recovery_fingerprint: str = ""  # non-secret id of the recovery key (D-074)
+    schedule: dict[str, Any] = field(default_factory=dict)  # dpg.core.schedule.Schedule (D-099)
 
     @staticmethod
     def path() -> Path:
@@ -49,6 +52,7 @@ class Prefs:
             live_refresh=bool(data.get("live_refresh", True)),
             checklist_done=[str(k) for k in data.get("checklist_done", [])][:200],
             recovery_fingerprint=str(data.get("recovery_fingerprint", ""))[:16],
+            schedule=Schedule.from_json(data.get("schedule")).to_json(),
         )
 
     def save(self) -> None:
@@ -91,6 +95,7 @@ class AppContext:
     notify: Callable[..., None] = _notify
     confirm: Callable[..., bool] = _confirm
     show_dialog: Callable[[QDialog], object] = lambda dialog: dialog.exec()
+    autostart: Any = autostart_mod  # login item for scheduled scans; tests inject a fake
     prefs: Prefs = field(default_factory=Prefs.load)
 
     _manager: AuthManager | None = None
