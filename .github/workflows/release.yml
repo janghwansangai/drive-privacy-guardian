@@ -41,11 +41,36 @@ jobs:
         run: uv run pytest -q
       - name: License check (no GPL/AGPL at runtime)
         run: uv run python tools/check_licenses.py
+      - name: macOS signing identity (self-signed, D-100; skipped without the secret)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          P12: ${{ secrets.MACOS_SIGN_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_SIGN_P12_PASSWORD }}
+        run: |
+          if [ -z "$P12" ]; then echo "no signing secret: ad-hoc signature as before"; exit 0; fi
+          kc="$RUNNER_TEMP/sign.keychain-db"
+          kcpw=$(openssl rand -hex 16)
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/sign.p12"
+          security create-keychain -p "$kcpw" "$kc"
+          security set-keychain-settings -lut 3600 "$kc"
+          security unlock-keychain -p "$kcpw" "$kc"
+          security import "$RUNNER_TEMP/sign.p12" -k "$kc" -P "$P12_PASSWORD" -T /usr/bin/codesign >/dev/null
+          rm -f "$RUNNER_TEMP/sign.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kcpw" "$kc" >/dev/null
+          id=$(security find-identity -p codesigning "$kc" | awk '/\)/{print $2; exit}')
+          test -n "$id" || { echo "signing identity not found"; exit 1; }
+          echo "DPG_CODESIGN_IDENTITY=$id" >> "$GITHUB_ENV"
+          echo "DPG_CODESIGN_KEYCHAIN=$kc" >> "$GITHUB_ENV"
       - name: Build + self-test of the built app + package + checksums
         env:
           QT_QPA_PLATFORM: offscreen
           PYTHONUTF8: "1"
         run: uv run --group build python tools/build.py
+      - name: Remove the signing keychain
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: security delete-keychain "$RUNNER_TEMP/sign.keychain-db" 2>/dev/null || true
       - name: Name the checksum file per platform
         shell: bash
         run: mv dist/SHA256SUMS.txt "dist/SHA256SUMS-${{ matrix.label }}.txt"

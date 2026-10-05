@@ -98,6 +98,26 @@ def built_executable() -> Path:
     return DIST / APP / APP
 
 
+def codesign_app() -> None:
+    """macOS: sign the bundle with the project's self-signed identity when CI provides one
+    (D-100). The same certificate on every release lets the keychain recognise an update as
+    the same app, so it stops asking for the login password after each update. Without it
+    the app keeps PyInstaller's ad-hoc signature, as before."""
+    import os
+
+    identity = os.environ.get("DPG_CODESIGN_IDENTITY")
+    if sys.platform != "darwin" or not identity:
+        return
+    app = DIST / f"{APP}.app"
+    cmd = ["codesign", "--force", "--deep", "--sign", identity]
+    keychain = os.environ.get("DPG_CODESIGN_KEYCHAIN")
+    if keychain:
+        cmd += ["--keychain", keychain]
+    run([*cmd, str(app)])
+    run(["codesign", "--verify", "--deep", "--strict", str(app)])
+    run(["codesign", "-d", "-r-", str(app)])  # prints the designated requirement (for the log)
+
+
 def selftest(skip_keychain: bool) -> None:
     report = BUILD / "selftest.txt"
     cmd = [str(built_executable()), "--selftest", f"--selftest-out={report}"]
@@ -161,6 +181,7 @@ def main() -> int:
     skip_keychain = "--no-keychain" in sys.argv  # CI runners may lack an unlocked keychain
     third_party_licenses()
     pyinstaller()
+    codesign_app()
     selftest(skip_keychain)
     files = package()
     sums = checksums(files)

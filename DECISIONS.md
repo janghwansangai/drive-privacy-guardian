@@ -436,6 +436,9 @@ macOS는 기본 내장 `/usr/bin/caffeinate -i -w <앱 pid>`(셸 없이 고정 �
 - 로그인 시 자동 실행(사용자 계정 범위, 관리자 권한 없음): macOS `~/Library/LaunchAgents/kr.privacy-guardian.background.plist`(RunAtLoad, `--background`), Windows `HKCU\…\Run` 값 「개인정보 보안관」. 설치된 앱만 허용 — 개발 실행, 디스크 이미지(`/Volumes/`), macOS 앱 이동 보호(App Translocation, 임시 경로)에서는 거부하고 「응용 프로그램」으로 옮기라고 안내. 「모든 기록 삭제」는 예약과 자동 실행도 끈다. 잠든 컴퓨터 깨우기(pmset 등)는 관리자 권한·시스템 설정 변경이라 하지 않음.
 - 자가 진단에 메인 창 모듈과 아이콘 그리기를 추가해 배포본에서 확인.
 
+**D-100 macOS 앱 자체 서명 (2026-10-05, 사용자 결정 "1번 무료 자체 서명")**
+배포본은 애플 유료 서명이 없어 PyInstaller의 임시(ad-hoc) 서명이고, 빌드마다 식별값(cdhash)이 바뀌어 키체인이 업데이트를 다른 앱으로 보고 항목마다 로그인 비밀번호를 물었다(사용자 실사용에서 확인). 자체 서명 인증서(CN "Privacy Guardian Self-Signed", 코드 서명 용도, 10년, 개인정보 없음)로 매 릴리스를 서명하면 지정 요건이 `identifier "io.github.drive-privacy-guardian" and certificate leaf = H"…"`로 고정되어 다음 업데이트부터 묻지 않는다(로컬 임시 키체인에서 신뢰하지 않은 인증서로도 `codesign --deep` 서명·`--verify --strict` 통과 확인). 비밀 열쇠(.p12)와 비밀번호는 GitHub Actions 비밀값(`MACOS_SIGN_P12`, `MACOS_SIGN_P12_PASSWORD`)에만 두고, CI가 임시 키체인에 넣어 서명한 뒤 지운다. 비밀값이 없으면(포크 등) 예전처럼 임시 서명. Gatekeeper의 "확인되지 않은 개발자" 경고는 그대로(공증은 유료). 열쇠를 잃으면 새 인증서로 바꾸고 그 업데이트에서 한 번 더 묻는다. 번들 식별자는 바꾸지 않는다.
+
 ---
 
 ## H. SPEC 11장 검증 기록
