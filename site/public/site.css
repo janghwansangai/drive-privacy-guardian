@@ -103,3 +103,8 @@ th{color:var(--muted);font-weight:600;font-size:14px}
 .setupCta b{display:block;color:#fff;font-size:18px;margin-bottom:4px}
 .setupCta em{display:inline-block;font-style:normal;color:var(--gold);font-weight:700;margin-top:8px}
 @media (max-width:820px){.split{grid-template-columns:1fr}ol.big>li{padding:64px 16px 18px}ol.big>li::before{top:16px;left:16px}}
+.extra{background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px;margin-top:28px}
+.extra h2{text-align:left;font-size:20px;margin:0 0 6px}
+.lead2{color:var(--muted);margin:0 0 16px}
+.extra .grid3 .card{background:var(--ground)}
+.extra .card .ic{background:var(--ink);color:var(--gold);font-weight:700;font-size:16px}
