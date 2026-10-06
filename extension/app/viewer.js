@@ -104,9 +104,17 @@ label($("restoreBtn"), "unlock", "풀기 (드라이브에)");
 label($("reencBtn"), "lock", "고친 파일로 다시 암호화");
 /** ⛶: this view over the Drive tab, full screen (like the file preview). */
 async function showBig(opts) {
-  if (driveTabId === null) { message("드라이브 탭 옆에서 쓸 수 있습니다."); return; }
-  try { await chrome.tabs.sendMessage(driveTabId, { type: "showOverlay", ...opts }); }
-  catch { message("드라이브 탭을 새로고침(F5, Mac은 ⌘R)한 뒤 다시 눌러 주세요."); }
+  const status = $(opts.view === "pii" ? "piiProgress" : "auditStatus"); // visible in that view
+  if (driveTabId !== null) {
+    try { await chrome.tabs.sendMessage(driveTabId, { type: "showOverlay", ...opts }); status.textContent = ""; return; }
+    catch { /* the Drive tab still has the watcher of an earlier version: open a tab instead */ }
+  }
+  const q = new URLSearchParams({ view: opts.view });
+  if (opts.ids?.length) q.set("ids", opts.ids.join(","));
+  await chrome.tabs.create({ url: chrome.runtime.getURL(`viewer.html?${q}`) });
+  status.textContent = driveTabId !== null
+    ? "새 탭으로 크게 열었습니다. 드라이브 탭을 새로고침(F5, Mac은 ⌘R)하면 다음부터 드라이브 위에 열립니다."
+    : "새 탭으로 크게 열었습니다.";
 }
 $("settingsBtn").onclick = () => setView("settings");
 $("helpBtn").onclick = () => setView("help");
@@ -497,7 +505,8 @@ async function openOverlayView(view) {
     if (driveSel.length) runPii();
   }
 }
-if (OVERLAY && ["audit", "pii"].includes(params.get("view"))) openOverlayView(params.get("view")).catch((e) => message(e.message));
+const START_VIEW = ["audit", "pii"].includes(params.get("view")) ? params.get("view") : null; // overlay or a new tab
+if (START_VIEW) openOverlayView(START_VIEW).catch((e) => message(e.message));
 else if (OVERLAY) openOverlayFile().catch((e) => message(e.message));
 // A sign-in from another view of this extension (same browser session) is used right away.
 else drive.restore().then((ok) => { if (ok) { setSignedIn(true); refresh(); } }).catch(() => {});
@@ -602,7 +611,7 @@ $("bigBtn").onclick = async () => {
 
 // Narrow side panel: show either the list or the open file (body.focus), with "← 목록" to go back.
 const focusTargets = ["unlock", "opened", "reenc"].map($);
-setView(OVERLAY && ["audit", "pii"].includes(params.get("view")) ? params.get("view") : "vault");
+setView(START_VIEW || "vault");
 const updateFocus = () => {
   const on = focusTargets.some((e) => !e.hidden);
   if (document.body.classList.contains("focus") === on) return; // setting `hidden` again would re-trigger

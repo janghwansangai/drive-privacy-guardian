@@ -94,6 +94,7 @@ globalThis.chrome = {
   tabs: {
     getCurrent: async () => (new URLSearchParams(location.search).get("mode") === "tab" ? { id: 1 } : undefined),
     query: async () => [{ id: 2, active: true, windowId: 1, url: window.harnessDriveUrl }],
+    create: async (o) => { (window.harnessCreated ||= []).push(o.url); return { id: 9 }; },
     onActivated: { addListener: () => {} },
     onUpdated: { addListener: (fn) => { window.harnessTabListeners.push(fn); } },
     sendMessage: async (_id, m) => { window.harnessPings = (window.harnessPings || 0) + 1; if (!window.harnessWatcher) throw new Error("no receiver"); window.harnessFromDrive({ type: "driveStatus", items: 12, selected: 0, found: 0 }); },
@@ -101,6 +102,7 @@ globalThis.chrome = {
   windows: { getCurrent: async () => ({ id: 1 }) },
   runtime: {
     id: "harness-ext",
+    getURL: (path) => new URL(`../../${path}`, location.href).href,
     sendMessage: async (m) => { window.harnessMessages.push(m); return null; },
     onMessage: { addListener: (fn) => { window.harnessMsgListeners.push(fn); } },
   },
