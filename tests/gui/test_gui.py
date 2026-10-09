@@ -993,3 +993,74 @@ def test_personal_data_check_of_chosen_files_only(
     window.detect_btn.click()  # again: nothing is downloaded twice
     qtbot.waitUntil(lambda: window.task is None, timeout=15000)
     assert env.fake.call_count("files.get_media") == gets + 1
+
+
+def test_open_chosen_files_in_drive(qtbot: Any, env: Env) -> None:
+    assert env.ctx is not None
+    _login(env)
+    ids = _populate(env.fake)
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    _audit(qtbot, window)
+    window.model.checked = {ids["link"], ids["ext"]}
+    window._update_actions()
+    assert window.open_btn.isEnabled()
+    window.open_btn.click()
+    assert f"https://drive.google.com/open?id={ids['link']}".split("?")[0] in env.opened
+    assert env.opened.count("https://drive.google.com/open") == 2
+
+
+def test_inherited_link_offers_the_parent_folder(qtbot: Any, env: Env) -> None:
+    from dpg.core.actions.model import ActionKind
+    from dpg.core.actions.planner import build_plan
+    from dpg.gui.actions_ui import ActionDialog
+
+    assert env.ctx is not None
+    _login(env)
+    folder = env.fake.add_folder("공개 폴더")
+    env.fake.share(folder, "anyone", "reader")
+    child = env.fake.add_file("계약서.docx", parent=folder)
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    _audit(qtbot, window)
+    assert window.result is not None
+    items = [a for a in window.result.items if a.file_id == child]
+    names = {a.file_id: a.name for a in window.result.items}
+
+    def build(kind: ActionKind) -> Any:
+        return build_plan(
+            kind, items, account=ME, internal_domains=(), all_items=window.result.items
+        )  # type: ignore[union-attr]
+
+    dialog = ActionDialog(build, names, ActionKind.REMOVE_LINK, False)
+    qtbot.addWidget(dialog)
+    assert not dialog.plan.changes
+    assert dialog.plan.skipped[0].folder_id == folder
+    assert "공개 폴더" in dialog.folder_btn.text()
+    dialog.folder_btn.click()
+    assert dialog.go_to_folders == [folder]
+
+
+def test_change_dialog_moves_on_to_the_parent_folder(qtbot: Any, env: Env) -> None:
+    assert env.ctx is not None
+    _login(env)
+    env.ctx.manager.login(AccessLevel.MODIFY)
+    folder = env.fake.add_folder("공개 폴더")
+    env.fake.share(folder, "anyone", "reader")
+    child = env.fake.add_file("계약서.docx", parent=folder)
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    _audit(qtbot, window)
+    shown: list[list[str]] = []
+
+    def show(dialog: Any) -> bool:
+        shown.append([s.file_id for s in dialog.plan.skipped] + dialog.plan.file_ids)
+        if len(shown) == 1:
+            dialog.folder_btn.click()  # "상위 폴더에서 바꾸기"
+        return False
+
+    env.ctx.show_dialog = show
+    window.model.checked = {child}
+    window.change_selected()
+    assert len(shown) == 2
+    assert shown[1] == [folder]  # the second preview is for the folder itself

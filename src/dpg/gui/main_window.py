@@ -9,6 +9,7 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
@@ -165,6 +166,17 @@ def _duration_ko(seconds: float) -> str:
     return f"{hours // 24}일 {hours % 24}시간"
 
 
+OPEN_MAX = 10
+
+
+def drive_link(a: FileAudit) -> str:
+    """The item's own page in Google Drive (opened in the user's browser, never fetched here)."""
+    fid = quote(a.file_id, safe="")
+    if a.is_folder:
+        return f"https://drive.google.com/drive/folders/{fid}"
+    return f"https://drive.google.com/open?id={fid}"
+
+
 SCOPE_CHOICES = [
     ("mine", "내 소유 파일"),
     ("public", "링크로 공개된 내 파일만 (빠름)"),
@@ -244,7 +256,13 @@ ABOUT_TEXT = (
 class ReviewDialog(QDialog):
     """Masked, in-memory preview of where personal data was found (never stored)."""
 
-    def __init__(self, name: str, lines: list[Any], parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        lines: list[Any],
+        parent: QWidget | None = None,
+        open_drive: Any = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"검토 — {name}")
         self.resize(760, 480)
@@ -265,6 +283,10 @@ class ReviewDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.button(QDialogButtonBox.StandardButton.Close).setText("닫기")
         buttons.rejected.connect(self.reject)
+        if open_drive is not None:
+            go = buttons.addButton("↗ 드라이브에서 열기", QDialogButtonBox.ButtonRole.ActionRole)
+            go.setToolTip("원본 파일을 브라우저의 구글 드라이브에서 열어 직접 확인합니다")
+            go.clicked.connect(open_drive)
         layout = QVBoxLayout(self)
         layout.addWidget(info)
         if not lines:
@@ -858,6 +880,11 @@ class MainWindow(QMainWindow):
             "걸러 본 파일). 이미 검사한 파일은 다시 읽지 않고, 중단해도 이어서 합니다."
         )
         self.detect_btn.clicked.connect(self.detect_selected)
+        self.open_btn = QPushButton("↗ 드라이브에서 열기")
+        self.open_btn.setToolTip(
+            "고른 파일을 브라우저의 구글 드라이브에서 엽니다 (직접 열어 확인). 한 번에 10개까지"
+        )
+        self.open_btn.clicked.connect(self.open_selected_in_drive)
         self.review_btn = QPushButton("🔍 내용 확인")
         self.review_btn.setToolTip(
             "파일 1개를 다시 읽어 개인정보 위치를 가린 채로 보여 줍니다 (저장 안 함)"
@@ -877,6 +904,7 @@ class MainWindow(QMainWindow):
             self.archive_btn,
             self.move_btn,
             self.detect_btn,
+            self.open_btn,
             self.review_btn,
             self.exclude_btn,
             self.unpack_btn,
@@ -1649,6 +1677,20 @@ class MainWindow(QMainWindow):
         items = self.selected_items()
         return items[0] if len(items) == 1 else (items[0] if items else None)
 
+    def open_selected_in_drive(self) -> None:
+        """Open the chosen files in the browser's Google Drive to look at them directly."""
+        items = self.selected_items() if self.result is not None else []
+        if not items:
+            return
+        if len(items) > OPEN_MAX:
+            self.ctx.notify(
+                self,
+                "드라이브에서 열기",
+                f"한 번에 {OPEN_MAX}개까지 엽니다. 앞의 {OPEN_MAX}개를 엽니다.",
+            )
+        for a in items[:OPEN_MAX]:
+            self.ctx.open_url(drive_link(a))
+
     def detect_selected(self) -> None:
         """Personal-data check of the chosen files only (e.g. the link-public ones)."""
         items = self.selected_items() if self.result is not None else []
@@ -1728,7 +1770,9 @@ class MainWindow(QMainWindow):
     def _show_review(self, item: FileAudit, lines: object) -> None:
         if not isinstance(lines, list):
             return
-        dialog = ReviewDialog(item.name, lines, self)
+        dialog = ReviewDialog(
+            item.name, lines, self, open_drive=lambda: self.ctx.open_url(drive_link(item))
+        )
         self.ctx.show_dialog(dialog)
 
     def _all_excluded(self, items: list[FileAudit]) -> bool:
@@ -1911,6 +1955,7 @@ class MainWindow(QMainWindow):
         for b in (self.change_btn, self.archive_btn, self.move_btn):
             b.setEnabled(has)
         self.detect_btn.setEnabled(has and self.task is None)
+        self.open_btn.setEnabled(has)
         detected = self.detections is not None
         self.review_btn.setEnabled(has and n == 1 and detected)
         self.exclude_btn.setEnabled(has and detected)
@@ -1937,8 +1982,8 @@ class MainWindow(QMainWindow):
             return False
         return self.run_setup(AccessLevel.MODIFY)
 
-    def change_selected(self) -> None:
-        items = self.selected_items()
+    def change_selected(self, items: list[FileAudit] | None = None) -> None:
+        items = items if items is not None else self.selected_items()
         if not items or self.result is None:
             self.ctx.notify(self, "권한 변경", "표에서 바꿀 파일을 먼저 선택해 주세요.")
             return
@@ -1965,6 +2010,18 @@ class MainWindow(QMainWindow):
 
         dialog = ActionDialog(build, names, default, self.ctx.prefs.dry_run_mode, self)
         if not self.ctx.show_dialog(dialog):
+            if dialog.go_to_folders:  # the link comes from a parent folder: change it there
+                by_id = {a.file_id: a for a in all_items}
+                folders = [by_id[f] for f in dialog.go_to_folders if f in by_id]
+                if folders:
+                    self.change_selected(folders)
+                else:
+                    self.ctx.notify(
+                        self,
+                        "권한 변경",
+                        "상위 폴더가 이번 검사 범위 밖에 있습니다. 「내 소유 파일」로 검사한 뒤 "
+                        "다시 해 주세요.",
+                    )
             return
         self.run_plan(dialog.plan, dry_run=dialog.dry_run.isChecked(), names=names)
 

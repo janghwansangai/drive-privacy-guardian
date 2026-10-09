@@ -182,6 +182,7 @@ def _plan_permissions(
                     a.file_id,
                     f"{_who(p)} 권한은 {where}에서 온 것이라 여기서 바꾸지 않음 "
                     f"(상위 폴더에서 변경하세요)",
+                    (p.inherited_from or a.parent_id) if where == "상위 폴더" else None,
                 )
             )
             continue

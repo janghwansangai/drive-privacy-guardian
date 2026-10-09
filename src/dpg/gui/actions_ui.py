@@ -66,6 +66,9 @@ class ActionDialog(QDialog):
         self.build = build
         self.names = names
         self.plan: Plan = build(default)
+        self.go_to_folders: list[str] = []  # set when the user chooses to change the parents
+        self.folder_btn = QPushButton("")
+        self.folder_btn.clicked.connect(self._choose_folders)
         self.kind = QComboBox()
         # Grouped like Google's share dialog: 일반 액세스 / 액세스 권한이 있는 사용자 / 설정 ⚙
         model = self.kind.model()
@@ -109,6 +112,7 @@ class ActionDialog(QDialog):
         layout.addWidget(self.hint)
         layout.addWidget(self.summary)
         layout.addLayout(self.preview_box, 1)
+        layout.addWidget(self.folder_btn)
         layout.addWidget(self.dry_run)
         layout.addWidget(self.confirm)
         layout.addWidget(self.buttons)
@@ -157,12 +161,37 @@ class ActionDialog(QDialog):
         rows = [[self.names.get(c.file_id, c.file_id), c.description] for c in plan.changes]
         self.preview_box.addWidget(QLabel("변경될 내용"))
         self.preview_box.addWidget(_table(["파일", "변경 전 → 후"], rows), 3)
+        folders = list(dict.fromkeys(s.folder_id for s in plan.skipped if s.folder_id))
+        self.folder_btn.setVisible(bool(folders))
+        if folders:
+            first = self.names.get(folders[0], "상위 폴더")
+            more = f" 외 {len(folders) - 1}개" if len(folders) > 1 else ""
+            self.folder_btn.setText(
+                f"📁 상위 폴더 「{first}」{more}에서 바꾸기 (폴더 안 모든 항목에 적용됨)"
+            )
         if plan.skipped:
-            skipped = [[self.names.get(s.file_id, s.file_id), s.reason] for s in plan.skipped]
+            skipped = [
+                [
+                    self.names.get(s.file_id, s.file_id),
+                    s.reason
+                    + (
+                        f" — 상위 폴더: {self.names[s.folder_id]}"
+                        if s.folder_id in self.names
+                        else ""
+                    ),
+                ]
+                for s in plan.skipped
+            ]
             self.preview_box.addWidget(QLabel(f"제외된 항목 {len(skipped):,}개 (바꾸지 않음)"))
             self.preview_box.addWidget(_table(["파일", "이유"], skipped), 2)
         self.confirm.setVisible(self.needs_phrase and not self.dry_run.isChecked())
         self._update_buttons()
+
+    def _choose_folders(self) -> None:
+        self.go_to_folders = list(
+            dict.fromkeys(s.folder_id for s in self.plan.skipped if s.folder_id)
+        )
+        self.reject()
 
     def _update_buttons(self) -> None:
         ok = self.buttons.button(QDialogButtonBox.StandardButton.Ok)

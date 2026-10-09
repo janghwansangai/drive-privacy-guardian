@@ -146,9 +146,15 @@ def package() -> list[Path]:
         outputs.append(zip_path)
         dmg = DIST / f"{base}-macOS-{arch}.dmg"
         dmg.unlink(missing_ok=True)
+        # The disk image shows the app next to an "Applications" shortcut: drag one onto the other.
+        stage = BUILD / "dmg"
+        shutil.rmtree(stage, ignore_errors=True)
+        stage.mkdir(parents=True)
+        run(["ditto", str(app), str(stage / app.name)])  # keeps the signature
+        (stage / "Applications").symlink_to("/Applications")
         run(
             [
-                "hdiutil", "create", "-volname", APP, "-srcfolder", str(app),
+                "hdiutil", "create", "-volname", APP, "-srcfolder", str(stage),
                 "-ov", "-format", "UDZO", str(dmg),
             ]
         )  # fmt: skip

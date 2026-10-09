@@ -121,6 +121,7 @@ class Change:
 class Skip:
     file_id: str
     reason: str  # Korean
+    folder_id: str | None = None  # the parent folder the permission comes from (change it there)
 
 
 @dataclass
