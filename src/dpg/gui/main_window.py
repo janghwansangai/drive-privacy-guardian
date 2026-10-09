@@ -1193,9 +1193,10 @@ class MainWindow(QMainWindow):
             return
         if self.task is not None:
             return
-        if len(self.result.items) > LIVE_MAX_ITEMS:
+        total = max(self.result.total_items, len(self.result.items))
+        if total > LIVE_MAX_ITEMS:
             self.live_label.setText(
-                f"🔄 자동 반영 쉼 — 파일이 많아({len(self.result.items):,}개) 자동으로 확인하지 "
+                f"🔄 자동 반영 쉼 — 파일이 많아({total:,}개) 자동으로 확인하지 "
                 "않습니다. 필요할 때 「검사 시작」"
             )
             return
@@ -1371,7 +1372,7 @@ class MainWindow(QMainWindow):
         self._sched_retry_at = None
         self.sched_awake.stop()
         c = self._last_counts
-        parts = [f"{result.scope.label_ko} {len(result.items):,}개"]
+        parts = [f"{result.scope.label_ko} {max(result.total_items, len(result.items)):,}개"]
         parts.append(f"긴급·높음 {c['urgent']:,}")
         parts.append(f"링크 공개 {c['link']:,}")
         parts.append(f"외부 공유 {c['external']:,}")
@@ -1508,9 +1509,8 @@ class MainWindow(QMainWindow):
             )
         else:
             note = " (중단된 감사를 이어서 완료)" if result.resumed else ""
-            self.progress_label.setText(
-                f"✓ 감사 완료: {result.scope.label_ko} {len(result.items):,}개{note}"
-            )
+            total = max(result.total_items, len(result.items))
+            self.progress_label.setText(f"✓ 감사 완료: {result.scope.label_ko} {total:,}개{note}")
         self._auto_run = False
         notices = []
         if detections is not None:
@@ -1529,6 +1529,14 @@ class MainWindow(QMainWindow):
             notices.append(
                 "'확인 필요' 항목은 공유 설정을 확인할 권한이 없는 파일입니다. "
                 "안전하다는 뜻이 아니므로 소유자에게 확인해 주세요."
+            )
+        if result.trimmed:
+            notices.append(
+                f"파일이 아주 많아(전체 {result.total_items:,}개) 메모리를 아끼려고 "
+                "목록에는 공유되었거나 확인이 필요한 항목과 그 상위 폴더 "
+                f"{len(result.items):,}개만 보여 줍니다. "
+                "나머지는 공유되지 않은(제한됨) 파일입니다."
+                + (" 개인정보 찾기도 이 항목들만 했습니다." if detections is not None else "")
             )
         if result.incomplete_search:
             notices.append(

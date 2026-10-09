@@ -101,3 +101,24 @@ test("folder scope: folder by folder, with the folder being read", async () => {
   assert.deepEqual(run.files.map((f) => f.name).sort(), ["메모.txt", "명단.xlsx", "하위"]);
   assert.equal(where(run), "폴더 「학급자료」 전체");
 });
+
+test("the saved state keeps only what the audit needs, with the same verdicts", async () => {
+  const { buildAudit } = await import("../lib/audit.js");
+  const { internalDomains } = await import("../lib/sharing.js");
+  const me = "teacher@school.example";
+  const full = {
+    id: "share0000001", name: "명단.xlsx", mimeType: "x", shared: true, parents: ["p000000000001"], modifiedTime: "2026-01-01", webViewLink: "https://…", size: "1234",
+    permissions: [
+      { id: "o", type: "user", role: "owner", emailAddress: me, displayName: "선생님", photoLink: "https://…" },
+      { id: "x", type: "user", role: "writer", emailAddress: "parent@gmail.com", displayName: "학부모", permissionDetails: [{ inherited: true, permissionType: "file" }] },
+      { id: "a", type: "anyone", role: "reader", allowFileDiscovery: false },
+    ],
+  };
+  const { compact } = await import("../lib/auditrun.js");
+  const c = compact(full);
+  assert.ok(JSON.stringify(c).length < JSON.stringify(full).length * 0.75);
+  assert.equal(c.photoLink, undefined);
+  const internal = internalDomains(me);
+  const strip = (items) => items.map((it) => ({ e: it.exposure, v: it.views.map((v) => [v.id, v.type, v.role, v.email, v.inherited, v.external]) }));
+  assert.deepEqual(strip(buildAudit([c], me, internal)), strip(buildAudit([full], me, internal)));
+});

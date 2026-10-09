@@ -14,7 +14,7 @@ import { parseDriveUrl } from "./lib/driveurl.js";
 import { restoreToDrive, RestoreFailed } from "./lib/restore.js";
 import * as sharing from "./lib/sharing.js";
 import { buildAudit, summary as auditSummary } from "./lib/audit.js";
-import { newRun, step as auditStep, where as auditWhere } from "./lib/auditrun.js";
+import { newRun, step as auditStep, where as auditWhere, compact as compactFile } from "./lib/auditrun.js";
 import { scanFile } from "./lib/scan.js";
 import { KIND_LABEL, CONFIDENCE_LABEL } from "./lib/detect.js";
 
@@ -1026,8 +1026,16 @@ $("auditStop").onclick = () => { if (audit) audit.stopping = true; };
 
 // D-101: the check goes page by page; after every page its state is kept in session memory
 // (chrome.storage.session: cleared when the browser closes) so it can go on where it stopped.
-async function saveAuditRun() {
-  try { await chrome.storage.session?.set({ auditRun: audit.run }); } catch { /* too big for session memory: this panel keeps it */ }
+let auditSavedAt = 0;
+async function saveAuditRun(force = true) {
+  if (!force && Date.now() - auditSavedAt < 2000) return; // a big drive: not every page (D-102)
+  auditSavedAt = Date.now();
+  try {
+    await chrome.storage.session?.set({ auditRun: audit.run });
+    audit.unsaved = false;
+  } catch { // over the 10 MB of session memory: the check goes on, only "go on later" is lost
+    audit.unsaved = true;
+  }
 }
 let auditFolder = null; // { id, name } of the folder open in the Drive tab
 async function updateAuditScope(loc) {
@@ -1056,7 +1064,8 @@ function showAuditRun() {
   w.textContent = audit.live ? `지금 보는 곳: ${auditWhere(run)}`
     : run.status === "done" ? `점검한 곳: ${auditWhere(run)} · ${time} 완료`
     : `멈춘 곳: ${auditWhere(run)} (${time}) — 지금까지 찾은 결과입니다. 「이어서 점검」을 누르면 여기부터 계속합니다.`;
-  $("auditProgress").textContent = `파일 ${run.seen.toLocaleString()}개 확인 · 공유된 것 ${run.files.length.toLocaleString()}개`;
+  $("auditProgress").textContent = `파일 ${run.seen.toLocaleString()}개 확인 · 공유된 것 ${run.files.length.toLocaleString()}개`
+    + (audit.unsaved ? " · 공유 항목이 너무 많아 「이어서」 기억은 못 함 — 이 패널을 닫지 마세요" : "");
   $("auditResume").hidden = audit.live || run.status === "done";
   label($("auditStart"), "refresh", run.status === "done" || audit.live ? "다시 점검" : "처음부터");
 }
@@ -1078,10 +1087,11 @@ async function runAudit(fresh) {
   busy = true;
   try {
     showAuditRun();
+    let drawnAt = 0;
     while (audit.run.status !== "done" && !audit.stopping) {
       await auditStep(audit.run, drive.auditPage);
-      await saveAuditRun();
-      showAuditRun();
+      await saveAuditRun(false);
+      if (Date.now() - drawnAt > 700) { showAuditRun(); drawnAt = Date.now(); } // not every page
     }
     if (audit.run.status !== "done") audit.run.status = "stopped";
   } catch (e) {
@@ -1111,7 +1121,9 @@ chrome.storage.session?.get("auditRun").then(({ auditRun } = {}) => {
 
 async function reloadAuditItems(ids) {
   const fresh = (await Promise.all([...ids].map((id) => drive.refreshShared(id).catch(() => null)))).filter(Boolean);
-  audit.raw = [...audit.raw.filter((f) => !ids.has(f.id)), ...fresh];
+  // the saved check follows the change too (a file no longer shared drops out)
+  audit.raw = [...audit.raw.filter((f) => !ids.has(f.id)), ...fresh.filter((f) => f.shared).map(compactFile)];
+  if (audit.run) { audit.run.files = audit.raw; await saveAuditRun(); }
   audit.items = buildAudit(audit.raw, audit.me, audit.internal);
   drawAudit();
 }

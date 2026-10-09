@@ -443,3 +443,42 @@ def test_public_scope_lists_only_link_shared_files(
     for private in ("private", "external", "internal", "domain", "child"):
         assert ids[private] not in items
     assert all(a.exposure >= Exposure.LINK_VIEW for a in items.values())
+
+
+def test_big_result_keeps_what_needs_attention(
+    store: AuditStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-102: past TRIM_ITEMS the result holds shared/unknown items + the folders above them."""
+    fake = _big_drive(30, 100)  # 3,030 items: 30 link-shared files, 3 folders shared with guests
+    full = run(fake, store, "mine")
+    monkeypatch.setattr(runner_mod, "TRIM_ITEMS", 1000)
+    other = AuditStore(store.path.with_name("trim.db"), ColumnCipher(os.urandom(32)))
+    try:
+        result = AuditRunner(DriveClient(fake.service()), other, account=ME).run(
+            AuditScope.parse("mine")
+        )
+    finally:
+        other.close()
+    assert result.trimmed
+    assert result.total_items == len(full) == 3030
+    kept = {a.file_id: a for a in result.items}
+    attention = {
+        k for k, a in full.items() if a.exposure is None or a.exposure > Exposure.RESTRICTED
+    }
+    assert attention <= kept.keys()
+    for fid, a in kept.items():
+        assert a == full[fid]  # same verdict as the full result
+        if fid not in attention:
+            assert a.is_folder  # only folders above shared items are added
+    assert len(kept) < len(full) / 5  # only the shared ones and their folders
+
+
+def test_small_result_is_not_trimmed(
+    my_drive: tuple[FakeDrive, dict[str, str]], store: AuditStore
+) -> None:
+    fake, _ids = my_drive
+    result = AuditRunner(DriveClient(fake.service()), store, account=ME).run(
+        AuditScope.parse("mine")
+    )
+    assert not result.trimmed
+    assert result.total_items == len(result.items)

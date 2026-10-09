@@ -30,7 +30,7 @@ from dpg.core.audit.analyze import (
     permission_view,
 )
 from dpg.core.audit.model import Exposure, FileAudit, ItemStatus, Origin, PermissionView
-from dpg.core.drive.client import FOLDER_MIME, DriveClient, DriveHttpError
+from dpg.core.drive.client import FOLDER_MIME, VAULT_NAME_RE, DriveClient, DriveHttpError
 from dpg.core.logging import get_logger
 from dpg.core.store.audit_store import AuditStore, ItemRow
 
@@ -38,6 +38,7 @@ log = get_logger("audit")
 
 PERM_BATCH = 50
 SPLIT_ITEMS = 10_000  # past this many items, list in createdTime windows (see _windows)
+TRIM_ITEMS = 200_000  # past this many items the result keeps only what needs attention (D-102)
 WINDOWS_FROM = 2012  # one window for everything older, then half-years up to now
 
 
@@ -133,6 +134,8 @@ class AuditResult:
     content_changed: set[str] = field(default_factory=set)  # need re-detection
     unchanged: bool = False  # nothing changed: `items` is empty, keep what is on screen
     changes_token: str | None = None  # where the next incremental audit starts
+    total_items: int = 0  # every item checked (more than len(items) when trimmed)
+    trimmed: bool = False  # big drive: `items` holds only what needs attention (D-102)
 
 
 def _escape(value: str) -> str:
@@ -156,6 +159,7 @@ class AuditRunner:
         self.internal = internal_domains_for(account, internal_domains)
         self.on_progress = on_progress
         self.cancel = cancel
+        self._analysis: tuple[int, bool] = (0, False)  # (items checked, trimmed) of the last run
 
     # -- helpers --------------------------------------------------------------------------------
 
@@ -247,6 +251,7 @@ class AuditRunner:
         self.store.delete_scans_before(scope.key, scan_id)
         result = AuditResult(scan_id, scope, items, resumed, bool(cp.get("incomplete")))
         result.counts = summarize(items)
+        result.total_items, result.trimmed = self._analysis
         result.changes_token = cp.get("changes_token")
         log.info("scan %s done items=%s", scan_id, len(items))
         return result
@@ -298,7 +303,7 @@ class AuditRunner:
         cp.update(phase="perms", changes_token=new_token, incremental_from=prev.scan_id)
         scan_id = self.store.copy_scan(prev.scan_id, scope.key, cp)
         # Shared-drive membership is re-read every time (one request per drive).
-        roots = [r.file_id for r in self.store.iter_items(scan_id) if r.kind == "drive_root"]
+        roots = [t.file_id for t in self.store.tree(scan_id) if t.kind == "drive_root"]
         self.store.delete_items(scan_id, roots)
         try:
             changed, content = self._apply_changes(scan_id, scope, changes)
@@ -319,6 +324,7 @@ class AuditRunner:
         self.store.delete_scans_before(scope.key, scan_id)
         result = AuditResult(scan_id, scope, items, False, bool(cp.get("incomplete")))
         result.counts = summarize(items)
+        result.total_items, result.trimmed = self._analysis
         result.incremental, result.changed, result.content_changed = True, changed, content
         result.changes_token = new_token
         log.info("incremental scan %s changes=%s items=%s", scan_id, len(changed), len(items))
@@ -334,7 +340,14 @@ class AuditRunner:
     def _apply_changes(
         self, scan_id: int, scope: AuditScope, changes: list[dict[str, Any]]
     ) -> tuple[set[str], set[str]]:
-        rows = {r.file_id: r for r in self.store.iter_items(scan_id) if r.kind == "item"}
+        # Only the tree (plaintext parent links) for everything; full rows only for what changed.
+        parent_of = {t.file_id: t.parent_id for t in self.store.tree(scan_id) if t.kind == "item"}
+        changed_ids = {str(ch.get("fileId")) for ch in changes}
+        old_rows = {
+            r.file_id: r
+            for r in self.store.get_items(scan_id, changed_ids & parent_of.keys())
+            if r.kind == "item"
+        }
         removed: set[str] = set()
         upserts: dict[str, ItemRow] = {}
         refresh_below: set[str] = set()  # folders whose sharing / place changed
@@ -348,22 +361,23 @@ class AuditRunner:
                 or meta.get("trashed")
                 or not self._in_scope(scope, meta)
             ):
-                if fid in rows or fid in upserts:
+                if fid in parent_of or fid in upserts:
                     removed.add(fid)
                     upserts.pop(fid, None)
-                    if fid in rows and rows[fid].meta.get("mimeType") == FOLDER_MIME:
-                        removed |= self._descendants(fid, rows)
+                    old = old_rows.get(fid)
+                    if old is not None and old.meta.get("mimeType") == FOLDER_MIME:
+                        removed |= self._descendants(fid, parent_of)
                 continue
             row = self._row_for(meta)
-            old = rows.get(fid)
+            old = old_rows.get(fid)
             if old is None or old.meta.get("modifiedTime") != meta.get("modifiedTime"):
                 content.add(fid)
             if meta.get("mimeType") == FOLDER_MIME and old is not None and _sharing_moved(old, row):
                 refresh_below.add(fid)
             removed.discard(fid)
             upserts[fid] = row
-        merged = {k: v for k, v in rows.items() if k not in removed}
-        merged.update(upserts)
+        merged = {k: v for k, v in parent_of.items() if k not in removed}
+        merged.update({k: r.parent_id for k, r in upserts.items()})
         # Children of a folder whose sharing or location changed are not in the change list:
         # re-read them so inherited permissions are current.
         refreshed: list[ItemRow] = []
@@ -385,11 +399,11 @@ class AuditRunner:
                     merged.pop(child, None)
                     continue
                 row = self._row_for(meta)
-                merged[child] = row
+                merged[child] = row.parent_id
                 refreshed.append(row)
         if scope.kind == "folder" and scope.target is not None:
             outside = {fid for fid in merged if not _under(fid, scope.target, merged)}
-            removed |= outside & set(rows)
+            removed |= outside & parent_of.keys()
             for fid in outside:
                 merged.pop(fid, None)
                 upserts.pop(fid, None)
@@ -401,11 +415,11 @@ class AuditRunner:
         return changed, content & set(merged)
 
     @staticmethod
-    def _descendants(folder: str, rows: dict[str, ItemRow]) -> set[str]:
+    def _descendants(folder: str, parent_of: dict[str, str | None]) -> set[str]:
         children: dict[str, list[str]] = {}
-        for fid, r in rows.items():
-            if r.parent_id:
-                children.setdefault(r.parent_id, []).append(fid)
+        for fid, parent in parent_of.items():
+            if parent:
+                children.setdefault(parent, []).append(fid)
         out: set[str] = set()
         stack = [folder]
         while stack:
@@ -554,12 +568,15 @@ class AuditRunner:
                     break
 
     def _phase_perms(self, scan_id: int) -> None:
-        rows = list(self.store.iter_items(scan_id))
-        pending = [r for r in rows if r.perm_source == "pending"]
-        have_roots = {r.file_id for r in rows if r.kind == "drive_root"}
-        needed_roots = sorted(
-            {r.drive_id for r in rows if r.kind == "item" and r.drive_id} - have_roots
+        tree = self.store.tree(scan_id)  # plaintext columns: no need to decrypt every item
+        pending = self.store.get_items(
+            scan_id, [t.file_id for t in tree if t.perm_source == "pending"]
         )
+        have_roots = {t.file_id for t in tree if t.kind == "drive_root"}
+        needed_roots = sorted(
+            {t.drive_id for t in tree if t.kind == "item" and t.drive_id} - have_roots
+        )
+        del tree
         total = len(pending) + len(needed_roots)
         done = 0
         batch: list[ItemRow] = []
@@ -603,15 +620,41 @@ class AuditRunner:
     # -- analysis -------------------------------------------------------------------------------
 
     def _phase_analyze(self, scan_id: int, cp: dict[str, Any]) -> list[FileAudit]:
+        """Classify every item, a batch at a time (D-102). Only the rows children inherit from
+        (their parent folders, shared-drive roots) are kept in memory, so a million-item drive
+        needs memory for its folders, not for every file. Past TRIM_ITEMS the result keeps only
+        what needs attention (shared / unknown / encrypted archives) and the folders above it."""
         self._progress(phase="analyze")
-        rows = list(self.store.iter_items(scan_id))
-        by_id = {r.file_id: r for r in rows if r.kind == "item"}
-        roots = {r.file_id: r for r in rows if r.kind == "drive_root"}
         public: dict[str, str] = cp.get("public", {})
         root_id = cp.get("root_id")
+        tree = self.store.tree(scan_id)
+        parent_of = {t.file_id: t.parent_id for t in tree if t.kind == "item"}
+        wanted = {p for p in parent_of.values() if p is not None} & parent_of.keys()
+        wanted |= {t.file_id for t in tree if t.kind == "drive_root"}
+        del tree
+        loaded = self.store.get_items(scan_id, wanted)
+        roots = {r.file_id: r for r in loaded if r.kind == "drive_root"}
+        parents = {r.file_id: r for r in loaded if r.kind == "item"}
+        del loaded
         memo: dict[str, list[PermissionView] | None] = {}
 
-        def views(fid: str, depth: int = 0) -> list[PermissionView] | None:
+        def own_views(r: ItemRow, depth: int) -> list[PermissionView] | None:
+            if r.perm_source in ("inline", "listed") and r.perms is not None:
+                result = []
+                for p in r.perms:
+                    origin, source = origin_from_details(p)
+                    result.append(permission_view(p, origin, source))
+                return result
+            if r.perm_source == "derived" and r.parent_id is not None:
+                parent = parent_views(r.parent_id, depth + 1)
+                if parent is not None:
+                    inherited = [_inherit(p, r.parent_id) for p in parent]
+                    if r.meta.get("inheritedPermissionsDisabled"):
+                        inherited = [_limit(p) for p in inherited]
+                    return inherited
+            return None
+
+        def parent_views(fid: str, depth: int = 0) -> list[PermissionView] | None:
             if fid in memo:
                 return memo[fid]
             memo[fid] = None  # cycle guard
@@ -620,67 +663,84 @@ class AuditRunner:
                 r = roots[fid]
                 if r.perms is not None:
                     result = [permission_view(p, Origin.INHERITED, fid) for p in r.perms]
-            elif fid in by_id and depth < 200:
-                r = by_id[fid]
-                if r.perm_source in ("inline", "listed") and r.perms is not None:
-                    result = []
-                    for p in r.perms:
-                        origin, source = origin_from_details(p)
-                        result.append(permission_view(p, origin, source))
-                elif r.perm_source == "derived" and r.parent_id is not None:
-                    parent = views(r.parent_id, depth + 1)
-                    if parent is not None:
-                        result = [_inherit(p, r.parent_id) for p in parent]
-                        if r.meta.get("inheritedPermissionsDisabled"):
-                            result = [_limit(p) for p in result]
+            elif fid in parents and depth < 200:
+                result = own_views(parents[fid], depth)
             memo[fid] = result
             return result
 
+        trim = len(parent_of) > TRIM_ITEMS
         audits: list[FileAudit] = []
-        for fid, r in by_id.items():
-            perms = views(fid)
-            if perms is not None and r.drive_id is None:
-                parent_ids: set[str] | None = None
-                if r.parent_id is not None and r.parent_id == root_id:
-                    parent_ids = set()
-                elif r.parent_id is not None:
-                    parent = views(r.parent_id)
-                    if parent is not None:
-                        parent_ids = {p.perm_id for p in parent if p.role != "owner"}
-                perms = infer_my_drive_origins(perms, parent_ids)
-            if perms is not None:
-                status = ItemStatus.OK
-            elif r.perm_source == "error":
-                status = ItemStatus.FAILED
-            else:
-                status = ItemStatus.INSUFFICIENT
-            audit = classify(
-                fid,
-                r.meta,
-                perms,
-                account=self.account,
-                internal=self.internal,
-                public_hint=public.get(fid),
-                status=status,
-                error_code=r.error_code,
-            )
-            if r.perm_source == "derived" and perms is None:
-                audit.notes.append("상위 폴더 또는 공유 드라이브 권한을 확인하지 못함")
-            audits.append(audit)
-        self.store.update_results(
-            scan_id,
-            [
-                (
-                    a.file_id,
-                    a.status.value,
-                    int(a.exposure) if a.exposure is not None else None,
-                    a.risk_score,
-                    a.error_code,
+        folder_audits: dict[str, FileAudit] = {}  # trimmed: candidates for the "위치" column
+        for batch in self.store.item_batches(scan_id):
+            self._check_cancel()
+            results: list[tuple[str, str, int | None, int | None, str | None]] = []
+            for r in batch:
+                if r.kind != "item":
+                    continue
+                fid = r.file_id
+                perms = parent_views(fid) if fid in parents else own_views(r, 0)
+                if perms is not None and r.drive_id is None:
+                    parent_ids: set[str] | None = None
+                    if r.parent_id is not None and r.parent_id == root_id:
+                        parent_ids = set()
+                    elif r.parent_id is not None:
+                        parent = parent_views(r.parent_id)
+                        if parent is not None:
+                            parent_ids = {p.perm_id for p in parent if p.role != "owner"}
+                    perms = infer_my_drive_origins(perms, parent_ids)
+                if perms is not None:
+                    status = ItemStatus.OK
+                elif r.perm_source == "error":
+                    status = ItemStatus.FAILED
+                else:
+                    status = ItemStatus.INSUFFICIENT
+                audit = classify(
+                    fid,
+                    r.meta,
+                    perms,
+                    account=self.account,
+                    internal=self.internal,
+                    public_hint=public.get(fid),
+                    status=status,
+                    error_code=r.error_code,
                 )
-                for a in audits
-            ],
-        )
+                if r.perm_source == "derived" and perms is None:
+                    audit.notes.append("상위 폴더 또는 공유 드라이브 권한을 확인하지 못함")
+                results.append(
+                    (
+                        audit.file_id,
+                        audit.status.value,
+                        int(audit.exposure) if audit.exposure is not None else None,
+                        audit.risk_score,
+                        audit.error_code,
+                    )
+                )
+                if not trim or _needs_attention(audit):
+                    audits.append(audit)
+                elif fid in parents:
+                    folder_audits[fid] = audit
+            self.store.update_results(scan_id, results)
+        if trim:
+            above: set[str] = set()
+            for a in audits:
+                cur, seen = a.parent_id, 0
+                while cur in folder_audits and cur not in above and seen < 200:
+                    above.add(cur)
+                    cur, seen = parent_of.get(cur), seen + 1
+            audits.extend(folder_audits[f] for f in folder_audits if f in above)
+            log.info("big scan: %s of %s items kept in the result", len(audits), len(parent_of))
+        self._analysis = (len(parent_of), trim)
         return audits
+
+
+def _needs_attention(a: FileAudit) -> bool:
+    """What a trimmed result keeps: anything shared, unknown, or an encrypted archive."""
+    return (
+        a.exposure is None
+        or a.exposure > Exposure.RESTRICTED
+        or a.status is not ItemStatus.OK
+        or bool(VAULT_NAME_RE.match(a.name or ""))
+    )
 
 
 def _sharing_moved(old: ItemRow, new: ItemRow) -> bool:
@@ -701,15 +761,14 @@ def _sharing_moved(old: ItemRow, new: ItemRow) -> bool:
     return key(old) != key(new)
 
 
-def _under(fid: str, target: str, rows: dict[str, ItemRow]) -> bool:
+def _under(fid: str, target: str, parent_of: dict[str, str | None]) -> bool:
     seen: set[str] = set()
     cur: str | None = fid
     while cur is not None and cur not in seen:
         if cur == target:
             return True
         seen.add(cur)
-        row = rows.get(cur)
-        cur = row.parent_id if row is not None else None
+        cur = parent_of.get(cur)
     return False
 
 

@@ -137,6 +137,17 @@ class ItemRow:
     error_code: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class TreeRow:
+    """An item's plaintext columns (no names, no e-mails): enough to walk the folder tree."""
+
+    file_id: str
+    kind: str
+    parent_id: str | None
+    perm_source: str
+    drive_id: str | None
+
+
 def db_path_for(account: str) -> Path:
     return app_data_dir() / "data" / f"{account_key_id(account)}.db"
 
@@ -238,7 +249,8 @@ class AuditStore:
         """New scan starting from a finished one (incremental audit). Item secrets are
         re-encrypted because the scan id is part of their AAD; detections are copied as is."""
         new = self.new_scan(scope, checkpoint)
-        self.save_items(new, list(self.iter_items(src)))
+        for batch in self.item_batches(src):  # a batch at a time: a big drive never sits in memory
+            self.save_items(new, batch)
         self._db.execute(
             "INSERT INTO detections(scan_id, file_id, status, reason, error_code, summary,"
             " scanned_at) SELECT ?, file_id, status, reason, error_code, summary, scanned_at"
@@ -339,13 +351,54 @@ class AuditStore:
             self._db.execute("ROLLBACK")
             raise
 
+    def tree(self, scan_id: int) -> list[TreeRow]:
+        """The plaintext columns only (no decryption): the shape of the drive, cheap even for a
+        million items."""
+        return [
+            TreeRow(*row)
+            for row in self._db.execute(
+                "SELECT file_id, kind, parent_id, perm_source, drive_id FROM items"
+                " WHERE scan_id = ? ORDER BY rowid",
+                (scan_id,),
+            )
+        ]
+
+    def get_items(self, scan_id: int, file_ids: Iterable[str]) -> list[ItemRow]:
+        ids = sorted(set(file_ids))
+        out: list[ItemRow] = []
+        for i in range(0, len(ids), 500):
+            chunk = ids[i : i + 500]
+            marks = ",".join("?" * len(chunk))  # placeholders only: values are bound
+            sql = (
+                "SELECT file_id, kind, drive_id, parent_id, perm_source, status, exposure, risk,"  # noqa: S608 — "?" placeholders only
+                " error_code, secret FROM items WHERE scan_id = ? AND file_id IN (" + marks + ")"
+            )
+            cur = self._db.execute(sql, (scan_id, *chunk))
+            out.extend(self._decode(scan_id, cur.fetchall()))
+        return out
+
+    def item_batches(self, scan_id: int, size: int = 5000) -> Iterator[list[ItemRow]]:
+        """All items, `size` at a time. Each batch is read completely before it is handed out,
+        so the caller may write to the store between batches."""
+        last = 0
+        while True:
+            rows = self._db.execute(
+                "SELECT file_id, kind, drive_id, parent_id, perm_source, status, exposure, risk,"
+                " error_code, secret, rowid FROM items WHERE scan_id = ? AND rowid > ?"
+                " ORDER BY rowid LIMIT ?",
+                (scan_id, last, size),
+            ).fetchall()
+            if not rows:
+                return
+            last = rows[-1][10]
+            yield list(self._decode(scan_id, [r[:10] for r in rows]))
+
     def iter_items(self, scan_id: int) -> Iterator[ItemRow]:
-        cur = self._db.execute(
-            "SELECT file_id, kind, drive_id, parent_id, perm_source, status, exposure, risk,"
-            " error_code, secret FROM items WHERE scan_id = ? ORDER BY rowid",
-            (scan_id,),
-        )
-        for row in cur:
+        for batch in self.item_batches(scan_id):
+            yield from batch
+
+    def _decode(self, scan_id: int, rows: Iterable[Any]) -> Iterator[ItemRow]:
+        for row in rows:
             try:
                 data = self._cipher.decrypt(row[9], self._aad(scan_id, row[0]))
             except DecryptError:

@@ -51,12 +51,32 @@ export function where(run) {
   return "내 드라이브 전체";
 }
 
+// Only what the audit reads (lib/audit.js, lib/sharing.js): the saved state stays small enough
+// for session memory (10 MB) with thousands of shared items.
+export function compact(f) {
+  return {
+    id: f.id, name: f.name, mimeType: f.mimeType, shared: true,
+    ...(f.parents?.length ? { parents: [f.parents[0]] } : {}),
+    permissions: (f.permissions || []).map((p) => {
+      const c = { id: p.id, type: p.type, role: p.role };
+      if (p.emailAddress) c.emailAddress = p.emailAddress;
+      if (p.domain) c.domain = p.domain;
+      if (p.allowFileDiscovery) c.allowFileDiscovery = true;
+      if (p.permissionDetails?.length) c.permissionDetails = [{ inherited: p.permissionDetails.every((d) => d.inherited) }];
+      return c;
+    }),
+  };
+}
+
+const indexes = new WeakMap(); // run → Map(id → position), rebuilt after a reload from JSON
 function keep(run, items) {
-  const at = new Map(run.files.map((f, i) => [f.id, i]));
+  let at = indexes.get(run);
+  if (!at || at.size !== run.files.length) { at = new Map(run.files.map((f, i) => [f.id, i])); indexes.set(run, at); }
   for (const f of items) {
     if (!f.shared) continue; // not shared → nothing to check
-    if (at.has(f.id)) run.files[at.get(f.id)] = f;
-    else { at.set(f.id, run.files.length); run.files.push(f); }
+    const c = compact(f);
+    if (at.has(f.id)) run.files[at.get(f.id)] = c;
+    else { at.set(f.id, run.files.length); run.files.push(c); }
   }
 }
 

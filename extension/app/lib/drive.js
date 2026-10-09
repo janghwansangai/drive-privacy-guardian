@@ -257,7 +257,7 @@ export async function createFolder(name, parent) {
 }
 
 // -- sharing (D-091/D-092): the whole-Drive audit reads permissions and changes them ------------
-const PERM_FIELDS = "id,type,role,emailAddress,domain,allowFileDiscovery,permissionDetails(inherited,permissionType)";
+const PERM_FIELDS = "id,type,role,emailAddress,domain,allowFileDiscovery,permissionDetails(inherited)";
 const idOk = (id) => /^[\w-]+$/.test(id);
 
 export async function myEmail() {
@@ -294,7 +294,7 @@ export async function auditPage({ q, pageToken = "", drive = false }) {
   const url = new URL(API);
   url.search = new URLSearchParams({
     q, pageSize: "1000",
-    fields: `nextPageToken,files(id,name,mimeType,shared,parents,modifiedTime,permissions(${PERM_FIELDS}))`,
+    fields: `nextPageToken,files(id,name,mimeType,shared,parents,permissions(${PERM_FIELDS}))`,
     ...(drive ? { supportsAllDrives: "true", includeItemsFromAllDrives: "true" } : { corpora: "user" }),
     ...(pageToken ? { pageToken } : {}),
   }).toString();
@@ -304,6 +304,6 @@ export async function auditPage({ q, pageToken = "", drive = false }) {
 /** One file again after a change (to refresh the audit list). */
 export async function refreshShared(id) {
   if (!idOk(id)) return null;
-  const url = `${API}/${encodeURIComponent(id)}?supportsAllDrives=true&fields=id,name,mimeType,shared,parents,modifiedTime,permissions(${PERM_FIELDS})`;
+  const url = `${API}/${encodeURIComponent(id)}?supportsAllDrives=true&fields=id,name,mimeType,shared,parents,permissions(${PERM_FIELDS})`;
   return (await authed(url)).json();
 }
