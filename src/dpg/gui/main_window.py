@@ -852,6 +852,12 @@ class MainWindow(QMainWindow):
         self.move_btn = QPushButton("📁 폴더로 옮기기")
         self.move_btn.setToolTip("더 넓게 공유된 폴더로는 옮기지 않습니다")
         self.move_btn.clicked.connect(self.move_selected)
+        self.detect_btn = QPushButton("🔎 개인정보 검사")
+        self.detect_btn.setToolTip(
+            "고른 파일만 내용을 읽어 주민번호·연락처 등을 찾습니다 (예: 「링크 공개」 칸에서 "
+            "걸러 본 파일). 이미 검사한 파일은 다시 읽지 않고, 중단해도 이어서 합니다."
+        )
+        self.detect_btn.clicked.connect(self.detect_selected)
         self.review_btn = QPushButton("🔍 내용 확인")
         self.review_btn.setToolTip(
             "파일 1개를 다시 읽어 개인정보 위치를 가린 채로 보여 줍니다 (저장 안 함)"
@@ -870,6 +876,7 @@ class MainWindow(QMainWindow):
             self.change_btn,
             self.archive_btn,
             self.move_btn,
+            self.detect_btn,
             self.review_btn,
             self.exclude_btn,
             self.unpack_btn,
@@ -1566,6 +1573,7 @@ class MainWindow(QMainWindow):
         self._sched_run = False
         self._sched_stopping = False
         self._set_running(False)
+        self._update_actions()
         self.refresh_account()
         self._after_task()
 
@@ -1640,6 +1648,56 @@ class MainWindow(QMainWindow):
     def selected_item(self) -> FileAudit | None:
         items = self.selected_items()
         return items[0] if len(items) == 1 else (items[0] if items else None)
+
+    def detect_selected(self) -> None:
+        """Personal-data check of the chosen files only (e.g. the link-public ones)."""
+        items = self.selected_items() if self.result is not None else []
+        if not items or self.result is None or self.task is not None:
+            return
+        if not self.ensure_detect_permission():
+            return
+        result = self.result
+        manager, factory, cancel = self.ctx.manager, self.ctx.service_factory, self.cancel_event
+        self.cancel_event.clear()
+        self._set_running(True)
+        self.progress_label.setText(f"고른 파일 {len(items):,}개의 개인정보를 찾는 중…")
+
+        def work(progress: Any) -> Any:
+            account = manager.verify()
+            if account is None:
+                raise NotLoggedIn("계정을 확인하지 못했습니다. 다시 로그인해 주세요.")
+            store = self._open_store(account)
+            try:
+                client = DriveClient(factory(manager))
+                runner = DetectRunner(client, store, on_progress=progress, cancel=cancel)
+                return runner.run(result.scan_id, items)
+            finally:
+                store.close()
+
+        def done(found: object) -> None:
+            if not isinstance(found, dict) or self.result is not result:
+                return
+            self.detections = {**(self.detections or {}), **found}
+            self.model.set_items(result.items, self.detections)
+            self._update_dashboard(result.items)
+            hits = sum(
+                1
+                for a in items
+                if (d := self.detections.get(a.file_id)) is not None
+                and d.status is DetectStatus.DETECTED
+            )
+            self.progress_label.setText(
+                f"✓ 고른 파일 {len(items):,}개 검사 — 개인정보 있음 {hits:,}개 "
+                "(「개인정보 탐지」 칸에서 모아 보기)"
+            )
+            self._update_actions()
+
+        self.task = Task(work)
+        self.task.progress.connect(self._on_progress)
+        self.task.succeeded.connect(done)
+        self.task.failed.connect(self._on_failed)
+        self.task.finished.connect(self._task_finished)
+        self._start(self.task)
 
     def review_selected(self) -> None:
         item = self.selected_item()
@@ -1852,6 +1910,7 @@ class MainWindow(QMainWindow):
         has = self.result is not None and n > 0
         for b in (self.change_btn, self.archive_btn, self.move_btn):
             b.setEnabled(has)
+        self.detect_btn.setEnabled(has and self.task is None)
         detected = self.detections is not None
         self.review_btn.setEnabled(has and n == 1 and detected)
         self.exclude_btn.setEnabled(has and detected)

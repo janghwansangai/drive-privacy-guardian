@@ -947,3 +947,49 @@ def test_no_schedule_means_no_tray_and_a_normal_close(
     event = QCloseEvent()
     window.closeEvent(event)
     assert event.isAccepted()
+
+
+def test_personal_data_check_of_chosen_files_only(
+    qtbot: Any, env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dpg.core.auth.scopes import AccessLevel as Level
+    from dpg.core.policy import DetectStatus
+
+    assert env.ctx is not None
+    _login(env)
+    fixtures = Path(__file__).resolve().parents[1] / "fixtures" / "synthetic"
+    csv_id = env.fake.add_file(
+        "6-2_학생_연락처.csv",
+        mime_type="text/csv",
+        content=(fixtures / "6-2_학생_연락처.csv").read_bytes(),
+    )
+    env.fake.share(csv_id, "anyone", "reader")
+    other = env.fake.add_file("메모.txt", content=b"hello")
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    _audit(qtbot, window)  # sharing only, no detection
+    assert window.detections is None
+    upgrades: list[Level] = []
+
+    def fake_setup(level: Level = Level.AUDIT) -> bool:
+        upgrades.append(level)
+        env.ctx.manager.login(level)  # type: ignore[union-attr]
+        return True
+
+    monkeypatch.setattr(window, "run_setup", fake_setup)
+    window.set_filter("link")
+    window.model.checked = {csv_id}
+    window._update_actions()
+    assert window.detect_btn.isEnabled()
+    gets = env.fake.call_count("files.get_media")
+    window.detect_btn.click()
+    qtbot.waitUntil(lambda: window.task is None, timeout=15000)
+    assert upgrades == [Level.DETECT]
+    assert window.detections is not None
+    assert window.detections[csv_id].status is DetectStatus.DETECTED
+    assert other not in window.detections  # only what was chosen
+    assert env.fake.call_count("files.get_media") == gets + 1
+    assert "개인정보 있음 1개" in window.progress_label.text()
+    window.detect_btn.click()  # again: nothing is downloaded twice
+    qtbot.waitUntil(lambda: window.task is None, timeout=15000)
+    assert env.fake.call_count("files.get_media") == gets + 1

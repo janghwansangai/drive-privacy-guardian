@@ -777,7 +777,8 @@ function updatePiiHint() {
   const first = selFiles.find((f) => driveSel.includes(f.id));
   const folder = first?.mimeType === drive.FOLDER_MIME;
   $("piiIcon").replaceChildren(icon(n === 1 && !folder ? "file" : "folder"));
-  $("piiTarget").textContent = n ? (n === 1 && first ? first.name : `${n}개 선택`)
+  $("piiTarget").textContent = pii?.from === "audit" && (pii.running || !n) ? `공유 점검에서 고른 ${pii.targets.length.toLocaleString()}개`
+    : n ? (n === 1 && first ? first.name : `${n}개 선택`)
     : pii?.files ? `지난 검사 · 파일 ${pii.files.length}개` : "드라이브에서 파일·폴더를 고르세요";
   if (!pii?.results?.length) $("piiHint").textContent = n ? "종류·건수만 보여 줍니다" : "";
   $("piiStart").disabled = !n || !!pii?.running;
@@ -822,8 +823,8 @@ $("piiStart").onclick = () => runPii();
 // Only kinds / counts / positions are kept (never the matched values, D-093).
 async function savePii() {
   if (!pii) return;
-  const { targets, files, results, status } = pii;
-  try { await chrome.storage.session?.set({ piiRun: { targets, files, results, status } }); } catch { /* too big: this panel keeps it */ }
+  const { targets, from, files, results, status } = pii;
+  try { await chrome.storage.session?.set({ piiRun: { targets, from, files, results, status } }); } catch { /* too big: this panel keeps it */ }
 }
 function showPiiResults() {
   $("piiList").replaceChildren(...pii.results.map(drawPiiRow));
@@ -842,8 +843,9 @@ function piiFinished() {
   $("piiEncrypt").hidden = !found.length;
   label($("piiEncrypt"), "lock", `개인정보 파일 ${found.length}개 암호화`);
 }
-async function runPii(resume = false) {
-  if (pii?.running || (!resume && !driveSel.length)) return;
+async function runPii(resume = false, ids = null) {
+  const targets = ids || driveSel; // the Drive selection, or what was ticked in 공유 점검
+  if (pii?.running || (!resume && !targets.length)) return;
   try {
     await drive.requestFullAccess();
     if (resume && pii?.files) {
@@ -852,8 +854,9 @@ async function runPii(resume = false) {
       showPiiResults();
     } else {
       closePii();
-      const chosen = (await Promise.all(driveSel.map((id) => drive.getFile(id).catch(() => null)))).filter((f) => f && !drive.isVaultName(f.name));
-      pii = { targets: [...driveSel], files: null, results: [], status: "running", stopping: false, running: true };
+      const chosen = (await Promise.all(targets.map((id) => drive.getFile(id).catch(() => null)))).filter((f) => f && !drive.isVaultName(f.name));
+      pii = { targets: [...targets], from: ids ? "audit" : "drive", files: null, results: [], status: "running", stopping: false, running: true };
+      if (ids) $("piiTarget").textContent = `공유 점검에서 고른 ${ids.length.toLocaleString()}개`;
       // folders → every file inside (with its path)
       const files = [];
       for (const f of chosen) {
@@ -896,6 +899,13 @@ async function runPii(resume = false) {
   }
 }
 $("piiResume").onclick = () => runPii(true);
+// 공유 점검 → the ticked items only (e.g. the link-public ones) → 개인정보 점검
+$("auditPii").onclick = () => {
+  const ids = audit.items.filter((it) => audit.picked.has(it.file.id)).map((it) => it.file.id).slice(0, PII_MAX_FILES);
+  if (!ids.length) return;
+  setView("pii");
+  runPii(false, ids);
+};
 chrome.storage.session?.get("piiRun").then(({ piiRun } = {}) => {
   if (!piiRun?.files || pii) return;
   pii = { ...piiRun, stopping: false, running: false };
@@ -1001,6 +1011,7 @@ function pickedChanged() {
     ? `바뀌는 권한 ${n}개` + [...reasons].map(([r, c]) => ` · 건너뜀 ${c}개(${r})`).join("") + (n ? " · 알림 메일 없음" : "")
     : "바꿀 항목을 고르세요";
   $("auditGo").disabled = n === 0;
+  $("auditPii").disabled = !picked.length || busy;
 }
 
 $("auditBtn").onclick = () => setView("audit");
