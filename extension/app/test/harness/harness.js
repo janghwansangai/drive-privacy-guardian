@@ -78,6 +78,8 @@ globalThis.chrome = {
     // ?signedin → start with a sign-in already in session storage (as another view would leave it)
     const session = new URLSearchParams(location.search).has("signedin")
       ? { auth: { token: "fake-token", expiry: Date.now() + 3600e3, granted: ["https://www.googleapis.com/auth/drive.file"] } } : {};
+    // a page reload keeps what a test put here (to check "go on after the panel was closed")
+    try { Object.assign(session, JSON.parse(window.sessionStorage.getItem("harnessSession") || "{}")); } catch { /* none */ }
     return { local: area("local", store), session: area("session", session), onChanged: { addListener: (fn) => listeners.push(fn) } };
   })(),
   identity: {
@@ -177,6 +179,7 @@ window.fetch = async (input, init) => {
       if (f.plain) return realFetch(SYN_URL + encodeURIComponent(f.name));
       return realFetch(FIX + encodeURIComponent(f.name));
     }
+    if (window.harnessFailList) { window.harnessFailList = false; return new Response("{}", { status: 503 }); } // a lost connection mid-check
     const parent = /'([\w-]+)' in parents/.exec(url.searchParams.get("q") || "");
     const files = (parent ? FILES.filter((f) => (f.parents || ["root"]).includes(parent[1])) : FILES)
       .map((f) => ({ ...f, shared: (PERMS[f.id] || []).length > 1, permissions: PERMS[f.id] }));

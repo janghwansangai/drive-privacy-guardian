@@ -53,6 +53,7 @@ test("nothing decrypted is persisted; storage holds only what D-088 allows", () 
   const allowed = {
     "lib/drive.js": ["clientId", "auth"], // auth → session storage (memory only)
     "lib/keyring.js": ["vaultWrap", "vaultKey", "lockMinutes"], // vaultWrap is AES-GCM encrypted
+    "viewer.js": ["auditRun", "piiRun"], // D-101: check progress, session memory only
   };
   for (const f of SHIPPED) {
     const s = src(f);
@@ -65,6 +66,10 @@ test("nothing decrypted is persisted; storage holds only what D-088 allows", () 
   assert.match(k, /session\(\)\.set\(\{ vaultKey:/); // the unlocked key only in session memory
   assert.doesNotMatch(k, /local\(\)\.set\(\{ vaultKey/);
   assert.match(src("lib/drive.js"), /chrome\.storage\.session\?\.set\(\{ auth:/);
+  const v = src("viewer.js"); // check progress (names, sharing) never reaches the disk
+  assert.match(v, /chrome\.storage\.session\?\.set\(\{ auditRun:/);
+  assert.match(v, /chrome\.storage\.session\?\.set\(\{ piiRun:/);
+  assert.doesNotMatch(v, /storage\.local[^;]*(auditRun|piiRun)/);
   assert.ok(!manifest.permissions.includes("downloads")); // saving uses a one-off <a download> link
 });
 

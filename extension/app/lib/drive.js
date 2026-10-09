@@ -288,25 +288,17 @@ export async function createPermission(fileId, perm) {
 
 /** Whole-Drive audit (D-092): every file I own, metadata + permissions only (no contents).
  *  onProgress(seen, shared); stop() → true ends early. Returns { files, seen, stopped }. */
-export async function scanMyFiles({ onProgress = () => {}, stop = () => false } = {}) {
-  const files = [];
-  let seen = 0;
-  let pageToken = "";
-  do {
-    if (stop()) return { files, seen, stopped: true };
-    const url = new URL(API);
-    url.search = new URLSearchParams({
-      q: "'me' in owners and trashed = false", corpora: "user", pageSize: "1000",
-      fields: `nextPageToken,files(id,name,mimeType,shared,parents,modifiedTime,permissions(${PERM_FIELDS}))`,
-      ...(pageToken ? { pageToken } : {}),
-    }).toString();
-    const body = await (await authed(url)).json();
-    seen += body.files.length;
-    for (const f of body.files) if (f.shared) files.push(f); // not shared → nothing to check
-    onProgress(seen, files.length);
-    pageToken = body.nextPageToken || "";
-  } while (pageToken);
-  return { files, seen, stopped: false };
+/** One page of the sharing audit (lib/auditrun.js builds the query: owner/window or one folder). */
+export async function auditPage({ q, pageToken = "", drive = false }) {
+  if (typeof q !== "string" || q.length > 300) throw new Error("bad query");
+  const url = new URL(API);
+  url.search = new URLSearchParams({
+    q, pageSize: "1000",
+    fields: `nextPageToken,files(id,name,mimeType,shared,parents,modifiedTime,permissions(${PERM_FIELDS}))`,
+    ...(drive ? { supportsAllDrives: "true", includeItemsFromAllDrives: "true" } : { corpora: "user" }),
+    ...(pageToken ? { pageToken } : {}),
+  }).toString();
+  return (await authed(url)).json();
 }
 
 /** One file again after a change (to refresh the audit list). */

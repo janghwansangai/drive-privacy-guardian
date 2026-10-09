@@ -222,3 +222,9 @@ body.overlay .doc:not(.pdf) { font-size: 15px; padding: 12px 28px; }
 .barGo { flex: none; white-space: nowrap; }
 body.inTab .pageTitle { color: var(--ink); padding-top: 18px; padding-bottom: 10px; }
 body.inTab .tabs, body.inTab .util { color: var(--muted); }
+
+/* D-101: scope and "where the check is" */
+.scopeRow { display: flex; align-items: center; gap: 8px; margin: 10px 0 2px; }
+.scopeRow select { flex: 1; min-width: 0; font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line, #d9ddd6); background: var(--card, #fff); color: inherit; }
+.where { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: rgba(36, 88, 214, .08); font-size: 13px; line-height: 1.45; word-break: break-all; }
+.where.stopped { background: rgba(163, 82, 0, .1); }

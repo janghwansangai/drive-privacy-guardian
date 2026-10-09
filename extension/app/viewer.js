@@ -14,6 +14,7 @@ import { parseDriveUrl } from "./lib/driveurl.js";
 import { restoreToDrive, RestoreFailed } from "./lib/restore.js";
 import * as sharing from "./lib/sharing.js";
 import { buildAudit, summary as auditSummary } from "./lib/audit.js";
+import { newRun, step as auditStep, where as auditWhere } from "./lib/auditrun.js";
 import { scanFile } from "./lib/scan.js";
 import { KIND_LABEL, CONFIDENCE_LABEL } from "./lib/detect.js";
 
@@ -220,6 +221,7 @@ async function followLoc(loc) {
   const same = JSON.stringify(loc) === JSON.stringify(driveLoc);
   if (same) return;
   driveLoc = loc;
+  updateAuditScope(loc).catch(() => {});
   if (!drive.signedIn()) { $("scopeInfo").textContent = loc ? "로그인하면 드라이브에서 열어 둔 폴더의 암호화 파일이 보입니다" : ""; return; }
   if (loc?.file) {
     if (reenc || (selected && selected.id === loc.file)) return;
@@ -281,6 +283,11 @@ $("login").onclick = async () => {
 };
 $("logout").onclick = async () => {
   forget(); drive.signOut(); await keyring.lock();
+  // results of this account's checks (names, e-mails) go too
+  await chrome.storage.session?.remove(["auditRun", "piiRun"]).catch(() => {});
+  audit = null; closePii();
+  for (const id of ["auditListCard", "auditCards", "auditWhere", "auditResume", "auditDo", "piiResume"]) $(id).hidden = true;
+  $("auditTotal").textContent = "–";
   setSignedIn(false); $("files").replaceChildren(); $("unlock").hidden = true;
 };
 $("refresh").onclick = refresh;
@@ -761,6 +768,7 @@ function closePii() {
   $("piiStats").hidden = true;
   $("piiProgressBar").hidden = true;
   $("piiEncrypt").hidden = true;
+  $("piiResume").hidden = true;
   $("piiProgress").textContent = "";
 }
 $("piiStop").onclick = () => { if (pii) pii.stopping = true; };
@@ -769,7 +777,8 @@ function updatePiiHint() {
   const first = selFiles.find((f) => driveSel.includes(f.id));
   const folder = first?.mimeType === drive.FOLDER_MIME;
   $("piiIcon").replaceChildren(icon(n === 1 && !folder ? "file" : "folder"));
-  $("piiTarget").textContent = !n ? "드라이브에서 파일·폴더를 고르세요" : n === 1 && first ? first.name : `${n}개 선택`;
+  $("piiTarget").textContent = n ? (n === 1 && first ? first.name : `${n}개 선택`)
+    : pii?.files ? `지난 검사 · 파일 ${pii.files.length}개` : "드라이브에서 파일·폴더를 고르세요";
   if (!pii?.results?.length) $("piiHint").textContent = n ? "종류·건수만 보여 줍니다" : "";
   $("piiStart").disabled = !n || !!pii?.running;
 }
@@ -809,51 +818,92 @@ function piiStats(results) {
 
 $("selScan").onclick = () => { setView("pii"); runPii(); };
 $("piiStart").onclick = () => runPii();
-async function runPii() {
-  if (!driveSel.length || pii?.running) return;
+// D-101: like the sharing check, kept in session memory after every file so it can go on.
+// Only kinds / counts / positions are kept (never the matched values, D-093).
+async function savePii() {
+  if (!pii) return;
+  const { targets, files, results, status } = pii;
+  try { await chrome.storage.session?.set({ piiRun: { targets, files, results, status } }); } catch { /* too big: this panel keeps it */ }
+}
+function showPiiResults() {
+  $("piiList").replaceChildren(...pii.results.map(drawPiiRow));
+  $("piiListCard").hidden = !pii.results.length;
+  if (pii.results.length) piiStats(pii.results);
+}
+function piiFinished() {
+  const found = pii.results.filter((r) => r.status === "found");
+  const skipped = pii.results.filter((r) => r.status === "unscannable").length;
+  const left = pii.files.length - pii.results.length;
+  $("piiProgress").textContent = "";
+  $("piiHint").textContent = (left > 0 ? `${pii.files.length}개 중 ${pii.results.length}개 검사 · 멈춤 — 「이어서 검사」로 나머지 ${left}개` : `${pii.results.length}개 검사 완료`)
+    + (skipped ? ` · 검사 불가 ${skipped}개는 안전하다는 뜻이 아님` : "");
+  $("piiResume").hidden = left <= 0;
+  label($("piiStart"), "refresh", "다시 검사");
+  $("piiEncrypt").hidden = !found.length;
+  label($("piiEncrypt"), "lock", `개인정보 파일 ${found.length}개 암호화`);
+}
+async function runPii(resume = false) {
+  if (pii?.running || (!resume && !driveSel.length)) return;
   try {
     await drive.requestFullAccess();
-    closePii();
-    const chosen = (await Promise.all(driveSel.map((id) => drive.getFile(id).catch(() => null)))).filter((f) => f && !drive.isVaultName(f.name));
-    pii = { results: [], stopping: false, running: true };
+    if (resume && pii?.files) {
+      pii.running = true;
+      pii.stopping = false;
+      showPiiResults();
+    } else {
+      closePii();
+      const chosen = (await Promise.all(driveSel.map((id) => drive.getFile(id).catch(() => null)))).filter((f) => f && !drive.isVaultName(f.name));
+      pii = { targets: [...driveSel], files: null, results: [], status: "running", stopping: false, running: true };
+      // folders → every file inside (with its path)
+      const files = [];
+      for (const f of chosen) {
+        if (f.mimeType === drive.FOLDER_MIME) {
+          $("piiProgress").textContent = `「${f.name}」 폴더 안을 살펴보는 중…`;
+          const tree = await drive.listFolderTree(f, { files: PII_MAX_FILES, bytes: Infinity });
+          files.push(...tree.files.map((t) => ({ ...t, path: `${f.name}/${t.path}` })));
+        } else files.push(f);
+      }
+      pii.files = files.slice(0, PII_MAX_FILES).map(({ id, name, mimeType, size, path }) => ({ id, name, mimeType, size, path }));
+    }
+    $("piiResume").hidden = true;
     $("piiStop").hidden = false;
     $("piiStart").disabled = true;
     $("piiProgressBar").hidden = false;
-    $("piiBar").style.width = "0%";
-    // folders → every file inside (with its path)
-    const files = [];
-    for (const f of chosen) {
-      if (f.mimeType === drive.FOLDER_MIME) {
-        $("piiProgress").textContent = `「${f.name}」 폴더 안을 살펴보는 중…`;
-        const tree = await drive.listFolderTree(f, { files: PII_MAX_FILES, bytes: Infinity });
-        files.push(...tree.files.map((t) => ({ ...t, path: `${f.name}/${t.path}` })));
-      } else files.push(f);
-    }
     const { pdfTextPages } = await import("./lib/pdf.js");
-    for (const [i, f] of files.slice(0, PII_MAX_FILES).entries()) {
+    const total = pii.files.length;
+    for (let i = pii.results.length; i < total; i++) {
       if (!pii || pii.stopping) break;
-      $("piiProgress").textContent = `검사 중… ${i + 1}/${files.length}`;
-      $("piiBar").style.width = `${Math.round(((i + 1) / Math.min(files.length, PII_MAX_FILES)) * 100)}%`;
+      const f = pii.files[i];
+      $("piiProgress").textContent = `검사 중 ${i + 1}/${total} · ${f.path || f.name}`;
+      $("piiBar").style.width = `${Math.round(((i + 1) / total) * 100)}%`;
       const r = await scanFile(f, { fetch: drive.fetchContent, parseXml, pdfText: pdfTextPages });
       if (!pii) return;
       pii.results.push(r);
       $("piiListCard").hidden = false;
       $("piiList").append(drawPiiRow(r));
       piiStats(pii.results);
+      await savePii();
     }
-    const found = pii.results.filter((r) => r.status === "found");
-    const skipped = pii.results.filter((r) => r.status === "unscannable").length;
-    $("piiProgress").textContent = "";
-    $("piiHint").textContent = `${pii.stopping ? "중지함 · " : ""}${pii.results.length}개 검사 완료${skipped ? ` · 검사 불가 ${skipped}개는 안전하다는 뜻이 아님` : ""}`;
-    label($("piiStart"), "refresh", "다시 검사");
-    $("piiEncrypt").hidden = !found.length;
-    label($("piiEncrypt"), "lock", `개인정보 파일 ${found.length}개 암호화`);
-  } catch (e) { $("piiProgress").textContent = e.message; } finally {
-    if (pii) pii.running = false;
+    pii.status = pii.results.length >= total ? "done" : "stopped";
+    piiFinished();
+  } catch (e) {
+    if (pii?.files) { pii.status = "stopped"; piiFinished(); }
+    $("piiProgress").textContent = `${e.message}${pii?.files ? " — 「이어서 검사」로 멈춘 곳부터 다시 합니다." : ""}`;
+  } finally {
+    if (pii) { pii.running = false; await savePii(); }
     $("piiStop").hidden = true;
     updatePiiHint();
   }
 }
+$("piiResume").onclick = () => runPii(true);
+chrome.storage.session?.get("piiRun").then(({ piiRun } = {}) => {
+  if (!piiRun?.files || pii) return;
+  pii = { ...piiRun, stopping: false, running: false };
+  if (pii.status === "running") pii.status = "stopped"; // its panel went away mid-check
+  $("piiTarget").textContent = pii.targets.length === 1 ? (pii.files[0]?.path?.split("/")[0] || "지난 검사") : `지난 검사 (${pii.targets.length}개 선택)`;
+  showPiiResults();
+  piiFinished();
+}).catch(() => {});
 $("piiEncrypt").onclick = () => {
   const files = pii.results.filter((r) => r.status === "found").map((r) => r.file);
   closePii();
@@ -955,13 +1005,16 @@ function pickedChanged() {
 
 $("auditBtn").onclick = () => setView("audit");
 $("auditBig").onclick = () => showBig({ view: "audit" });
-async function ensureAudit() {
-  await drive.requestFullAccess();
+function auditState(me) {
   if (!audit) {
-    const me = await drive.myEmail().catch(() => "");
-    audit = { me, internal: sharing.internalDomains(me), items: [], raw: [], filter: null, picked: new Set(), shown: PAGE };
+    audit = { me: "", internal: sharing.internalDomains(""), items: [], raw: [], filter: null, picked: new Set(), shown: PAGE, run: null };
     $("auditAction").replaceChildren(...Object.entries(sharing.ACTIONS).map(([k, full]) => Object.assign(document.createElement("option"), { value: k, textContent: ACTION_SHORT[k] || full, title: full })));
   }
+  if (me) { audit.me = me; audit.internal = sharing.internalDomains(me); }
+}
+async function ensureAudit() {
+  await drive.requestFullAccess();
+  auditState(audit?.me ? "" : await drive.myEmail().catch(() => ""));
 }
 $("auditMore").onclick = () => { audit.shown += PAGE; drawAudit(); };
 $("auditAll").onchange = () => {
@@ -970,31 +1023,91 @@ $("auditAll").onchange = () => {
 };
 $("auditAction").onchange = () => audit && pickedChanged();
 $("auditStop").onclick = () => { if (audit) audit.stopping = true; };
-$("auditStart").onclick = async () => {
+
+// D-101: the check goes page by page; after every page its state is kept in session memory
+// (chrome.storage.session: cleared when the browser closes) so it can go on where it stopped.
+async function saveAuditRun() {
+  try { await chrome.storage.session?.set({ auditRun: audit.run }); } catch { /* too big for session memory: this panel keeps it */ }
+}
+let auditFolder = null; // { id, name } of the folder open in the Drive tab
+async function updateAuditScope(loc) {
+  const opt = $("auditScope").querySelector('option[value="folder"]');
+  auditFolder = null;
+  if (loc?.folder && loc.folder !== "root" && drive.signedIn()) {
+    const f = await drive.getFile(loc.folder).catch(() => null);
+    if (f) auditFolder = { id: f.id, name: f.name };
+  }
+  opt.disabled = !auditFolder;
+  opt.textContent = auditFolder ? `폴더 「${auditFolder.name}」 (드라이브에서 연 폴더)` : "드라이브에서 연 폴더 (폴더를 열면 고를 수 있음)";
+  if (!auditFolder && $("auditScope").value === "folder" && !audit?.live) $("auditScope").value = "drive";
+}
+function auditScopeChoice() {
+  return $("auditScope").value === "folder" && auditFolder ? { kind: "folder", ...auditFolder } : { kind: "drive" };
+}
+function showAuditRun() {
+  const run = audit.run;
+  audit.raw = run.files; // every shared file (also parents shared only inside the school, for paths)
+  audit.items = buildAudit(audit.raw, audit.me, audit.internal);
+  drawAudit();
+  const w = $("auditWhere");
+  w.hidden = false;
+  const time = new Date(run.updatedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+  w.classList.toggle("stopped", run.status !== "done" && !audit.live);
+  w.textContent = audit.live ? `지금 보는 곳: ${auditWhere(run)}`
+    : run.status === "done" ? `점검한 곳: ${auditWhere(run)} · ${time} 완료`
+    : `멈춘 곳: ${auditWhere(run)} (${time}) — 지금까지 찾은 결과입니다. 「이어서 점검」을 누르면 여기부터 계속합니다.`;
+  $("auditProgress").textContent = `파일 ${run.seen.toLocaleString()}개 확인 · 공유된 것 ${run.files.length.toLocaleString()}개`;
+  $("auditResume").hidden = audit.live || run.status === "done";
+  label($("auditStart"), "refresh", run.status === "done" || audit.live ? "다시 점검" : "처음부터");
+}
+async function runAudit(fresh) {
   try { await ensureAudit(); } catch (e) { $("auditStatus").textContent = e.message; return; }
-  audit.stopping = false;
-  $("auditStart").disabled = true;
-  $("auditStop").hidden = false;
-  busy = true;
-  try {
-    const r = await drive.scanMyFiles({
-      onProgress: (seen, shared) => { $("auditProgress").textContent = `파일 ${seen.toLocaleString()}개 확인 · 공유된 것 ${shared.toLocaleString()}개`; },
-      stop: () => audit.stopping,
-    });
-    audit.raw = r.files; // every shared file (also parents shared only inside the school, for paths)
-    audit.items = buildAudit(audit.raw, audit.me, audit.internal);
+  if (fresh || !audit.run) {
+    audit.run = newRun(auditScopeChoice());
+    audit.run.me = audit.me;
     audit.picked = new Set();
     audit.filter = null;
     audit.shown = PAGE;
-    $("auditProgress").textContent = `${r.stopped ? "중지함 · " : ""}파일 ${r.seen.toLocaleString()}개 확인 · ${new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`;
-    label($("auditStart"), "refresh", "다시 점검");
-    drawAudit();
-  } catch (e) { $("auditStatus").textContent = e.message; } finally {
-    busy = false;
-    $("auditStart").disabled = false;
-    $("auditStop").hidden = true;
   }
-};
+  audit.stopping = false;
+  audit.live = true;
+  $("auditStart").disabled = true;
+  $("auditScope").disabled = true;
+  $("auditStop").hidden = false;
+  $("auditStatus").textContent = "";
+  busy = true;
+  try {
+    showAuditRun();
+    while (audit.run.status !== "done" && !audit.stopping) {
+      await auditStep(audit.run, drive.auditPage);
+      await saveAuditRun();
+      showAuditRun();
+    }
+    if (audit.run.status !== "done") audit.run.status = "stopped";
+  } catch (e) {
+    audit.run.status = "stopped";
+    $("auditStatus").textContent = `${e.message} — 「이어서 점검」을 누르면 멈춘 곳부터 다시 합니다.`;
+  } finally {
+    await saveAuditRun();
+    busy = false;
+    audit.live = false;
+    $("auditStart").disabled = false;
+    $("auditScope").disabled = false;
+    $("auditStop").hidden = true;
+    showAuditRun();
+  }
+}
+$("auditStart").onclick = () => runAudit(true);
+$("auditResume").onclick = () => runAudit(false);
+// A check stopped earlier in this browser session (panel closed, tab moved, connection lost):
+// show what it found and offer to go on.
+chrome.storage.session?.get("auditRun").then(({ auditRun } = {}) => {
+  if (!auditRun?.scope || audit?.run) return;
+  auditState(auditRun.me || "");
+  audit.run = auditRun;
+  if (auditRun.status === "running") auditRun.status = "stopped"; // its panel went away mid-check
+  showAuditRun();
+}).catch(() => {});
 
 async function reloadAuditItems(ids) {
   const fresh = (await Promise.all([...ids].map((id) => drive.refreshShared(id).catch(() => null)))).filter(Boolean);

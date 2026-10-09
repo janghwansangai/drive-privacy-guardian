@@ -65,10 +65,13 @@
       <div class="heroRow">
         <div class="grow"><div class="cap">밖으로 공유된 항목</div><div class="big" id="auditTotal">–</div></div>
         <button id="auditStart" class="btn outline blue"><svg class="ic"><use href="#i-refresh"/></svg><span>점검 시작</span></button>
+        <button id="auditResume" class="btn primary blue" hidden>이어서 점검</button>
         <button id="auditStop" class="btn ghost" hidden>중지</button>
         <button id="auditBig" class="icon" data-tip="드라이브 위에 크게" aria-label="크게 보기"><svg class="ic"><use href="#i-expand"/></svg></button>
       </div>
-      <p id="auditProgress" class="cap">내 드라이브 전체 · 파일 내용은 읽지 않음</p>
+      <label class="scopeRow cap">범위 <select id="auditScope"><option value="drive">내 드라이브 전체</option><option value="folder" disabled>드라이브에서 연 폴더 (폴더를 열면 고를 수 있음)</option></select></label>
+      <p id="auditWhere" class="where" hidden></p>
+      <p id="auditProgress" class="cap">파일 내용은 읽지 않음</p>
       <div id="auditCards" class="stats" hidden></div>
     </div>
     <div class="card list" id="auditListCard" hidden>
@@ -95,6 +98,7 @@
         <span class="sq amber" id="piiIcon"><svg class="ic"><use href="#i-folder"/></svg></span>
         <div class="grow"><div class="t" id="piiTarget">드라이브에서 파일·폴더를 고르세요</div><div class="cap" id="piiHint"></div></div>
         <button id="piiStart" class="btn outline amber"><svg class="ic"><use href="#i-refresh"/></svg><span>검사</span></button>
+        <button id="piiResume" class="btn primary amber" hidden>이어서 검사</button>
         <button id="piiStop" class="btn ghost" hidden>중지</button>
         <button id="piiBig" class="icon" data-tip="드라이브 위에 크게" aria-label="크게 보기"><svg class="ic"><use href="#i-expand"/></svg></button>
       </div>
