@@ -1,6 +1,6 @@
 [project]
 name = "drive-privacy-guardian"
-version = "0.2.4"
+version = "0.2.5"
 description = "로컬에서만 동작하는 구글 드라이브 공유 권한·개인정보 점검 도구"
 readme = "README.md"
 license = "MIT"
