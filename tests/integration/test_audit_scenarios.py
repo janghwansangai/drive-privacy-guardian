@@ -482,3 +482,41 @@ def test_small_result_is_not_trimmed(
     )
     assert not result.trimmed
     assert result.total_items == len(result.items)
+
+
+def test_folders_above_the_result_give_the_whole_path(store: AuditStore) -> None:
+    """D-103: in 「링크로 공개된 내 파일만」 the folders are not results, yet 「위치」 shows them."""
+    from dpg.gui.results_model import ResultsModel
+
+    fake = FakeDrive(me=ME)
+    top = fake.add_folder("2026학년도")
+    sub = fake.add_folder("6학년 2반", parent=top)
+    doc = fake.add_file("학생 명단.xlsx", parent=sub)
+    fake.share(doc, "anyone", "reader")
+    result = AuditRunner(DriveClient(fake.service()), store, account=ME).run(
+        AuditScope.parse("public")
+    )
+    assert [a.file_id for a in result.items] == [doc]
+    assert result.folders == {sub: ("6학년 2반", top), top: ("2026학년도", fake.root_id)}
+    model = ResultsModel()
+    model.set_items(result.items, None, folders=result.folders)
+    assert model.paths[doc] == "내 드라이브 › 2026학년도 › 6학년 2반"
+    # kept encrypted with the scan, and replaced (not piled up) by the next audit
+    again = AuditRunner(DriveClient(fake.service()), store, account=ME).run(
+        AuditScope.parse("public"), resume=False
+    )
+    assert again.folders == result.folders
+    kinds = [t.kind for t in store.tree(again.scan_id)]
+    assert kinds.count("ancestor") == 2
+
+
+def test_folder_path_stops_where_access_stops(store: AuditStore) -> None:
+    fake = FakeDrive(me=ME)
+    theirs = fake.add_folder("남의 폴더", owner="other@school.example")
+    doc = fake.add_file("공유받은 문서.docx", parent=theirs, owner="other@school.example")
+    fake.share(doc, "user", "reader", email=ME)
+    result = AuditRunner(DriveClient(fake.service()), store, account=ME).run(
+        AuditScope.parse("shared")
+    )
+    assert doc in {a.file_id for a in result.items}
+    assert theirs not in result.folders  # the folder itself is not visible to me

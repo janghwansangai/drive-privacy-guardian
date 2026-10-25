@@ -1516,7 +1516,7 @@ class MainWindow(QMainWindow):
             return
         self.result = result
         self.detections = detections
-        self.model.set_items(result.items, detections)
+        self.model.set_items(result.items, detections, folders=result.folders)
         self._update_dashboard(result.items)
         self.export_btn.setEnabled(bool(result.items))
         self.organize_btn.setEnabled(bool(result.items))
@@ -1525,7 +1525,7 @@ class MainWindow(QMainWindow):
         if detections is None and self._keep_detections is not None:
             detections = self._keep_detections  # permission changes do not change contents
             self.detections = detections
-            self.model.set_items(result.items, detections)
+            self.model.set_items(result.items, detections, folders=result.folders)
             self._update_dashboard(result.items)
         self._keep_detections = None
         self._update_actions()
@@ -1674,12 +1674,25 @@ class MainWindow(QMainWindow):
     # -- review / exclude (Phase 4) ------------------------------------------------------------
 
     def selected_item(self) -> FileAudit | None:
-        items = self.selected_items()
-        return items[0] if len(items) == 1 else (items[0] if items else None)
+        """The one file to look at: what is on screen, never a check left in another view."""
+        items = self.look_targets()
+        return items[0] if len(items) == 1 else None
+
+    def highlighted_items(self) -> list[FileAudit]:
+        rows = self.table.selectionModel().selectedRows()
+        return [self.model.items[self.proxy.mapToSource(r).row()] for r in rows]
+
+    def look_targets(self) -> list[FileAudit]:
+        """For 내용 확인 / 드라이브에서 열기: checked rows shown in this view; otherwise the
+        highlighted rows. Checks hidden in another view (filter) are left out, so the file
+        opened is always one the user can see."""
+        visible = set(self._visible_ids())
+        shown = [a for a in self.model.checked_items() if a.file_id in visible]
+        return shown or self.highlighted_items()
 
     def open_selected_in_drive(self) -> None:
         """Open the chosen files in the browser's Google Drive to look at them directly."""
-        items = self.selected_items() if self.result is not None else []
+        items = self.look_targets() if self.result is not None else []
         if not items:
             return
         if len(items) > OPEN_MAX:
@@ -1945,6 +1958,8 @@ class MainWindow(QMainWindow):
             text = "고른 파일 없음 — 표 왼쪽 체크박스를 누르세요 (맨 위 칸은 모두 고르기)"
         else:
             text = f"✔ 고른 파일 {n:,}개"
+            if n <= 2:
+                text += ": " + ", ".join(a.name for a in items)
             if hidden:
                 text += f"  ⚠ 그중 {hidden:,}개는 다른 보기에서 고른 파일(지금 안 보임)"
             elif not checked:
@@ -1955,9 +1970,10 @@ class MainWindow(QMainWindow):
         for b in (self.change_btn, self.archive_btn, self.move_btn):
             b.setEnabled(has)
         self.detect_btn.setEnabled(has and self.task is None)
-        self.open_btn.setEnabled(has)
         detected = self.detections is not None
-        self.review_btn.setEnabled(has and n == 1 and detected)
+        looks = self.look_targets() if self.result is not None else []
+        self.review_btn.setEnabled(len(looks) == 1 and detected)
+        self.open_btn.setEnabled(bool(looks))
         self.exclude_btn.setEnabled(has and detected)
         self.exclude_btn.setText(
             "↩ 탐지 제외 해제"
@@ -1982,7 +1998,8 @@ class MainWindow(QMainWindow):
             return False
         return self.run_setup(AccessLevel.MODIFY)
 
-    def change_selected(self, items: list[FileAudit] | None = None) -> None:
+    def change_selected(self, *, items: list[FileAudit] | None = None) -> None:
+        # keyword-only: the button's clicked(bool) must never land in `items`
         items = items if items is not None else self.selected_items()
         if not items or self.result is None:
             self.ctx.notify(self, "권한 변경", "표에서 바꿀 파일을 먼저 선택해 주세요.")
@@ -2014,7 +2031,7 @@ class MainWindow(QMainWindow):
                 by_id = {a.file_id: a for a in all_items}
                 folders = [by_id[f] for f in dialog.go_to_folders if f in by_id]
                 if folders:
-                    self.change_selected(folders)
+                    self.change_selected(items=folders)
                 else:
                     self.ctx.notify(
                         self,
@@ -2095,6 +2112,8 @@ class MainWindow(QMainWindow):
     ) -> None:
         if not isinstance(result, RunResult):
             return
+        if not result.dry_run:
+            self.uncheck_all()  # done with these: nothing stays chosen behind other views
         done = result.count(ChangeState.DONE) + result.count(ChangeState.UNDONE)
         self.progress_label.setText(
             "✓ 드라이런 완료" if result.dry_run else f"✓ 권한 변경 처리 완료 ({done:,}건)"

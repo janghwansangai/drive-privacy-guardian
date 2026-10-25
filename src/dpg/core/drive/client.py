@@ -217,6 +217,15 @@ class DriveClient:
         )
         return result
 
+    def get_folder_ref(self, file_id: str) -> dict[str, Any]:
+        """Just enough to show a folder in a path: id, name, parents, driveId."""
+        result: dict[str, Any] = self._execute(
+            self._service.files().get(
+                fileId=file_id, fields="id,name,parents,driveId,mimeType", supportsAllDrives=True
+            )
+        )
+        return result
+
     def list_permissions(self, file_id: str) -> list[dict[str, Any]]:
         perms: list[dict[str, Any]] = []
         token: str | None = None

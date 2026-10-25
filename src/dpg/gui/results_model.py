@@ -172,12 +172,18 @@ class ResultsModel(QAbstractTableModel):
         self.paths: dict[str, str] = {}  # file id -> "내 드라이브 › 폴더 › …" (parent path)
         self.tree_keys: dict[str, str] = {}  # file id -> sort key: folder, then its files
         self.vault_saved: set[str] = set()  # archive names whose password is in the keychain
+        self.folders: dict[str, tuple[str, str | None]] = {}  # folders above, not in items
 
     def set_items(
-        self, items: list[FileAudit], detections: dict[str, FileDetection] | None = None
+        self,
+        items: list[FileAudit],
+        detections: dict[str, FileDetection] | None = None,
+        folders: dict[str, tuple[str, str | None]] | None = None,
     ) -> None:
         self.beginResetModel()
         self.items = list(items)
+        if folders is not None or not items:
+            self.folders = dict(folders or {})
         self.detections = dict(detections or {})
         self.recs = {a.file_id: recommend(a, self.detections.get(a.file_id)) for a in self.items}
         ids = {a.file_id for a in self.items}
@@ -188,14 +194,21 @@ class ResultsModel(QAbstractTableModel):
     def _build_paths(self) -> None:
         by_id = {a.file_id: a for a in self.items}
 
-        def chain(a: FileAudit) -> list[FileAudit]:
-            out: list[FileAudit] = []
+        def chain(a: FileAudit) -> list[str]:
+            """Folder names from the top down (items first, then folders looked up above)."""
+            out: list[str] = []
             seen: set[str] = set()
             cur = a.parent_id
-            while cur in by_id and cur not in seen:
+            while cur is not None and cur not in seen:
                 seen.add(cur)
-                out.append(by_id[cur])
-                cur = by_id[cur].parent_id
+                if cur in by_id:
+                    out.append(by_id[cur].name)
+                    cur = by_id[cur].parent_id
+                elif cur in self.folders:
+                    name, cur = self.folders[cur]
+                    out.append(name)
+                else:
+                    break
             return list(reversed(out))
 
         self.paths, self.tree_keys = {}, {}
@@ -207,8 +220,8 @@ class ResultsModel(QAbstractTableModel):
                 top = "나에게 공유됨"
             else:
                 top = "내 드라이브"
-            self.paths[a.file_id] = " › ".join([top, *(p.name for p in parents)])
-            parts = [top, *("0" + p.name.lower() for p in parents)]
+            self.paths[a.file_id] = " › ".join([top, *parents])
+            parts = [top, *("0" + name.lower() for name in parents)]
             parts.append(("0" if a.is_folder else "1") + a.name.lower())
             self.tree_keys[a.file_id] = "\x01".join(parts)
 

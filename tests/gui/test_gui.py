@@ -1064,3 +1064,51 @@ def test_change_dialog_moves_on_to_the_parent_folder(qtbot: Any, env: Env) -> No
     window.change_selected()
     assert len(shown) == 2
     assert shown[1] == [folder]  # the second preview is for the folder itself
+
+
+def test_change_button_uses_the_chosen_files(qtbot: Any, env: Env) -> None:
+    """Regression (v0.2.5): the button's clicked(bool) went into change_selected's first
+    parameter, so a click always said 'choose files first'."""
+    assert env.ctx is not None
+    _login(env)
+    env.ctx.manager.login(AccessLevel.MODIFY)
+    ids = _populate(env.fake)
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    _audit(qtbot, window)
+    dialogs: list[Any] = []
+    env.ctx.show_dialog = lambda d: dialogs.append(d) or False
+    window.model.checked = {ids["link"]}
+    window._update_actions()
+    qtbot.mouseClick(window.change_btn, mw.Qt.MouseButton.LeftButton)
+    assert not any(title == "권한 변경" for title, _ in env.notices)
+    assert len(dialogs) == 1
+    assert dialogs[0].plan.file_ids == [ids["link"]]
+
+
+def test_look_actions_use_what_is_on_screen_not_hidden_checks(qtbot: Any, env: Env) -> None:
+    """Regression: a check left in another view made 내용 확인 / 드라이브에서 열기 use that
+    (hidden) item instead of the file the user had highlighted."""
+    assert env.ctx is not None
+    _login(env)
+    ids = _populate(env.fake)
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    _audit(qtbot, window)
+    window.model.set_checked([ids["private"]], True)  # checked earlier, in the "all" view
+    window.set_filter("link")  # now only link-public files are shown
+    row = next(
+        r
+        for r in range(window.proxy.rowCount())
+        if window.model.items[window.proxy.mapToSource(window.proxy.index(r, 0)).row()].file_id
+        == ids["link"]
+    )
+    window.table.selectRow(row)
+    assert [a.file_id for a in window.look_targets()] == [ids["link"]]
+    opened: list[str] = []
+    env.ctx.open_url = lambda url: opened.append(url) or True
+    window.open_btn.click()
+    assert opened == [f"https://drive.google.com/open?id={ids['link']}"]
+    item = window.selected_item()
+    assert item is not None
+    assert item.file_id == ids["link"]

@@ -39,6 +39,7 @@ log = get_logger("audit")
 PERM_BATCH = 50
 SPLIT_ITEMS = 10_000  # past this many items, list in createdTime windows (see _windows)
 TRIM_ITEMS = 200_000  # past this many items the result keeps only what needs attention (D-102)
+ANCESTOR_MAX = 3000  # folders above the result looked up for the "위치" column, per scan (D-103)
 WINDOWS_FROM = 2012  # one window for everything older, then half-years up to now
 
 
@@ -136,6 +137,8 @@ class AuditResult:
     changes_token: str | None = None  # where the next incremental audit starts
     total_items: int = 0  # every item checked (more than len(items) when trimmed)
     trimmed: bool = False  # big drive: `items` holds only what needs attention (D-102)
+    # folders above the items that are not items themselves: id -> (name, parent id), D-103
+    folders: dict[str, tuple[str, str | None]] = field(default_factory=dict)
 
 
 def _escape(value: str) -> str:
@@ -237,6 +240,7 @@ class AuditRunner:
                 self.store.save_checkpoint(scan_id, cp)
             self._check_cancel()
             items = self._phase_analyze(scan_id, cp)
+            folders = self._resolve_folders(scan_id, cp, items)
         except (AuditCancelled, KeyboardInterrupt):
             self.store.set_status(scan_id, "cancelled")
             log.info("scan %s cancelled", scan_id)
@@ -252,6 +256,7 @@ class AuditRunner:
         result = AuditResult(scan_id, scope, items, resumed, bool(cp.get("incomplete")))
         result.counts = summarize(items)
         result.total_items, result.trimmed = self._analysis
+        result.folders = folders
         result.changes_token = cp.get("changes_token")
         log.info("scan %s done items=%s", scan_id, len(items))
         return result
@@ -314,6 +319,7 @@ class AuditRunner:
             self._phase_perms(scan_id)
             self._check_cancel()
             items = self._phase_analyze(scan_id, cp)
+            folders = self._resolve_folders(scan_id, cp, items)
         except (AuditCancelled, KeyboardInterrupt):
             self.store.set_status(scan_id, "cancelled")
             raise
@@ -325,6 +331,7 @@ class AuditRunner:
         result = AuditResult(scan_id, scope, items, False, bool(cp.get("incomplete")))
         result.counts = summarize(items)
         result.total_items, result.trimmed = self._analysis
+        result.folders = folders
         result.incremental, result.changed, result.content_changed = True, changed, content
         result.changes_token = new_token
         log.info("incremental scan %s changes=%s items=%s", scan_id, len(changed), len(items))
@@ -428,6 +435,50 @@ class AuditRunner:
                     out.add(c)
                     stack.append(c)
         return out
+
+    def _resolve_folders(
+        self, scan_id: int, cp: dict[str, Any], items: list[FileAudit]
+    ) -> dict[str, tuple[str, str | None]]:
+        """Folders above the result that are not in it (e.g. the 「링크로 공개된 내 파일만」 scope,
+        or folders owned by someone else), so 「위치」 shows the whole path (D-103). Names are
+        kept encrypted like every item (kind "ancestor"); re-read on every audit so renamed
+        folders show their new name. Stops at My Drive / a shared drive root / no access."""
+        old = [t.file_id for t in self.store.tree(scan_id) if t.kind == "ancestor"]
+        self.store.delete_items(scan_id, old)
+        known = {a.file_id for a in items}
+        root_id = cp.get("root_id")
+        if root_id is None:
+            try:
+                root_id = str(self.client.get_file("root")["id"])
+            except DriveHttpError:
+                root_id = None
+        queue = sorted({a.parent_id for a in items if a.parent_id} - known - {root_id})
+        found: dict[str, tuple[str, str | None]] = {}
+        rows: list[ItemRow] = []
+        seen: set[str] = set(queue)
+        while queue and len(found) < ANCESTOR_MAX:
+            self._check_cancel()
+            fid = queue.pop()
+            try:
+                meta = self.client.get_folder_ref(fid)
+            except DriveHttpError as exc:
+                if exc.status in (403, 404):
+                    continue  # no access to the folder above: the path stops here
+                raise
+            parents = meta.get("parents") or []
+            drive_id = meta.get("driveId")
+            if not parents and not drive_id:
+                continue  # My Drive itself (folder scope: root_id unknown before)
+            if drive_id and fid == drive_id:
+                continue  # a shared drive's root: shown as 「공유 드라이브」
+            parent = parents[0] if parents else None
+            found[fid] = (str(meta.get("name", "")), parent)
+            rows.append(ItemRow(fid, "ancestor", drive_id, parent, "none", meta, None))
+            if parent and parent not in seen and parent not in known and parent != root_id:
+                seen.add(parent)
+                queue.append(parent)
+        self.store.save_items(scan_id, rows)
+        return found
 
     # -- phases ---------------------------------------------------------------------------------
 
