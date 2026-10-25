@@ -1213,7 +1213,8 @@ def test_window_fits_a_laptop_screen(qtbot: Any, env: Env) -> None:
     qtbot.addWidget(window)
     for page in ("share", "privacy", "vault", "home"):
         window.show_page(page)
-        assert window.minimumSizeHint().width() <= 1150, page
+        # fits a 1280-pixel laptop screen, with room for wider fonts (Mac 922, Windows wider)
+        assert window.minimumSizeHint().width() <= 1050, page
     window.show()
     qtbot.wait(50)
     assert window.width() <= 1280

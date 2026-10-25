@@ -300,11 +300,11 @@ PAGES: dict[str, PageSpec] = {
         hints=(
             "「검사 시작」을 누르세요 — 처음에는 「공유된 파일만」으로 빠르게 해 보세요.",
             "파일을 하나 고르고 「내용 확인」으로 어디에 있는지 보세요.",
-            "공유를 끄거나 암호화하세요. 개인정보가 아니면 「탐지에서 제외」.",
+            "공유를 끄거나 암호화하세요. 개인정보가 아니면 「더보기 → 탐지에서 제외」.",
         ),
         tiles=("detected", "urgent", "excluded", "all"),
         default_filter="detected",
-        actions=("review", "open", "change", "archive", "exclude"),
+        actions=("review", "open", "change", "archive"),  # four per page: the window fits
         detect=True,
     ),
     "vault": PageSpec(
