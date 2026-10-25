@@ -718,7 +718,7 @@ class MainWindow(QMainWindow):
     def _build_nav(self) -> QFrame:
         nav = QFrame()
         nav.setObjectName("nav")
-        nav.setFixedWidth(236)
+        nav.setFixedWidth(216)
         col = QVBoxLayout(nav)
         col.setContentsMargins(12, 16, 12, 12)
         col.setSpacing(3)
@@ -1013,6 +1013,7 @@ class MainWindow(QMainWindow):
         vault_row.setContentsMargins(14, 10, 14, 10)
         self.key_line = QLabel("")
         self.key_line.setObjectName("keyLine")
+        self.key_line.setWordWrap(True)
         vault_row.addWidget(self.key_line, 1)
         self.key_buttons: list[QPushButton] = []
         for text, slot in (
@@ -1036,6 +1037,7 @@ class MainWindow(QMainWindow):
         list_col.setSpacing(6)
         filter_row = QHBoxLayout()
         filter_row.setContentsMargins(12, 0, 12, 0)
+        filter_row.setSpacing(6)
         self.filter_combo = QComboBox()
         for key, label in FILTERS.items():
             self.filter_combo.addItem(label, key)
@@ -1052,6 +1054,12 @@ class MainWindow(QMainWindow):
         self.search_edit.textChanged.connect(self._search_changed)
         self.count_label = QLabel("")
         self.count_label.setObjectName("muted")
+        # long choices ("암호화된 파일 (이 앱으로 …)") must not set the window's width
+        short = QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        for combo, chars in ((self.filter_combo, 9), (self.sort_combo, 6), (self.scope_combo, 12)):
+            combo.setSizeAdjustPolicy(short)
+            combo.setMinimumContentsLength(chars)
+        self.search_edit.setMinimumWidth(100)
         # list-wide tools (no selection needed) live under 「목록 도구」
         self.export_btn = QPushButton("보고서 저장 (엑셀·CSV)…")
         self.export_btn.setToolTip(
@@ -1080,11 +1088,11 @@ class MainWindow(QMainWindow):
         self.tools_btn.clicked.connect(self.popup_list_tools)
         filter_row.addWidget(self.search_edit, 2)
         filter_row.addWidget(QLabel("보기"))
-        filter_row.addWidget(self.filter_combo)
+        filter_row.addWidget(self.filter_combo, 2)  # narrow only when the window is narrow
         filter_row.addWidget(QLabel("정렬"))
         filter_row.addWidget(self.sort_combo)
         filter_row.addWidget(self.count_label)
-        filter_row.addStretch(1)
+        filter_row.addSpacing(8)
         filter_row.addWidget(self.tools_btn)
         list_col.addLayout(filter_row)
 
@@ -1154,7 +1162,7 @@ class MainWindow(QMainWindow):
         pick_row.addWidget(self.select_none_btn)
         bar_col.addLayout(pick_row)
         self.bar_row = QHBoxLayout()
-        self.bar_row.setSpacing(8)
+        self.bar_row.setSpacing(6)
         self.change_btn = QPushButton("공유 설정 바꾸기")
         self.change_btn.setToolTip(
             "링크 공개 해제, 외부 사용자 삭제 등. "

@@ -1211,10 +1211,12 @@ def test_window_fits_a_laptop_screen(qtbot: Any, env: Env) -> None:
     assert env.ctx is not None
     window = MainWindow(env.ctx)
     qtbot.addWidget(window)
+    rows = window.work.layout()
     for page in ("share", "privacy", "vault", "home"):
         window.show_page(page)
-        # fits a 1280-pixel laptop screen, with room for wider fonts (Mac 922, Windows wider)
-        assert window.minimumSizeHint().width() <= 1050, page
+        widths = [rows.itemAt(i).minimumSize().width() for i in range(rows.count())]
+        # fits a 1280-pixel laptop screen with room to spare (Windows fonts are ~20% wider)
+        assert window.minimumSizeHint().width() <= 1050, (page, widths)
     window.show()
     qtbot.wait(50)
     assert window.width() <= 1280

@@ -407,7 +407,7 @@ QFrame#actionBar {{ background: {t["bar"]}; border-radius: 16px; }}
 QFrame#actionBar QLabel {{ color: {t["bar_ink"]}; font-weight: 700; }}
 QFrame#actionBar QLabel#barHint {{ color: {t["bar_soft"]}; font-weight: 500; }}
 QFrame#actionBar QPushButton {{ background: rgba(255,255,255,0.13); color: {t["bar_ink"]};
-  border: 0; border-radius: 10px; padding: 8px 13px; font-weight: 700; }}
+  border: 0; border-radius: 10px; padding: 8px 10px; font-weight: 700; }}
 QFrame#actionBar QPushButton:hover {{ background: rgba(255,255,255,0.22); }}
 QFrame#actionBar QPushButton:disabled {{ color: rgba(255,255,255,0.38);
   background: rgba(255,255,255,0.06); }}
