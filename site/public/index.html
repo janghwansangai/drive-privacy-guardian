@@ -28,7 +28,7 @@
       <button class="tab" role="tab" aria-selected="false" data-i="1" style="--c:var(--amber)"><b>개인정보 점검</b><small>주민번호·연락처 찾기</small></button>
       <button class="tab" role="tab" aria-selected="false" data-i="2" style="--c:var(--green)"><b>암호화 관리</b><small>암호화·열기·풀기</small></button>
       <button class="tab" role="tab" aria-selected="false" data-i="3" style="--c:var(--green)"><b>파일 보기</b><small>받지 않고 바로 보기</small></button>
-      <button class="tab" role="tab" aria-selected="false" data-i="4" style="--c:var(--ink)"><b>처음 설정</b><small>복구 키·비밀번호</small></button>
+      <button class="tab" role="tab" aria-selected="false" data-i="4" style="--c:var(--ink)"><b>처음 설정</b><small>로그인·공통 비밀번호</small></button>
     </div>
     <div class="stage">
       <div class="phone"><img id="shot" src="img/04-audit.png" alt="공유 점검 화면" width="600" height="1290"></div>
@@ -37,9 +37,9 @@
   </div>
   <template id="t0"><h3>위험한 공유 정리</h3><ol><li>「점검 시작」 — 내 드라이브 전체를 훑습니다</li><li>링크 공개 / 외부 계정 / 도메인 칸을 눌러 걸러 보기</li><li>체크 → 조치 고르고 「바꾸기」</li><li>잘못 바꿨으면 「되돌리기」</li></ol></template>
   <template id="t1"><h3>개인정보 파일 찾기</h3><ol><li>드라이브에서 파일·폴더 선택</li><li>「검사」</li><li>「주민번호 30」처럼 종류별 건수 확인</li><li>「개인정보 파일 암호화」로 바로 잠그기</li></ol></template>
-  <template id="t2"><h3>암호화하고 열기</h3><ol><li>드라이브에서 파일 선택 → 「암호화하기」</li><li>이름은 「상담기록.hwp (암호화 …).7z」처럼 그대로</li><li>드라이브에서 더블클릭하면 크게 열림</li><li>「풀기」 → 같은 폴더에 원래대로</li><li>15분 동안 안 쓰면 자동 잠금</li></ol></template>
+  <template id="t2"><h3>암호화하고 열기</h3><ol><li>드라이브에서 파일 선택 → 「암호화하기」</li><li>기본 ZIP: 윈도우·맥에서 공통 비밀번호만 넣으면 열림 (높은 보안 7z도 고를 수 있음)</li><li>이름은 「상담기록.hwp (암호화 …).zip」처럼 그대로</li><li>드라이브에서 더블클릭하면 크게 열림</li><li>「풀기」 → 같은 폴더에 원래대로</li><li>15분 동안 안 쓰면 자동 잠금</li></ol></template>
   <template id="t3"><h3>바로 보기</h3><ol><li>한글·엑셀·워드·PDF·사진을 패널에서 바로</li><li>풀린 내용은 메모리에만 — 닫으면 지워짐</li><li>고친 파일은 「다시 암호화」로 올리기</li></ol></template>
-  <template id="t4"><h3>처음 한 번</h3><ol><li>위쪽 「로그인」 → 권한 항목 모두 체크</li><li>복구 키를 만들어 종이에 적어 두기</li><li>개인 비밀번호 정하기 — 끝</li></ol></template>
+  <template id="t4"><h3>처음 한 번</h3><ol><li>위쪽 「로그인」 → 권한 항목 모두 체크</li><li>처음 암호화할 때 공통 비밀번호 정하기 — 종이에 적어 두기</li><li>높은 보안 7z를 쓸 때만: 복구 키 설정</li></ol></template>
 
   <div class="usageLinks"><a href="#usage">🧩 크롬 확장 프로그램 사용법 (위)</a><a href="desktop.html">💻 데스크톱 앱 사용법 →</a></div>
 
@@ -48,7 +48,7 @@
     <div class="grid3">
       <div class="card"><span class="ic">🔒</span><h3>내 컴퓨터에서만</h3><p>검사와 암호화는 모두 내 기기에서. 통계 수집·광고·AI 전송 없음.</p></div>
       <div class="card"><span class="ic">🗑</span><h3>지우지 않습니다</h3><p>원본은 확인 뒤 휴지통으로만. 영구 삭제는 하지 않습니다.</p></div>
-      <div class="card"><span class="ic">🛟</span><h3>복구 키</h3><p>비밀번호를 잊어도 종이에 적은 복구 키 하나로 모두 엽니다. 프로그램이 없어도 <a href="recover">비밀번호 복구 도구</a>로 비밀번호를 만들어 7-Zip·Keka로 엽니다.</p></div>
+      <div class="card"><span class="ic">🛟</span><h3>프로그램이 없어도</h3><p>기본 ZIP은 윈도우·맥에서 두 번 누르고 공통 비밀번호만 넣으면 열립니다. 높은 보안 7z는 종이의 복구 키와 <a href="recover">비밀번호 복구 도구</a>로 7-Zip·Keka에서 엽니다.</p></div>
     </div>
   </section>
 

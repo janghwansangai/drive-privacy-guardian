@@ -35,6 +35,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--ground);
   <div class="brand"><span class="badge">★</span>개인정보 보안관</div>
   <h1>비밀번호 복구 도구</h1>
   <p class="lead">프로그램이 없어도, 종이에 적어 둔 <b>복구 키</b>와 암호화 파일의 <b>이름</b>만 있으면 그 파일의 비밀번호를 다시 만듭니다. 이 페이지는 인터넷에 연결하지 않으며 아무것도 저장하지 않습니다(이 파일만 있으면 오프라인에서도 동작).</p>
+  <div class="card"><b>기본 ZIP이면 이 도구가 필요 없습니다.</b> 기본 ZIP으로 암호화한 파일(<code>….zip</code>)은 윈도우·맥에서 두 번 누르고 <b>공통 비밀번호</b>(처음 암호화할 때 정해 종이에 적어 둔 것)만 넣으면 열립니다. 이 도구는 <b>높은 보안 7z</b>와 복구 키로 만든 예전 파일용입니다.</div>
 
   <div class="card">
     <label for="key">1. 복구 키 (35자)</label>
@@ -52,6 +53,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--ground);
     <label>이 파일의 비밀번호</label>
     <div class="row"><div id="pw" class="pw"></div><button id="copy" class="ghost">복사</button></div>
     <p class="hint">하이픈(-)까지 포함해 그대로 넣으세요.</p>
+    <p id="zipNote" class="hint" style="display:none">.zip 파일입니다. 기본 ZIP이면 이 비밀번호가 아니라 <b>공통 비밀번호</b>로 열립니다. 이 비밀번호는 복구 키로 만든 예전 ZIP용입니다.</p>
   </div>
   <p id="msg" class="err" role="status"></p>
 
@@ -60,7 +62,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--ground);
     <ol>
       <li><b>Windows</b>: 무료 <b>7-Zip</b> 설치 → 파일 오른쪽 클릭 → 7-Zip → 압축 풀기 → 비밀번호 붙여 넣기</li>
       <li><b>Mac</b>: 무료 <b>Keka</b> 또는 <b>The Unarchiver</b> → 파일 열기 → 비밀번호 붙여 넣기 (기본 「아카이브 유틸리티」는 암호화된 7z를 열지 못합니다)</li>
-      <li><code>.zip</code>으로 만든 파일도 7-Zip·Keka로 같은 방법으로 엽니다.</li>
+      <li>복구 키로 만든 예전 <code>.zip</code>도 7-Zip·Keka로 같은 방법으로 엽니다.</li>
     </ol>
     <p class="note">복구 키가 있으면 이 키로 만든 <b>모든</b> 암호화 파일을 열 수 있습니다. 비밀번호를 다른 사람에게 보내거나 사진으로 남기지 마세요. 다 쓰면 「지우기」를 누르고 창을 닫으세요.</p>
   </div>
@@ -203,6 +205,7 @@ var DPG = (function () {
     var tag = DPG.tagFrom($("name").value);
     if (!tag) { $("msg").textContent = "파일 이름에서 「(암호화 8자리)」를 찾지 못했습니다. 이름을 그대로 붙여 넣어 주세요."; return; }
     $("pw").textContent = DPG.derivePassword(k.raw, tag);
+    $("zipNote").style.display = /\.zip\s*$/i.test($("name").value) ? "block" : "none";
     $("out").style.display = "block";
   });
   $("copy").addEventListener("click", function () {
