@@ -1,4 +1,4 @@
-// Archive decryption in memory with 7-Zip WASM (same formats as the desktop app) and the
+// Archives in memory with 7-Zip WASM (same formats as the desktop app) and the
 // recovery-key password derivation (identical to dpg/core/vault/recovery.py).
 
 export class WrongPassword extends Error {}
@@ -112,10 +112,14 @@ export async function openArchive(bytes, password) {
   return out;
 }
 
-/** 7z AES-256 with header encryption (same format as the desktop app). Folder names are kept.
- *  Stored without compression (-mx=0, user request): faster, and documents barely shrink anyway. */
-export async function create7z(files, password) {
+/** "zip" (default since D-107): the classic ZIP password (ZipCrypto) with UTF-8 names, like the
+ *  desktop app's standard ZIP — Windows Explorer and macOS open it with the password alone.
+ *  "7z": AES-256 with header encryption (names hidden too); needs 7-Zip, Keka or the apps.
+ *  Folder names are kept. Stored without compression (-mx=0, user request): faster, and
+ *  documents barely shrink anyway. */
+export async function createArchive(files, password, format = "zip") {
   if (!password) throw new ArchiveError("비밀번호가 없습니다");
+  if (format !== "zip" && format !== "7z") throw new ArchiveError("알 수 없는 보관 형식입니다");
   const sz = await newSevenZip();
   sz.FS.mkdir("/in");
   const names = [];
@@ -131,10 +135,14 @@ export async function create7z(files, password) {
     if (!names.includes(parts[0])) names.push(parts[0]);
   }
   sz.FS.chdir("/in"); // relative names → the archive keeps "folder/file" paths
-  const code = sz.callMain(["a", "/out.7z", ...names, `-p${password}`, "-mhe=on", "-mx=0", "-bso0", "-bsp0"]);
+  const out = `/out.${format}`;
+  const how = format === "zip" ? ["-tzip", "-mem=ZipCrypto", "-mcu=on"] : ["-t7z", "-mhe=on"];
+  const code = sz.callMain(["a", ...how, "-mx=0", out, ...names, `-p${password}`, "-bso0", "-bsp0"]);
   if (code !== 0) throw new ArchiveError("암호화에 실패했습니다");
-  return sz.FS.readFile("/out.7z");
+  return sz.FS.readFile(out);
 }
+
+export const create7z = (files, password) => createArchive(files, password, "7z");
 
 export async function sha256hex(bytes) {
   return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -152,15 +160,15 @@ export async function verifyArchive(blob, password, originals) {
 }
 
 /** Name after the contents, same rule as the desktop app (D-087):
- *  `상담기록.hwp (암호화 7f3a9c2e).7z`, `상담기록.hwp 외 2개 (암호화 7f3a9c2e).7z`. */
-export function newArchiveName(names = [], now = new Date()) {
+ *  `상담기록.hwp (암호화 7f3a9c2e).zip`, `상담기록.hwp 외 2개 (암호화 7f3a9c2e).7z`. */
+export function newArchiveName(names = [], now = new Date(), ext = "zip") {
   const tag = [...crypto.getRandomValues(new Uint8Array(4))].map((b) => b.toString(16).padStart(2, "0")).join("");
   if (!names.length) {
     const d = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    return `보관_${d}_${tag}.7z`;
+    return `보관_${d}_${tag}.${ext}`;
   }
   let base = [...names[0].split("/").pop()].map((c) => (c === "\\" || c.charCodeAt(0) < 32 ? "_" : c)).join("").trim() || "파일";
   if ([...base].length > 80) base = [...base].slice(0, 79).join("") + "…";
   if (names.length > 1) base += ` 외 ${names.length - 1}개`;
-  return `${base} (암호화 ${tag}).7z`;
+  return `${base} (암호화 ${tag}).${ext}`;
 }

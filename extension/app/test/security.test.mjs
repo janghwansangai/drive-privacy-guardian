@@ -52,7 +52,8 @@ test("minimal permissions, no content scripts, no remote code", () => {
 test("nothing decrypted is persisted; storage holds only what D-088 allows", () => {
   const allowed = {
     "lib/drive.js": ["clientId", "auth"], // auth → session storage (memory only)
-    "lib/keyring.js": ["vaultWrap", "vaultKey", "lockMinutes"], // vaultWrap is AES-GCM encrypted
+    // vaultWrap is AES-GCM encrypted; commonCheck is a PBKDF2 typo check (D-107)
+    "lib/keyring.js": ["vaultWrap", "vaultKey", "lockMinutes", "commonCheck", "commonPw"],
     "viewer.js": ["auditRun", "piiRun"], // D-101: check progress, session memory only
   };
   for (const f of SHIPPED) {
@@ -65,6 +66,8 @@ test("nothing decrypted is persisted; storage holds only what D-088 allows", () 
   assert.match(k, /local\(\)\.set\(\{ vaultWrap \}\)/);
   assert.match(k, /session\(\)\.set\(\{ vaultKey:/); // the unlocked key only in session memory
   assert.doesNotMatch(k, /local\(\)\.set\(\{ vaultKey/);
+  assert.match(k, /session\(\)\.set\(\{ commonPw:/); // the common password only in session memory
+  assert.doesNotMatch(k, /local\(\)\.set\(\{ commonPw/);
   assert.match(src("lib/drive.js"), /chrome\.storage\.session\?\.set\(\{ auth:/);
   const v = src("viewer.js"); // check progress (names, sharing) never reaches the disk
   assert.match(v, /chrome\.storage\.session\?\.set\(\{ auditRun:/);

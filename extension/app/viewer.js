@@ -307,18 +307,30 @@ async function select(file, li) {
   $("password").value = "";
   message("");
   const tag = tagFromName(file.name);
+  const zip = isZip(file.name);
+  // D-107: a ZIP is usually locked with the common password; older ones with the recovery key
+  const common = zip ? await keyring.currentCommon() : null;
   const raw = tag ? await keyring.currentKey() : null;
-  if (raw) {
+  const tries = [];
+  if (common) tries.push({ secret: { password: common, common: true }, password: common });
+  if (raw) tries.push({ secret: { raw }, password: await derivePassword(raw, tag) });
+  if (tries.length) {
     pendingOpen = null;
-    await openWith({ raw }, await derivePassword(raw, tag), { fallback: true });
+    await openWith(tries, { fallback: true });
+  } else if (zip) {
+    if (tag && (await keyring.isSetUp())) pendingOpen = file; // unlocking the recovery key also tries it
+    showFilePassword(ZIP_HINT);
   } else if (tag) {
     pendingOpen = file; // locked: ask for the personal password once, then open
-    message("🔒 잠겨 있습니다 — 위쪽 🔒 칸에 개인 비밀번호를 넣으면 바로 열립니다.");
+    message("🔒 복구 키가 잠겨 있습니다 — 위쪽 🔒 칸에 개인 비밀번호를 넣으면 바로 열립니다.");
     $("vaultPw")?.focus();
   } else {
     showFilePassword(); // an old archive with its own password
   }
 }
+
+const isZip = (name) => /\.zip$/i.test(name);
+const ZIP_HINT = "기본 ZIP 파일입니다. 공통 비밀번호(이 ZIP을 잠글 때 쓴 비밀번호)를 넣으세요. 복구 키로 만든 예전 ZIP이면 복구 키 35자를 넣어도 됩니다.";
 
 function showFilePassword(hint) {
   $("unlock").hidden = false;
@@ -332,12 +344,17 @@ $("unlockForm").onsubmit = async (ev) => {
   const typed = $("password").value;
   $("password").value = "";
   const raw = tagFromName(selected.name) ? await parseRecoveryKey(typed) : null;
-  await openWith(raw ? { raw } : { password: typed }, await passwordFor(selected.name, typed));
+  const zip = isZip(selected.name);
+  const opened = await openWith([{ secret: raw ? { raw } : { password: typed }, password: await passwordFor(selected.name, typed) }]);
+  // the common password typed to open a ZIP counts for this session (no need to type it again)
+  if (opened && zip && !raw && (await keyring.hasCommonPassword())) {
+    await keyring.unlockCommon(typed).then(() => { current.secret.common = true; }).catch(() => {});
+  }
 };
 
-/** Download (memory only) and decrypt the selected archive. */
-async function openWith(secret, password, { fallback = false } = {}) {
-  if (!selected) return;
+/** Download (memory only) and decrypt the selected archive: each { secret, password } in turn. */
+async function openWith(tries, { fallback = false } = {}) {
+  if (!selected) return false;
   const file = selected;
   message("받는 중… (메모리에만)");
   try {
@@ -348,30 +365,42 @@ async function openWith(secret, password, { fallback = false } = {}) {
         message(total ? `받는 중… ${mb(done)} / ${mb(total)} MB (메모리에만)` : `받는 중… ${mb(done)} MB (메모리에만)`);
       }) };
     }
-    if (selected !== file) return;
+    if (selected !== file) return false;
     message("푸는 중…");
-    const members = await openArchive(encrypted.bytes, password);
+    let members = null;
+    let secret = null;
+    for (const t of tries) {
+      try { members = await openArchive(encrypted.bytes, t.password); secret = t.secret; break; } catch (e) {
+        if (!(e instanceof WrongPassword)) throw e;
+      }
+    }
+    if (!members) throw new WrongPassword();
     current = { file, members, secret };
     showOpened();
     message("");
+    return true;
   } catch (e) {
     if (e instanceof WrongPassword && fallback) {
       message("");
-      showFilePassword("이 컴퓨터의 복구 키로는 열리지 않습니다 — 다른 복구 키로 만들었거나 따로 정한 비밀번호가 있는 파일입니다. 그 비밀번호(또는 그때의 복구 키)를 넣으세요.");
+      showFilePassword(isZip(file.name)
+        ? "지금 공통 비밀번호(와 이 컴퓨터의 복구 키)로는 열리지 않습니다 — 예전 공통 비밀번호나 따로 정한 비밀번호로 만든 파일입니다. 그 비밀번호를 넣으세요."
+        : "이 컴퓨터의 복구 키로는 열리지 않습니다 — 다른 복구 키로 만들었거나 따로 정한 비밀번호가 있는 파일입니다. 그 비밀번호(또는 그때의 복구 키)를 넣으세요.");
     } else if (e instanceof WrongPassword) message("비밀번호가 맞지 않거나 파일이 손상되었습니다.");
     else if (e instanceof ArchiveError) message(e.message);
     else message(e.message || "열지 못했습니다.");
+    return false;
   }
 }
 
 // -- master key: set up once, unlock once, auto-lock (D-088) -----------------------------------
 const vaultMsg = (t) => { $("vaultMsg").textContent = t || ""; };
-const showVault = (id) => ["vaultSetup", "vaultUnlock", "vaultForgot", "vaultOpen"].forEach((x) => { $(x).hidden = x !== id; });
+const showVault = (id) => ["vaultIntro", "vaultSetup", "vaultUnlock", "vaultForgot", "vaultOpen"].forEach((x) => { $(x).hidden = x !== id; });
+let setupWanted = false; // D-107: setting up the recovery key is optional (only for 7z)
 
 async function refreshVault() {
   const unlocked = (await keyring.isSetUp()) && !!(await keyring.currentKey({ touch: false }));
   document.body.classList.toggle("unlocked", unlocked);
-  if (!(await keyring.isSetUp())) { showVault("vaultSetup"); return; }
+  if (!(await keyring.isSetUp())) { showVault(setupWanted ? "vaultSetup" : "vaultIntro"); return; }
   if (unlocked) {
     showVault("vaultOpen");
     $("lockInfo").textContent = `· ${await keyring.lockMinutes()}분 후 자동 잠금`;
@@ -390,6 +419,9 @@ document.querySelectorAll('input[name="setupMode"]').forEach((r) => {
     if (make && !newKey) { newKey = await keyring.newRecoveryKey(); $("newKeyText").textContent = newKey.text; }
   };
 });
+
+$("setupShow").onclick = () => { setupWanted = true; vaultMsg(""); refreshVault(); };
+$("setupCancel").onclick = () => { setupWanted = false; vaultMsg(""); refreshVault(); };
 
 $("setupGo").onclick = async () => {
   vaultMsg("");
@@ -412,7 +444,9 @@ $("setupGo").onclick = async () => {
     await keyring.setPassword(raw, $("setupPw").value);
     ["setupKey", "setupPw", "setupPw2", "newKeyCheck"].forEach((x) => { $(x).value = ""; });
     newKey = null; $("newKeyText").textContent = "";
+    setupWanted = false;
     await refreshVault();
+    if (reenc) showFormat();
   } catch (e) { vaultMsg(e.message); } finally { $("setupGo").disabled = false; }
 };
 
@@ -447,10 +481,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (!changes.vaultKey.newValue && current?.secret?.raw) { forget(); message("잠겼습니다. 개인 비밀번호를 넣으면 다시 열립니다."); }
     refreshVault();
   }
+  if (area === "session" && "commonPw" in changes && !changes.commonPw.newValue) {
+    if (current?.secret?.common) { forget(); message("잠겼습니다. 파일을 다시 누르고 공통 비밀번호를 넣으면 열립니다."); }
+    if (reenc) showFormat();
+  }
   if (area === "local" && "vaultWrap" in changes) refreshVault();
 });
 // Using this view counts as activity for the auto-lock.
-["click", "keydown"].forEach((t) => document.addEventListener(t, () => { keyring.currentKey().catch(() => {}); }, { passive: true }));
+["click", "keydown"].forEach((t) => document.addEventListener(t, () => { keyring.currentKey().catch(() => {}); keyring.currentCommon().catch(() => {}); }, { passive: true }));
 
 // settings: lock time, change password, forget the key on this computer
 keyring.lockMinutes().then((m) => { $("lockMinutes").value = String(m); });
@@ -464,8 +502,20 @@ $("changePw").onclick = async () => {
   $("newPw").value = ""; $("newPw2").value = "";
   $("changePwMsg").textContent = "바꿨습니다";
 };
+$("changeCommon").onclick = async () => {
+  const msg = (t) => { $("changeCommonMsg").textContent = t; };
+  const bad = keyring.commonPasswordProblem($("newCommon").value, $("newCommon2").value);
+  if (bad) { msg(bad); return; }
+  msg("확인하는 중…");
+  try {
+    if (await keyring.hasCommonPassword()) await keyring.unlockCommon($("oldCommon").value);
+    await keyring.setCommonPassword($("newCommon").value, $("newCommon2").value);
+    ["oldCommon", "newCommon", "newCommon2"].forEach((x) => { $(x).value = ""; });
+    msg("바꿨습니다 — 새 ZIP부터 새 비밀번호로 잠급니다");
+  } catch (e) { msg(e.message); }
+};
 $("forgetKey").onclick = async () => {
-  if (!confirm("이 컴퓨터에 잠가 둔 복구 키를 지울까요? 종이의 복구 키로 다시 설정할 수 있습니다.")) return;
+  if (!confirm("이 컴퓨터에 잠가 둔 복구 키와 공통 비밀번호 확인값을 지울까요? 종이의 복구 키와 기억하는 공통 비밀번호로 다시 설정할 수 있습니다.")) return;
   forget(); await keyring.forget();
 };
 refreshVault();
@@ -1196,8 +1246,10 @@ function openReenc(mode, driveFiles = []) {
   label($("reencGo"), "lock", mode === "edit" ? "다시 암호화하기" : "암호화하기");
   $("trashStep").hidden = mode === "new";
   $("trashLabel").textContent = mode === "drive" ? "원래 파일을 휴지통으로" : "예전 보관 파일을 휴지통으로";
-  $("secretInfo").hidden = false;
-  $("secretInfo").textContent = "비밀번호: 복구 키(만능키)로 만듭니다 — 이 컴퓨터(개인 비밀번호), 데스크톱 앱, 종이의 복구 키로 모두 열립니다.";
+  // edit: keep the opened archive's kind; anything new is a standard ZIP (D-107)
+  const fmt = mode === "edit" && !isZip(current.file.name) ? "7z" : "zip";
+  document.querySelectorAll('input[name="fmt"]').forEach((r) => { r.checked = r.value === fmt; });
+  showFormat();
   if (mode === "drive") {
     $("whereInfo").textContent = "보관 파일은 원래 파일과 같은 폴더에 올립니다. 구글 문서·시트·프레젠테이션은 Office 파일(docx·xlsx·pptx)로 바꿔 암호화합니다.";
   } else if (mode === "edit") {
@@ -1240,6 +1292,31 @@ function drawRows() {
   }
 }
 
+const chosenFormat = () => document.querySelector('input[name="fmt"]:checked')?.value === "7z" ? "7z" : "zip";
+const STANDARD_ZIP_NOTE = "윈도우·맥에서 파일을 두 번 누르고 공통 비밀번호만 넣으면 열립니다 (프로그램 필요 없음). 내용이 바로 보이지 않게 하는 정도의 보호이고, 압축 안의 파일 이름은 보이며, 작정한 해독에는 약합니다.";
+const SEVEN_ZIP_NOTE = "파일 이름까지 숨기고 해독에 강합니다. 대신 이 프로그램, 7-Zip(Windows)·Keka(Mac), 또는 비밀번호 복구 도구가 있어야 열 수 있습니다. 복구 키로 잠급니다.";
+
+/** The note and the common-password boxes for the chosen kind. */
+async function showFormat() {
+  const zip = chosenFormat() === "zip";
+  const box = $("commonBox");
+  if (!zip) {
+    box.hidden = true;
+    const ready = (await keyring.isSetUp()) && !!(await keyring.currentKey({ touch: false }));
+    $("secretInfo").textContent = `${SEVEN_ZIP_NOTE}${ready ? "" : (await keyring.isSetUp()) ? " — 먼저 위쪽 🔒 칸에서 잠금을 풀어 주세요." : " — 먼저 위쪽에서 「복구 키 설정」을 해 주세요."}`;
+    return;
+  }
+  const typed = await keyring.currentCommon({ touch: false });
+  const set = await keyring.hasCommonPassword();
+  box.hidden = !!typed;
+  $("commonPw2").hidden = set;
+  $("commonPw").placeholder = set ? "공통 비밀번호" : "공통 비밀번호 정하기 (8자 이상, 영문·숫자·기호)";
+  $("secretInfo").textContent = `${STANDARD_ZIP_NOTE} ${typed ? "✓ 이번에 넣은 공통 비밀번호로 잠급니다."
+    : set ? "공통 비밀번호를 넣어 주세요 (이 브라우저를 닫을 때까지 기억합니다)."
+      : "처음이라 공통 비밀번호를 정합니다 — 데스크톱 앱과 같은 것으로 정하고 종이에 적어 두세요. 잊으면 이 ZIP은 아무도 열 수 없습니다."}`;
+}
+document.querySelectorAll('input[name="fmt"]').forEach((r) => { r.onchange = () => showFormat(); });
+
 $("reencBtn").onclick = () => current && openReenc("edit");
 $("newArchive").onclick = () => {
   if (!drive.signedIn()) { message("먼저 구글 로그인을 해 주세요."); return; }
@@ -1258,21 +1335,40 @@ $("pick").onchange = async () => {
   try { drawRows(); } catch (e) { $("reencStatus").textContent = e.message; }
 };
 
-/** New archives are always locked with the master key (D-088). */
-async function newSecret() {
-  const raw = await keyring.currentKey();
-  if (!raw) throw new ReencryptFailed("먼저 위쪽 🔒 칸에서 잠금을 풀어 주세요 (개인 비밀번호)");
-  return { raw };
+/** ZIP: the common password (typed once per session, checked for typos). 7z: the recovery key. */
+async function newSecret(format) {
+  if (format === "7z") {
+    const raw = await keyring.currentKey();
+    if (!raw) {
+      throw new ReencryptFailed((await keyring.isSetUp()) ? "먼저 위쪽 🔒 칸에서 잠금을 풀어 주세요 (개인 비밀번호)"
+        : "높은 보안 7z는 복구 키가 필요합니다 — 위쪽 「복구 키 설정」을 먼저 해 주세요");
+    }
+    return { raw };
+  }
+  let password = await keyring.currentCommon();
+  if (!password) {
+    const typed = $("commonPw").value;
+    try {
+      if (await keyring.hasCommonPassword()) await keyring.unlockCommon(typed);
+      else await keyring.setCommonPassword(typed, $("commonPw2").value);
+    } catch (e) { throw new ReencryptFailed(e.message); }
+    $("commonPw").value = ""; $("commonPw2").value = "";
+    password = typed;
+    showFormat();
+  }
+  return { password, common: true };
 }
 
 $("reencGo").onclick = async () => {
   if (!reenc) return;
   const status = (t) => { $("reencStatus").textContent = t; };
+  const format = chosenFormat();
+  if (format === "7z" && !confirm(`높은 보안 7z로 잠글까요?\n\n${SEVEN_ZIP_NOTE}`)) return;
   $("reencGo").disabled = true;
   busy = true;
   let fetched = [];
   try {
-    const secret = await newSecret();
+    const secret = await newSecret(format);
     const old = reenc.mode === "edit" ? current.file : null;
     let files;
     let parent = old?.parents?.[0] || null;
@@ -1311,12 +1407,13 @@ $("reencGo").onclick = async () => {
       files = planMembers(reenc.existing, reenc.picked, reenc.removed).files;
     }
     const result = await reencrypt({
-      files, secret, parent, trashIds,
+      files, secret, format, parent, trashIds,
       names: reenc.mode === "drive" ? reenc.driveFiles.filter((f) => !reenc.removed.has(f.id)).map((f) => f.name) : undefined,
       trashOld: reenc.mode !== "new" && $("trashOld").checked,
       drive, onStep: status,
     });
     const lines = [`✓ 완료: ${result.name} (풀어서 비교 확인됨)`];
+    if (format === "zip") lines.push("🔑 이 파일은 윈도우·맥에서 두 번 누르고 공통 비밀번호만 넣으면 열립니다.");
     lines.push(result.uploadVerified ? "✓ 올린 파일을 다시 받아 확인했습니다." : "⚠ 올린 파일 확인에 실패했습니다 — 예전 보관 파일은 지우지 않았습니다. 새 파일을 열어 확인해 보세요.");
     if (result.parentFallback) lines.push("ℹ 원래 폴더에 올릴 권한이 없어 내 드라이브 맨 위에 올렸습니다.");
     if (old && $("trashOld").checked && result.trashedOld) lines.push("🗑 예전 보관 파일을 휴지통으로 옮겼습니다 (30일 안에 복원 가능).");

@@ -4,6 +4,8 @@ const FIX = "../fixtures/";
 const FILES = [
   { id: "f7zArchive000100000000", parents: ["folderA123456"], name: "보관_2026-09-27_0a1b2c3d.7z", size: "50000", createdTime: "2026-09-27T00:00:00Z" },
   { id: "fzipArchive00020000000", name: "보관_2026-09-27_4e5f6a7b.zip", size: "50000", createdTime: "2026-09-26T00:00:00Z" },
+  // D-107: a standard ZIP made by the desktop app (common password: window.harnessCommon)
+  { id: "fstdZip00040000000000000", parents: ["folderA123456"], name: "상담기록_가상.hwp 외 3개 (암호화 6c7d8e9f).zip", size: "12000", createdTime: "2026-10-25T00:00:00Z" },
   // E2 formats: built in the page with the extension's own 7z writer (recovery-key password)
   // ordinary Drive files (visible only after the full scope is granted)
   { id: "plainDocx000000000000001", plain: true, parents: ["folderA123456"], name: "가정통신문_체험학습.docx", mimeType: "application/octet-stream", size: "9000", createdTime: "2026-09-20T00:00:00Z" },
@@ -191,6 +193,10 @@ const html = await (await realFetch("../../viewer.html")).text();
 document.body.innerHTML = new DOMParser().parseFromString(html, "text/html").body.innerHTML; // own trusted file
 document.querySelectorAll("script").forEach((s) => s.remove());
 window.harnessKey = (await (await realFetch(FIX + "recovery.txt")).text()).split("\n")[0].trim();
+{ // the standard-ZIP fixture's common password: derived from the synthetic key (tag c0ffee00)
+  const { parseRecoveryKey, derivePassword } = await import("../../lib/vault.js");
+  window.harnessCommon = await derivePassword(await parseRecoveryKey(window.harnessKey), "c0ffee00");
+}
 await import("../../viewer.js");
 
 // ?demo=<scene> — scripted states for the manual's screenshots (synthetic data only).

@@ -67,3 +67,30 @@ test("auto-lock: idle longer than the chosen minutes → locked", async () => {
   assert.equal(keyring.checkNewPassword("short", "short"), "개인 비밀번호는 8자 이상으로 정해 주세요");
   assert.equal(keyring.checkNewPassword("long-enough", "different"), "비밀번호 확인이 다릅니다");
 });
+
+test("D-107: common password — only a typo check is stored; kept in session memory; same lock", async () => {
+  reset();
+  assert.equal(await keyring.hasCommonPassword(), false);
+  await assert.rejects(keyring.unlockCommon("Gongtong-Test-2026"), keyring.BadPassword);
+  assert.match(keyring.commonPasswordProblem("short"), /8자 이상/);
+  assert.match(keyring.commonPasswordProblem("한글비밀번호입니다"), /영문·숫자·기호/);
+  assert.match(keyring.commonPasswordProblem("with space 123"), /영문·숫자·기호/);
+  assert.match(keyring.commonPasswordProblem("Gongtong-Test-2026", "Gongtong-Test-2025"), /확인이 다릅니다/);
+  assert.equal(keyring.commonPasswordProblem("Gongtong-Test-2026"), null);
+  await assert.rejects(keyring.setCommonPassword("한글비밀번호입니다"), keyring.BadPassword);
+  await keyring.setCommonPassword("Gongtong-Test-2026", "Gongtong-Test-2026");
+  assert.equal(await keyring.hasCommonPassword(), true);
+  assert.ok(!JSON.stringify(chrome.storage.local.data).includes("Gongtong"), "never on disk");
+  assert.equal(await keyring.currentCommon(), "Gongtong-Test-2026");
+  await keyring.lock();
+  assert.equal(await keyring.currentCommon(), null);
+  await assert.rejects(keyring.unlockCommon("Gongtong-Test-2025"), /오타/);
+  await keyring.unlockCommon("Gongtong-Test-2026");
+  assert.equal(await keyring.currentCommon(), "Gongtong-Test-2026");
+  chrome.storage.session.data.commonPw.at = Date.now() - 16 * 60000; // default lock: 15 minutes
+  assert.equal(await keyring.currentCommon(), null);
+  await keyring.unlockCommon("Gongtong-Test-2026");
+  await keyring.forget();
+  assert.equal(await keyring.hasCommonPassword(), false);
+  assert.equal(await keyring.currentCommon(), null);
+});

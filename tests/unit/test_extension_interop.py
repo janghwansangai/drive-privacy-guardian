@@ -23,3 +23,22 @@ def test_desktop_opens_extension_made_archive() -> None:
     assert files["상담기록_가상.hwp"] == (SYN / "상담기록_가상.hwp").read_bytes()
     assert files["폴더/6-2_학생_연락처.xlsx"] == (SYN / "6-2_학생_연락처.xlsx").read_bytes()
     assert "상담기록".encode() not in data  # header encryption: names are hidden
+
+
+def test_extension_made_standard_zip_opens_with_the_common_password() -> None:
+    """D-107: the extension's default ZIP opens with the password alone — in the desktop app
+    and in a plain ZIP reader (what Windows Explorer / macOS do), Korean names intact."""
+    import io
+    import zipfile
+
+    data = (FIX / "확장_2026-10-25_9a8b7c6d.zip").read_bytes()
+    key = (FIX / "recovery.txt").read_text(encoding="utf-8").splitlines()[0].strip()
+    common = derive_password(parse_recovery_key(key), "c0ffee00")  # as make_interop.mjs
+    files = archive.open_archive(data, common)
+    assert files["상담기록_가상.hwp"] == (SYN / "상담기록_가상.hwp").read_bytes()
+    assert files["폴더/6-2_학생_연락처.xlsx"] == (SYN / "6-2_학생_연락처.xlsx").read_bytes()
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        info = z.getinfo("상담기록_가상.hwp")
+        assert info.flag_bits & 0x0001  # ZipCrypto
+        assert info.flag_bits & 0x0800  # UTF-8 name
+        assert z.read(info, pwd=common.encode()) == (SYN / "상담기록_가상.hwp").read_bytes()

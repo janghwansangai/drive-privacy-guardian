@@ -3,8 +3,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { FIX, SYN, read, recoveryKey } from "./helpers.mjs";
-import { openArchive, passwordFor, parseRecoveryKey, derivePassword, tagFromName, create7z, WrongPassword } from "../lib/vault.js";
+import { COMMON_TEST_TAG, FIX, SYN, read, recoveryKey } from "./helpers.mjs";
+import { openArchive, passwordFor, parseRecoveryKey, derivePassword, tagFromName, create7z, createArchive, newArchiveName, WrongPassword } from "../lib/vault.js";
 
 const ARCHIVES = fs.readdirSync(FIX).filter((n) => /^보관_.*\.(7z|zip)$/.test(n));
 
@@ -57,6 +57,40 @@ test("extension archives are stored without compression (user request) but still
   const back = await openArchive(blob, "Aa1-store-test");
   assert.deepEqual([...back.keys()], ["폴더/하위/빈칸.bin"]);
   await assert.rejects(openArchive(blob, "wrong-password"), WrongPassword);
+});
+
+// D-107: the default archive is a standard ZIP that Windows Explorer / macOS open with the password alone.
+const COMMON = await derivePassword(await parseRecoveryKey(recoveryKey()), COMMON_TEST_TAG);
+const STD = "상담기록_가상.hwp 외 3개 (암호화 6c7d8e9f).zip";
+
+test("D-107: a desktop-made standard ZIP opens here with the common password alone", async () => {
+  const back = await openArchive(read(path.join(FIX, STD)), COMMON);
+  assert.deepEqual([...back.keys()].sort(), ["6-2_학생_연락처.csv", "6-2_학생_연락처.xlsx", "상담기록_가상.hwp", "학생명단_가상.hwpx"]);
+  for (const [n, d] of back) assert.deepEqual(d, read(path.join(SYN, n)), n);
+  await assert.rejects(openArchive(read(path.join(FIX, STD)), `${COMMON}x`), WrongPassword);
+});
+
+test("D-107: extension-made ZIP is classic ZipCrypto with UTF-8 names (opens without any program)", async () => {
+  const files = new Map([["가상_메모.txt", new TextEncoder().encode("hello")], ["폴더/표.csv", new TextEncoder().encode("a,b")]]);
+  const blob = await createArchive(files, COMMON, "zip");
+  const dv = new DataView(blob.buffer, blob.byteOffset, blob.byteLength);
+  assert.equal(dv.getUint32(0, true), 0x04034b50); // local file header
+  const flags = dv.getUint16(6, true);
+  assert.ok(flags & 0x0001, "encrypted");
+  assert.ok(flags & 0x0800, "UTF-8 names (Korean names stay readable)");
+  assert.notEqual(dv.getUint16(8, true), 99, "not WinZip AES (Explorer cannot open that)");
+  assert.ok(Buffer.from(blob).includes(Buffer.from("가상_메모.txt")), "names are visible in a standard ZIP (UI says so)");
+  assert.ok(!Buffer.from(blob).includes(Buffer.from("hello")), "contents are not");
+  const back = await openArchive(blob, COMMON);
+  assert.deepEqual([...back.keys()].sort(), ["가상_메모.txt", "폴더/표.csv"]);
+  await assert.rejects(openArchive(blob, "wrong-password"), WrongPassword);
+  await assert.rejects(createArchive(files, COMMON, "rar"));
+});
+
+test("new archive names end in .zip by default, .7z for high security", () => {
+  assert.match(newArchiveName(["상담기록.hwp"]), /^상담기록\.hwp \(암호화 [0-9a-f]{8}\)\.zip$/);
+  assert.match(newArchiveName(["a.txt", "b.txt"], new Date(), "7z"), /^a\.txt 외 1개 \(암호화 [0-9a-f]{8}\)\.7z$/);
+  assert.match(newArchiveName([], new Date(2026, 9, 25)), /^보관_2026-10-25_[0-9a-f]{8}\.zip$/);
 });
 
 test("D-104: password derivation is pinned (same values as the desktop app, v0.2.5)", async () => {

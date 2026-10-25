@@ -109,6 +109,7 @@ body:not(.focus) #panel:has(> #message:empty):not(:has(> #grantBtn:not([hidden])
 
 .strip { display: flex; align-items: center; gap: 8px; border-radius: 12px; padding: 10px 12px; font-size: 13px; font-weight: 600; }
 .strip.green { background: var(--green-t); color: var(--green); }
+.strip.gray { background: var(--gray-t); color: var(--ink); font-weight: 500; }
 .stripBtn { font-weight: 700; color: inherit; }
 .stats { display: flex; gap: 8px; }
 .stat { flex: 1 1 0; text-align: left; border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; border: 2px solid transparent; }
@@ -138,6 +139,8 @@ body:not(.focus) #panel:has(> #message:empty):not(:has(> #grantBtn:not([hidden])
 .newKeyBox code { display: block; font-size: 15px; font-weight: 700; margin: 6px 0; background: none; padding: 0; }
 .radio { display: flex; gap: 6px; align-items: flex-start; font-size: 13px; }
 #vaultUnlock b, #vaultSetup b, #vaultForgot b { display: flex; gap: 6px; align-items: center; font-size: 15px; }
+#formatStep .radio { margin-top: 6px; }
+#commonBox { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; } #commonBox[hidden] { display: none; }
 .message { color: var(--red); white-space: pre-wrap; margin: 0 4px; } .message.ok { color: var(--green); }
 .message:empty { display: none; }
 .notice { color: var(--amber); font-size: 13px; margin: 0 4px; } .notice:empty { display: none; }

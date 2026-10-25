@@ -2,8 +2,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { FIX, read, recoveryKey } from "./helpers.mjs";
-import { openArchive, passwordFor, parseRecoveryKey, tagFromName } from "../lib/vault.js";
+import { COMMON_TEST_TAG, FIX, read, recoveryKey } from "./helpers.mjs";
+import { derivePassword, openArchive, passwordFor, parseRecoveryKey, tagFromName } from "../lib/vault.js";
 import { planMembers, reencrypt, ReencryptFailed } from "../lib/reencrypt.js";
 
 const enc = (s) => new TextEncoder().encode(s);
@@ -14,8 +14,8 @@ function fakeDrive({ corruptUpload = false, denyParent = false } = {}) {
   const calls = [];
   return {
     store, calls,
-    async upload(name, parent, bytes) {
-      calls.push(["upload", name, parent]);
+    async upload(name, parent, bytes, mime) {
+      calls.push(["upload", name, parent, mime]);
       if (denyParent && parent) { const e = new Error("403"); e.status = 403; throw e; }
       const id = `id${store.size}`;
       const kept = bytes.slice();
@@ -43,11 +43,12 @@ test("recovery key: new archive gets its own tag and opens with the same key; ol
   const drive = fakeDrive();
   const { files } = planMembers(existing(), [{ name: "메모.txt", bytes: enc("edited") }]);
   const steps = [];
-  const r = await reencrypt({ files, secret: { raw }, parent: "folderA", trashIds: ["OLD"], trashOld: true, drive, onStep: (s) => steps.push(s) });
+  const r = await reencrypt({ files, secret: { raw }, format: "7z", parent: "folderA", trashIds: ["OLD"], trashOld: true, drive, onStep: (s) => steps.push(s) });
   assert.match(r.name, /^메모\.txt 외 2개 \(암호화 [0-9a-f]{8}\)\.7z$/); // D-087: named after the contents
   assert.ok(r.verified && r.uploadVerified && r.trashedOld && !r.parentFallback);
   assert.deepEqual(drive.calls.map((c) => c[0]), ["upload", "download", "trash"]);
   assert.equal(drive.calls[0][2], "folderA");
+  assert.equal(drive.calls[0][3], "application/x-7z-compressed");
   assert.equal(steps.length, 5);
   const up = drive.store.get(r.id);
   const back = await openArchive(up.bytes, await passwordFor(r.name, recoveryKey()));
@@ -85,7 +86,7 @@ test("desktop-made archive → re-encrypted by the extension keeps every file by
   const members = await openArchive(read(path.join(FIX, name)), await passwordFor(name, recoveryKey()));
   const raw = await parseRecoveryKey(recoveryKey());
   const drive = fakeDrive();
-  const r = await reencrypt({ files: members, secret: { raw }, parent: null, drive });
+  const r = await reencrypt({ files: members, secret: { raw }, format: "7z", parent: null, drive });
   const back = await openArchive(drive.store.get(r.id).bytes, await passwordFor(r.name, recoveryKey()));
   assert.deepEqual([...back.keys()].sort(), [...members.keys()].sort());
   for (const [n, d] of members) assert.deepEqual(back.get(n), d, n);
@@ -100,4 +101,20 @@ test("several Drive originals are trashed only after both checks; partial failur
   assert.equal(r.trashedOld, false);
   assert.equal(r.trashFailed, 1);
   await assert.rejects(reencrypt({ files: existing(), secret: { password: "x-12345678" }, trashIds: ["bad id"], trashOld: true, drive }), ReencryptFailed);
+});
+
+test("D-107: by default a standard ZIP with the common password; 7z only when chosen", async () => {
+  const drive = fakeDrive();
+  const common = await derivePassword(await parseRecoveryKey(recoveryKey()), COMMON_TEST_TAG);
+  const r = await reencrypt({ files: existing(), secret: { password: common }, parent: "p", drive });
+  assert.match(r.name, /^메모\.txt 외 2개 \(암호화 [0-9a-f]{8}\)\.zip$/);
+  assert.equal(drive.calls[0][3], "application/zip");
+  const up = drive.store.get(r.id).bytes;
+  assert.equal(new DataView(up.buffer, up.byteOffset).getUint32(0, true), 0x04034b50); // a ZIP
+  assert.equal(new TextDecoder().decode((await openArchive(up, common)).get("폴더/표.csv")), "a,b");
+  // a ZIP made with a recovery-key password could not be opened with the password alone
+  const raw = await parseRecoveryKey(recoveryKey());
+  await assert.rejects(reencrypt({ files: existing(), secret: { raw }, drive }), /공통 비밀번호가 필요/);
+  await assert.rejects(reencrypt({ files: existing(), secret: { password: "x-12345678" }, format: "rar", drive }), ReencryptFailed);
+  assert.equal(drive.calls.filter((c) => c[0] === "upload").length, 1);
 });

@@ -3,7 +3,7 @@
 //   encrypt → decrypt again and compare every file → upload → download again and compare
 //   → only then (if asked) move the old archive to the Drive trash. Never a permanent delete.
 
-import { create7z, verifyArchive, sha256hex, newArchiveName, derivePassword, tagFromName } from "./vault.js";
+import { createArchive, verifyArchive, sha256hex, newArchiveName, derivePassword, tagFromName } from "./vault.js";
 
 export class ReencryptFailed extends Error {} // message is Korean and safe to show
 
@@ -46,7 +46,8 @@ export function planMembers(existing, picked, removed = new Set()) {
   return { files, rows };
 }
 
-/** secret = { raw } (recovery key → a fresh password per archive) or { password } (reused as is). */
+/** secret = { raw } (recovery key → a fresh password per archive) or { password } (the common
+ *  password, or one typed for an old archive — used as is). */
 export async function passwordForNew(secret, name) {
   if (secret.raw) return derivePassword(secret.raw, tagFromName(name));
   if (secret.password) return secret.password;
@@ -54,17 +55,20 @@ export async function passwordForNew(secret, name) {
 }
 
 /**
- * drive: { upload(name, parent, bytes), download({ id, size }), trash(id) }
+ * drive: { upload(name, parent, bytes, mimeType), download({ id, size }), trash(id) }
  * trashIds: the replaced archive, or the Drive originals that were just encrypted.
+ * format: "zip" (default, D-107: opens with the password alone; needs secret.password) or "7z".
  * Returns { name, id, verified, uploadVerified, trashedOld, trashFailed, parentFallback }.
  */
-export async function reencrypt({ files, secret, parent, trashIds = [], trashOld, drive, names, onStep = () => {} }) {
+export async function reencrypt({ files, secret, parent, trashIds = [], trashOld, drive, names, format = "zip", onStep = () => {} }) {
   if (!files.size) throw new ReencryptFailed("보관할 파일이 없습니다");
-  const name = newArchiveName(names?.length ? names : [...files.keys()]); // e.g. a folder's name
+  if (format !== "zip" && format !== "7z") throw new ReencryptFailed("알 수 없는 보관 형식입니다");
+  if (format === "zip" && !secret?.password) throw new ReencryptFailed("기본 ZIP에는 공통 비밀번호가 필요합니다");
+  const name = newArchiveName(names?.length ? names : [...files.keys()], new Date(), format); // e.g. a folder's name
   const password = await passwordForNew(secret, name);
   if (trashIds.some((id) => typeof id !== "string" || !/^[\w-]+$/.test(id))) throw new ReencryptFailed("파일 ID 형식이 아닙니다");
   onStep("암호화하는 중…");
-  const blob = await create7z(files, password);
+  const blob = await createArchive(files, password, format);
   onStep("검증하는 중 (다시 풀어서 비교)…");
   if (!(await verifyArchive(blob, password, files))) {
     throw new ReencryptFailed("만든 보관 파일을 풀어 비교했더니 달라서 중단했습니다. 드라이브는 그대로입니다.");
@@ -73,12 +77,13 @@ export async function reencrypt({ files, secret, parent, trashIds = [], trashOld
   onStep("올리는 중…");
   let meta;
   let parentFallback = false;
+  const mime = format === "zip" ? "application/zip" : "application/x-7z-compressed";
   try {
-    meta = await drive.upload(name, parent || null, blob);
+    meta = await drive.upload(name, parent || null, blob, mime);
   } catch (e) {
     if (parent && (e.status === 403 || e.status === 404)) {
       // drive.file may not allow writing into a folder this app has never seen → top of My Drive
-      meta = await drive.upload(name, null, blob);
+      meta = await drive.upload(name, null, blob, mime);
       parentFallback = true;
     } else {
       throw new ReencryptFailed(`올리지 못했습니다 (${e.message}). 예전 보관 파일은 그대로입니다.`);

@@ -6,6 +6,12 @@
 //   browser closes; content scripts cannot read session storage) — removed after `lockMinutes`
 //   without use (checked on every use and by the background alarm).
 // Forgot the password → type the recovery key → set a new password.
+//
+// Standard ZIP (D-107, default): one common password the user chooses opens every ZIP with the
+// operating system alone. It is never stored on disk here (there is no keychain in a browser):
+//   chrome.storage.local  "commonCheck" = PBKDF2-SHA256(password, salt, 600 000) — only to catch
+//   a typo before a ZIP is made with it (the ZIP itself already allows guessing offline)
+//   chrome.storage.session "commonPw" = the password + last use, same lock time as the key.
 
 const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const ITERATIONS = 600000;
@@ -97,6 +103,60 @@ export async function checkRecoveryKey(raw) {
   }
 }
 
+/** None if usable, else why not — the desktop app's `standard_zip_password_ok` (Windows and macOS
+ *  read password bytes in different encodings, so only printable ASCII opens everywhere). */
+export function commonPasswordProblem(password, again = password) {
+  const pw = password || "";
+  if (pw.length < 8) return "공통 비밀번호는 8자 이상으로 정해 주세요";
+  if (![...pw].every((c) => c.charCodeAt(0) > 32 && c.charCodeAt(0) < 127)) {
+    return "영문·숫자·기호만 쓸 수 있습니다 (한글·띄어쓰기는 운영체제마다 달라 열리지 않을 수 있음)";
+  }
+  if (pw !== again) return "비밀번호 확인이 다릅니다";
+  return null;
+}
+
+async function commonHash(password, salt, iterations) {
+  const base = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
+  return b64(new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, base, 256)));
+}
+
+export async function hasCommonPassword() {
+  return !!(await local().get("commonCheck")).commonCheck;
+}
+
+/** Choose (or change) the common password. Archives made before keep their own password. */
+export async function setCommonPassword(password, again = password) {
+  const bad = commonPasswordProblem(password, again);
+  if (bad) throw new BadPassword(bad);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const commonCheck = { v: 1, iter: ITERATIONS, salt: b64(salt), hash: await commonHash(password, salt, ITERATIONS) };
+  await local().set({ commonCheck });
+  await keepCommon(password);
+}
+
+/** The common password typed for this browser session; refused if it is not the one chosen. */
+export async function unlockCommon(password) {
+  const c = (await local().get("commonCheck")).commonCheck;
+  if (!c) throw new BadPassword("아직 공통 비밀번호를 정하지 않았습니다");
+  if ((await commonHash(password || "", unb64(c.salt), c.iter)) !== c.hash) {
+    throw new BadPassword("공통 비밀번호가 정해 둔 것과 다릅니다 (오타를 확인해 주세요)");
+  }
+  await keepCommon(password);
+}
+
+async function keepCommon(password) {
+  await session().set({ commonPw: { p: password, at: Date.now() } });
+}
+
+/** The common password for this session, or null (not typed yet, or idle past the lock time). */
+export async function currentCommon({ touch = true } = {}) {
+  const v = (await session().get("commonPw")).commonPw;
+  if (!v) return null;
+  if (Date.now() - v.at > (await lockMinutes()) * 60000) { await session().remove("commonPw"); return null; }
+  if (touch && Date.now() - v.at > 20000) await keepCommon(v.p);
+  return v.p;
+}
+
 async function keep(raw) {
   await session().set({ vaultKey: { k: b64(raw), at: Date.now() } });
 }
@@ -113,6 +173,7 @@ export async function setLockMinutes(value) {
 
 export async function lock() {
   await session().remove("vaultKey");
+  await session().remove("commonPw");
 }
 
 /** The unlocked key, or null (locked, or idle longer than the lock time → locked now). */
@@ -124,8 +185,10 @@ export async function currentKey({ touch = true } = {}) {
   return unb64(v.k);
 }
 
-/** Remove the encrypted copy from this computer (the recovery key on paper still opens everything). */
+/** Remove the encrypted copy and the common-password check from this computer (the recovery key
+ *  on paper and the common password the user keeps still open everything). */
 export async function forget() {
   await lock();
   await local().remove("vaultWrap");
+  await local().remove("commonCheck");
 }

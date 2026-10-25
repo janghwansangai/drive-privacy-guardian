@@ -3,7 +3,8 @@
 - expected/*.json: what the desktop app's extractors read from each synthetic file (text
   segments and table grids) — the extension's parsers must read the same content.
 - archives made by the desktop app code: 7z (AES-256 + header encryption) and AES-ZIP whose
-  password is derived from a SYNTHETIC recovery key (not a real secret; see recovery.txt).
+  password is derived from a SYNTHETIC recovery key (not a real secret; see recovery.txt), and
+  a standard ZIP (D-107) whose common password is derived from the same synthetic key.
 
     uv run python tools/make_ext_fixtures.py
 """
@@ -24,6 +25,10 @@ SRC = ROOT / "tests" / "fixtures" / "synthetic"
 OUT = ROOT / "extension" / "app" / "test" / "fixtures"
 # Fixed, synthetic recovery key used only by tests (checksum-valid, never used for real data).
 SYNTHETIC_RECOVERY_CODE = "ABCDE-FGHIJ-KLMNO-PQRST-UVWXY-Z2345-67ABC"
+# The standard-ZIP fixture's common password is derived from the synthetic recovery key with
+# this tag (tests compute it the same way), so no password-like string is stored in git (D-081).
+COMMON_TEST_TAG = "c0ffee00"
+STANDARD_ZIP_FIXTURE = "상담기록_가상.hwp 외 3개 (암호화 6c7d8e9f).zip"
 
 FILES = {
     "상담기록_가상.hwp": hwp.extract_hwp,
@@ -131,6 +136,13 @@ def main() -> None:
     raw = parse_recovery_key(key)
     members = {n: (SRC / n).read_bytes() for n in FILES}
     tag7z, tagzip = "0a1b2c3d", "4e5f6a7b"
+    std = OUT / STANDARD_ZIP_FIXTURE
+    if not std.exists():  # ZipCrypto headers are random: keep the committed file stable
+        std.write_bytes(
+            archive.create(
+                members, derive_password(raw, COMMON_TEST_TAG), archive.ArchiveFormat.STANDARD_ZIP
+            )
+        )
     kept = (OUT / f"보관_2026-09-27_{tag7z}.7z").exists()
     if kept and "--archives" not in sys.argv:
         print("archives kept (pass --archives to rebuild; the salt makes them differ each time)")

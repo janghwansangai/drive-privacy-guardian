@@ -11,6 +11,9 @@ export const read = (p) => new Uint8Array(fs.readFileSync(p));
 export const parseXml = (text) => new DOMParser().parseFromString(text, "text/xml");
 export const expected = (name) => JSON.parse(fs.readFileSync(path.join(FIX, "expected", `${name}.json`), "utf8"));
 export const recoveryKey = () => fs.readFileSync(path.join(FIX, "recovery.txt"), "utf8").split("\n")[0].trim();
+// D-107 fixtures: the common password is derived from the synthetic key with this tag (no
+// password-like string in git); same as tools/make_ext_fixtures.py.
+export const COMMON_TEST_TAG = "c0ffee00";
 
 // Under Node, 7-Zip WASM records its own exit status (2 = wrong password, which the tests expect)
 // as the process exit code; the test runner would read that as a failed file.

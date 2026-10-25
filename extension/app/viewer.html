@@ -121,7 +121,13 @@
       <p class="cap">리디렉션 주소: <code id="redirect"></code></p>
       <h3>자동 잠금</h3>
       <label class="cap">안 쓰면 잠그기 <select id="lockMinutes"><option value="5">5분</option><option value="15">15분</option><option value="30">30분</option><option value="60">60분</option></select></label>
-      <h3>개인 비밀번호 바꾸기</h3>
+      <h3>공통 비밀번호 바꾸기 <span class="cap">(기본 ZIP)</span></h3>
+      <p class="cap">예전 ZIP은 예전 비밀번호로 열립니다. 데스크톱 앱에서도 같은 것으로 바꾸세요.</p>
+      <input id="oldCommon" type="password" placeholder="지금 공통 비밀번호" autocomplete="off">
+      <input id="newCommon" type="password" placeholder="새 공통 비밀번호 (8자 이상, 영문·숫자·기호)" autocomplete="off">
+      <input id="newCommon2" type="password" placeholder="확인" autocomplete="off">
+      <div><button id="changeCommon" class="btn outline green">바꾸기</button> <span id="changeCommonMsg" class="cap"></span></div>
+      <h3>개인 비밀번호 바꾸기 <span class="cap">(복구 키 잠금)</span></h3>
       <input id="newPw" type="password" placeholder="새 개인 비밀번호 (8자 이상)" autocomplete="new-password">
       <input id="newPw2" type="password" placeholder="확인" autocomplete="new-password">
       <div><button id="changePw" class="btn outline green">바꾸기</button> <span id="changePwMsg" class="cap"></span></div>
@@ -147,8 +153,9 @@
   <main>
     <aside>
       <div id="vaultCard">
+        <div id="vaultIntro" class="strip gray" hidden><svg class="ic"><use href="#i-lock"/></svg><span class="grow">기본 ZIP은 공통 비밀번호만 있으면 됩니다 <span class="cap">· 복구 키는 높은 보안 7z용</span></span><button id="setupShow" class="stripBtn">복구 키 설정</button></div>
         <div id="vaultSetup" class="card form" hidden>
-          <b>처음 한 번 설정</b>
+          <b>복구 키 설정 <span class="cap">(높은 보안 7z용, 처음 한 번)</span></b>
           <label class="radio"><input type="radio" name="setupMode" value="have" checked> 복구 키가 있어요 <span class="cap">(데스크톱 앱의 35자)</span></label>
           <label class="radio"><input type="radio" name="setupMode" value="new"> 없어요, 새로 만들기</label>
           <input id="setupKey" placeholder="복구 키 35자" autocomplete="off">
@@ -161,9 +168,10 @@
           <input id="setupPw" type="password" placeholder="개인 비밀번호 (8자 이상)" autocomplete="new-password">
           <input id="setupPw2" type="password" placeholder="개인 비밀번호 확인" autocomplete="new-password">
           <button id="setupGo" class="btn primary green wide">설정 완료</button>
+          <button type="button" id="setupCancel" class="btn ghost">나중에</button>
         </div>
         <form id="vaultUnlock" class="card form" hidden autocomplete="off">
-          <b><svg class="ic"><use href="#i-lock"/></svg> 잠겨 있습니다</b>
+          <b><svg class="ic"><use href="#i-lock"/></svg> 복구 키 잠김 <span class="cap">(7z 파일용)</span></b>
           <input id="vaultPw" type="password" placeholder="개인 비밀번호" autocomplete="current-password">
           <button type="submit" class="btn primary green wide">잠금 풀기</button>
           <button type="button" id="forgotBtn" class="btn ghost">비밀번호를 잊었나요?</button>
@@ -176,7 +184,7 @@
           <button type="submit" class="btn primary green wide">새 비밀번호로 열기</button>
           <button type="button" id="forgotCancel" class="btn ghost">취소</button>
         </form>
-        <div id="vaultOpen" class="strip green" hidden><svg class="ic"><use href="#i-unlock"/></svg><span class="grow">잠금 풀림 <span id="lockInfo"></span></span><button id="lockNow" class="stripBtn">잠그기</button></div>
+        <div id="vaultOpen" class="strip green" hidden><svg class="ic"><use href="#i-unlock"/></svg><span class="grow">복구 키 잠금 풀림 <span id="lockInfo"></span></span><button id="lockNow" class="stripBtn">잠그기</button></div>
         <p id="vaultMsg" class="message"></p>
       </div>
       <p id="driveLink" class="driveLink" hidden></p>
@@ -199,7 +207,7 @@
       <div id="unlock" class="card" hidden>
         <h2 id="unlockName"></h2>
         <form id="unlockForm" autocomplete="off">
-          <input id="password" type="password" placeholder="이 파일만의 비밀번호" autocomplete="off">
+          <input id="password" type="password" placeholder="이 파일의 비밀번호" autocomplete="off">
           <button type="submit" class="btn primary green">열기</button>
         </form>
         <p class="cap" id="unlockHint"></p>
@@ -224,7 +232,15 @@
         <ol class="steps">
           <li id="pickStep">고친 파일 고르기 <span class="cap">(같은 이름은 바뀜)</span><input id="pick" type="file" multiple></li>
           <li id="rowsStep">암호화할 파일<table id="reencRows" class="rows"></table></li>
-          <li id="secretInfo" class="cap"></li>
+          <li id="formatStep">암호 방식
+            <label class="radio"><input type="radio" name="fmt" value="zip" checked> <span><b>기본 ZIP</b> <span class="cap">— 윈도우·맥에서 비밀번호만 넣으면 열림</span></span></label>
+            <label class="radio"><input type="radio" name="fmt" value="7z"> <span><b>높은 보안 7z</b> <span class="cap">— 파일 이름까지 숨김 (이 프로그램·7-Zip·Keka 필요)</span></span></label>
+            <p id="secretInfo" class="cap"></p>
+            <div id="commonBox" class="form" hidden>
+              <input id="commonPw" type="password" placeholder="공통 비밀번호" autocomplete="off">
+              <input id="commonPw2" type="password" placeholder="공통 비밀번호 확인" autocomplete="off">
+            </div>
+          </li>
           <li id="trashStep"><label class="radio"><input id="trashOld" type="checkbox" checked> 확인 후 <b id="trashLabel">예전 보관 파일을 휴지통으로</b></label></li>
         </ol>
         <p class="cap" id="whereInfo"></p>
