@@ -58,3 +58,11 @@ test("extension archives are stored without compression (user request) but still
   assert.deepEqual([...back.keys()], ["폴더/하위/빈칸.bin"]);
   await assert.rejects(openArchive(blob, "wrong-password"), WrongPassword);
 });
+
+test("D-104: password derivation is pinned (same values as the desktop app, v0.2.5)", async () => {
+  const { parseRecoveryKey, derivePassword } = await import("../lib/vault.js");
+  const raw = await parseRecoveryKey(recoveryKey());
+  // If this fails, archives already on people's drives would stop opening: fix the code, not the values.
+  assert.equal(await derivePassword(raw, "0a1b2c3d"), "KZaY-wJRt-lIAZ-LNoc-uQo3-ptSc");
+  assert.equal(await derivePassword(raw, "ffffffff"), "Biud-RZi9-qz2p-pqN5-HdM1-uL2i");
+});

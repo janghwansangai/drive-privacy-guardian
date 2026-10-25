@@ -48,6 +48,14 @@ def _table(headers: list[str], rows: list[list[str]]) -> QTableWidget:
     return table
 
 
+RUN_STATUS_KO = {
+    "done": "완료",
+    "cancelled": "중단함",
+    "running": "⚠ 중간에 멈춤 (되돌리기로 정리)",
+    "interrupted": "멈춘 뒤 되돌림",
+}
+
+
 class ActionDialog(QDialog):
     """Pick an action and see exactly what will change before anything is written."""
 
@@ -271,7 +279,7 @@ class HistoryDialog(QDialog):
                     created.replace("T", " ").rstrip("Z"),
                     label,
                     "드라이런" if dry else "실행",
-                    status,
+                    RUN_STATUS_KO.get(status, status),
                 ]
             )
         self.table = _table(["번호", "시각(UTC)", "조치", "종류", "상태"], rows)

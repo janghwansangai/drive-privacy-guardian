@@ -244,3 +244,37 @@ def test_only_the_writer_module_issues_write_requests() -> None:
             ):
                 offenders.append(f"{path.relative_to(SRC)}:{node.lineno}")
     assert offenders == []
+
+
+def test_interrupted_run_is_found_and_fully_undone(store: AuditStore) -> None:
+    """Power cut after Drive applied a change but before it was recorded as DONE: the run
+    stays 'running', is reported, and undo checks Drive and restores it anyway."""
+    fake, ids = _drive()
+    audits = _audit(fake, store)
+    client = DriveClient(fake.service())
+    plan = _plan(ActionKind.REMOVE_LINK, audits, [ids["link"], ids["folder"]])
+    result = ActionExecutor(client, store).execute(plan)  # type: ignore[arg-type]
+    # what a crash leaves: both applied on Drive, the second one still 'planned', run unfinished
+    changes = store.load_changes(result.run_id)
+    changes[1].state = ChangeState.PLANNED
+    store.save_changes(result.run_id, changes)
+    store._db.execute("UPDATE action_runs SET status='running' WHERE run_id=?", (result.run_id,))
+    assert store.interrupted_action_runs() == [result.run_id]
+    undo = ActionExecutor(client, store).undo(result.run_id)
+    assert undo.count(ChangeState.UNDONE) == 2
+    assert fake.visibility(fake.items[ids["link"]]) == "anyoneWithLink"
+    assert fake.visibility(fake.items[ids["folder"]]) == "anyoneWithLink"
+    assert store.interrupted_action_runs() == []  # settled
+
+
+def test_interrupted_before_anything_applied_changes_nothing(store: AuditStore) -> None:
+    fake, ids = _drive()
+    audits = _audit(fake, store)
+    client = DriveClient(fake.service())
+    plan = _plan(ActionKind.LINK_TO_VIEW, audits, [ids["link"]])
+    run_id = store.new_action_run("link_to_view", False)  # crashed right after recording
+    store.save_changes(run_id, plan.changes)  # type: ignore[attr-defined]
+    before = len(fake.write_calls)
+    undo = ActionExecutor(client, store).undo(run_id)
+    assert undo.count(ChangeState.UNDONE) == 1  # nothing to undo: already as before
+    assert len(fake.write_calls) == before  # and no write was made

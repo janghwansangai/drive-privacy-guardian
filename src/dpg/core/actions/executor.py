@@ -204,8 +204,12 @@ class ActionExecutor:
 
     def undo(self, run_id: int) -> RunResult:
         changes = self.store.load_changes(run_id)
+        # A run that never finished (crash, power cut) may have applied changes it could not
+        # record as DONE: undo those too — _undo_file checks what is really on Drive first.
+        interrupted = self.store.action_run_status(run_id) == "running"
+        undoable = {ChangeState.DONE, ChangeState.PLANNED} if interrupted else {ChangeState.DONE}
         undo_id = self.store.new_action_run(f"undo:{run_id}", False)
-        targets = [c for c in reversed(changes) if c.state is ChangeState.DONE]
+        targets = [c for c in reversed(changes) if c.state in undoable]
         by_file: dict[str, list[Change]] = {}
         for c in targets:
             by_file.setdefault(c.file_id, []).append(c)
@@ -213,6 +217,8 @@ class ActionExecutor:
             self._undo_file(changes_for_file)
             self.store.save_changes(run_id, changes)
         self.store.finish_action_run(undo_id, "done")
+        if interrupted:
+            self.store.finish_action_run(run_id, "interrupted")  # settled: no more reminders
         return RunResult(run_id, False, changes)
 
     def _undo_file(self, changes: list[Change]) -> None:
@@ -231,6 +237,9 @@ class ActionExecutor:
                     self.writer.create_permission(c.file_id, c.before)
                 elif c.op is Op.UPDATE_PERM:
                     current = (perms or {}).get(c.perm_id or "")
+                    if current is not None and current.get("role") == c.before.get("role"):
+                        c.state = ChangeState.UNDONE  # never applied (interrupted) or restored
+                        continue
                     if current is None or current.get("role") != (c.after or {}).get("role"):
                         c.state, c.error = ChangeState.NOT_UNDOABLE, "그 사이 다시 바뀜"
                         continue
@@ -238,6 +247,9 @@ class ActionExecutor:
                         c.file_id, c.perm_id or "", str(c.before["role"])
                     )
                 else:
+                    if meta is not None and _file_matches(meta, c.before):
+                        c.state = ChangeState.UNDONE  # never applied (interrupted) or restored
+                        continue
                     if meta is None or not _file_matches(meta, c.after or {}):
                         c.state, c.error = ChangeState.NOT_UNDOABLE, "그 사이 다시 바뀜"
                         continue

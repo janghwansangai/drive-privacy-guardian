@@ -139,6 +139,7 @@ class AuditResult:
     trimmed: bool = False  # big drive: `items` holds only what needs attention (D-102)
     # folders above the items that are not items themselves: id -> (name, parent id), D-103
     folders: dict[str, tuple[str, str | None]] = field(default_factory=dict)
+    interrupted_actions: list[int] = field(default_factory=list)  # set by the app (store check)
 
 
 def _escape(value: str) -> str:

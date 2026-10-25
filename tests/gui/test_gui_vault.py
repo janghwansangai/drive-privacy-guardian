@@ -23,6 +23,7 @@ from dpg.gui.vault_ui import (
     MoveDialog,
     OrganizeDialog,
     PasswordDialog,
+    RecoveryKeyDialog,
     recovery_card_html,
 )
 from tests.gui.test_gui import Env, _audit, _login, _select_file
@@ -63,14 +64,14 @@ def test_archive_flow_end_to_end(qtbot: Any, env: Env) -> None:
             assert dialog.plan.action is ActionKind.RESTRICT_ALL
             assert not dialog.dry_run.isEnabled()
             return 1
+        if isinstance(dialog, RecoveryKeyDialog):  # D-104: required before the first archive
+            dialog.kept.setChecked(True)
+            dialog.check.setText(dialog.last_group)
+            return 1
         if isinstance(dialog, PasswordDialog):
+            assert dialog.recoverable  # made from the recovery key: always re-creatable
             assert dialog.save_keychain.isChecked()  # keychain by default
-            assert "키체인 접근" in dialog.findChildren(type(dialog.note))[1].text()
-            dialog.save_keychain.setChecked(False)
-            assert not dialog.ok.isEnabled()  # then it must have been written down
-            dialog.recorded.setChecked(True)
             assert dialog.ok.isEnabled()
-            dialog.save_keychain.setChecked(True)
             seen["password"] = dialog.field.text()
             return 1
         if isinstance(dialog, ArchiveResultDialog):
@@ -739,6 +740,9 @@ def test_recovery_key_opens_archive_after_losing_every_password(
             assert not dialog.ok.isEnabled()  # must confirm a paper copy exists
             paper["key"] = dialog.field.text()
             dialog.kept.setChecked(True)
+            assert not dialog.ok.isEnabled()  # ... and type its last group back (D-104)
+            dialog.check.setText(paper["key"].split("-")[-1].lower())
+            assert dialog.ok.isEnabled()
             return 1
         if isinstance(dialog, PasswordDialog):
             assert dialog.recoverable
@@ -799,6 +803,7 @@ def test_recovery_key_is_never_replaced_and_reentry_checks_fingerprint(
     def accept_new(dialog: Any) -> int:
         if isinstance(dialog, RecoveryKeyDialog):
             dialog.kept.setChecked(True)
+            dialog.check.setText(dialog.last_group)
             return 1
         return 0
 

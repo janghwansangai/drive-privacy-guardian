@@ -317,3 +317,27 @@ def test_cli_report_permission_error_is_explained(
     code = audit_cmd._write_report(args, Result())  # type: ignore[arg-type]
     assert code == 5
     assert "파일 및 폴더" in capsys.readouterr().err
+
+
+def test_damaged_database_is_set_aside(tmp_path: Path) -> None:
+    """A power cut can leave a broken file: the app starts a new one instead of failing."""
+    path = tmp_path / "x.db"
+    path.write_bytes(b"this is not a database" * 100)
+    store = AuditStore(path, ColumnCipher(os.urandom(32)))
+    try:
+        assert store.recovered_from_damage
+        scan = store.new_scan("mine", {})
+        assert store.count_items(scan) == 0
+    finally:
+        store.close()
+    assert len(list(tmp_path.glob("x-damaged-*.db"))) == 1
+
+
+def test_prefs_are_written_whole(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from dpg.gui.context import Prefs
+
+    monkeypatch.setattr(Prefs, "path", staticmethod(lambda: tmp_path / "prefs.json"))
+    p = Prefs(retention_days=90)
+    p.save()
+    assert Prefs.load().retention_days == 90
+    assert not (tmp_path / "prefs.json.tmp").exists()

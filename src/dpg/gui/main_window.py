@@ -1189,6 +1189,8 @@ class MainWindow(QMainWindow):
                     result = runner.run_incremental(scope)
                 if result is None:
                     result = runner.run(scope, resume=not restart)
+                # a permission change cut off by a crash / power loss: tell, so it can be undone
+                result.interrupted_actions = store.interrupted_action_runs()
                 detections = None
                 if detect:
                     # files unchanged since the last detection keep their result (copied)
@@ -1564,6 +1566,12 @@ class MainWindow(QMainWindow):
             notices.append(
                 "'확인 필요' 항목은 공유 설정을 확인할 권한이 없는 파일입니다. "
                 "안전하다는 뜻이 아니므로 소유자에게 확인해 주세요."
+            )
+        if result.interrupted_actions:
+            notices.append(
+                f"⚠ 지난번 권한 변경 {len(result.interrupted_actions)}건이 중간에 멈췄습니다"
+                "(프로그램 종료·정전 등). 「변경 기록」에서 「⚠ 중간에 멈춤」을 골라 "
+                "되돌리면 실제 드라이브 상태를 확인해 정리합니다."
             )
         if result.trimmed:
             notices.append(
@@ -2277,7 +2285,8 @@ class MainWindow(QMainWindow):
             return None
 
     def _recovery_key_for_new_archive(self) -> bytes | None:
-        """Use the recovery key if there is one; otherwise offer to make (or re-enter) one."""
+        """The recovery key every new archive is made with (D-104: required). Without one the
+        archive's password would live only in a keychain — lose that and the files are gone."""
         raw = self._recovery_key()
         if raw is not None:
             return raw
@@ -2286,19 +2295,20 @@ class MainWindow(QMainWindow):
                 self,
                 "복구 키",
                 "예전에 만든 복구 키가 이 컴퓨터의 키체인에 없습니다(모든 기록 삭제 또는 새 "
-                "컴퓨터). 종이에 적어 둔 복구 키를 입력하면 이어서 쓸 수 있습니다.",
+                "컴퓨터). 종이에 적어 둔 복구 키를 입력해야 암호화할 수 있습니다.",
                 "복구 키 입력",
-                "이번엔 복구 키 없이 진행",
+                "취소",
             ):
                 self.enter_recovery_key()
             return self._recovery_key()
         if self.ctx.confirm(
             self,
-            "복구 키 만들기 (권장)",
-            "비밀번호와 키체인을 모두 잃어도 암호화한 파일을 열 수 있도록 '복구 키'를 "
-            "만들까요?\n\n복구 키는 한 번 만들어 종이에 보관합니다. 메일·서버로 보내지 않습니다.",
+            "복구 키 만들기 (필수)",
+            "암호화하려면 먼저 '복구 키'를 만듭니다. 비밀번호와 키체인을 모두 잃어도 이 키 "
+            "하나로 암호화한 파일을 모두 열 수 있습니다.\n\n한 번 만들어 종이에 적거나 "
+            "인쇄해 보관합니다. 메일·서버로 보내지 않습니다.",
             "복구 키 만들기",
-            "만들지 않고 진행",
+            "취소",
         ):
             self.create_recovery_key()
         return self._recovery_key()
@@ -2385,10 +2395,16 @@ class MainWindow(QMainWindow):
         raw = self._recovery_key_for_new_archive()
         name = archive.archive_name(fmt, names=[member_name(i) for i in items])
         tag = tag_from_name(name)
-        if raw is not None and tag is not None:
-            password = derive_password(raw, tag)
-        else:
-            password = archive.generate_password()
+        if raw is None or tag is None:
+            self.ctx.notify(
+                self,
+                "암호화 보관",
+                "복구 키가 있어야 암호화할 수 있습니다. 파일은 그대로입니다.",
+            )
+            self._pending_refresh = True
+            self._after_task()
+            return
+        password = derive_password(raw, tag)
         pw_dialog = PasswordDialog(
             password,
             lambda pw: print_recovery_card(pw, self),

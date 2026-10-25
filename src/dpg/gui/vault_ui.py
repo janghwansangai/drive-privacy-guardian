@@ -656,6 +656,9 @@ def print_recovery_key(key: str, fp: str, parent: QWidget | None = None) -> None
         doc.clear()
 
 
+_CONFUSABLE = str.maketrans({"0": "O", "1": "I", "8": "B"})
+
+
 class RecoveryKeyDialog(QDialog):
     """Shows the recovery key (new, or again from the keychain). New keys need confirmation
     that a paper copy exists."""
@@ -693,6 +696,11 @@ class RecoveryKeyDialog(QDialog):
         warn.setWordWrap(True)
         warn.setStyleSheet("color: #b06000; font-weight: bold;")
         self.kept = QCheckBox("복구 키를 종이에 적거나 인쇄해 안전한 곳에 보관했습니다")
+        # Proof the copy exists (D-104): the last group, typed back from the paper.
+        self.last_group = key.split("-")[-1].upper()
+        self.check = QLineEdit()
+        self.check.setPlaceholderText("종이에 적은 복구 키의 마지막 5자를 입력해 확인")
+        self.check.setMaxLength(8)
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | (
@@ -704,9 +712,10 @@ class RecoveryKeyDialog(QDialog):
         self.ok = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
         self.ok.setText("복구 키 사용 시작" if new else "닫기")
         if new:
-            self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("만들지 않음")
+            self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("나중에")
             self.ok.setEnabled(False)
-            self.kept.toggled.connect(self.ok.setEnabled)
+            self.kept.toggled.connect(self._update)
+            self.check.textChanged.connect(self._update)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)
@@ -720,7 +729,12 @@ class RecoveryKeyDialog(QDialog):
         layout.addWidget(warn)
         if new:
             layout.addWidget(self.kept)
+            layout.addWidget(self.check)
         layout.addWidget(self.buttons)
+
+    def _update(self) -> None:
+        typed = self.check.text().replace(" ", "").upper().translate(_CONFUSABLE)
+        self.ok.setEnabled(self.kept.isChecked() and typed == self.last_group)
 
     def done(self, result: int) -> None:
         self.field.clear()

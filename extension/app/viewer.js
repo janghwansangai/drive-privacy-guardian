@@ -397,6 +397,9 @@ $("setupGo").onclick = async () => {
   let raw;
   if (making) {
     if (!$("newKeySaved").checked) { vaultMsg("새 복구 키를 종이에 적은 뒤 「종이에 적었습니다」를 체크해 주세요."); return; }
+    // D-104: proof the paper copy exists — its last group, typed back
+    const norm = (t) => t.replace(/[\s-]/g, "").toUpperCase().replace(/0/g, "O").replace(/1/g, "I").replace(/8/g, "B");
+    if (norm($("newKeyCheck").value) !== norm(newKey.text.split("-").pop())) { vaultMsg("종이에 적은 복구 키의 마지막 5자를 넣어 주세요 (적은 것이 맞는지 확인합니다)."); return; }
     raw = newKey.raw;
   } else {
     raw = await parseRecoveryKey($("setupKey").value);
@@ -407,7 +410,7 @@ $("setupGo").onclick = async () => {
   $("setupGo").disabled = true;
   try {
     await keyring.setPassword(raw, $("setupPw").value);
-    ["setupKey", "setupPw", "setupPw2"].forEach((x) => { $(x).value = ""; });
+    ["setupKey", "setupPw", "setupPw2", "newKeyCheck"].forEach((x) => { $(x).value = ""; });
     newKey = null; $("newKeyText").textContent = "";
     await refreshVault();
   } catch (e) { vaultMsg(e.message); } finally { $("setupGo").disabled = false; }

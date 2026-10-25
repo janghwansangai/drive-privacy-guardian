@@ -56,11 +56,17 @@ class Prefs:
         )
 
     def save(self) -> None:
+        """Write to a temporary file, flush it to disk, then swap it in: a crash or power cut
+        leaves either the old or the new settings, never a half-written file."""
         path = self.path()
         ensure_private_dir(path.parent)
-        fd = os.open(path, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
+        tmp = path.with_name(path.name + ".tmp")
+        fd = os.open(tmp, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(asdict(self), fh, ensure_ascii=False, indent=2)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
 
 
 RETENTION_CHOICES = (7, 30, 90, 180, 365)

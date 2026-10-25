@@ -164,9 +164,27 @@ class AuditStore:
             os.chmod(path, 0o600)
         self.path = path
         self._cipher = cipher
-        self._db = sqlite3.connect(path, isolation_level=None)
+        try:
+            self._open(retention_days)
+        except sqlite3.DatabaseError:
+            # A crash or power cut can damage the file. It only holds scan results and the
+            # change history (the files on Drive are not in it): set it aside, start a new one.
+            self._db.close()
+            aside = path.with_name(f"{path.stem}-damaged-{_now().replace(':', '')}.db")
+            path.replace(aside)
+            log.info("damaged database set aside; starting a new one")
+            fd = os.open(path, os.O_CREAT | os.O_WRONLY, 0o600)
+            os.close(fd)
+            self.recovered_from_damage = True
+            self._open(retention_days)
+
+    recovered_from_damage = False
+
+    def _open(self, retention_days: int) -> None:
+        self._db = sqlite3.connect(self.path, isolation_level=None)
         self._db.execute("PRAGMA foreign_keys=ON")
         self._db.execute("PRAGMA secure_delete=ON")
+        self._db.execute("PRAGMA synchronous=FULL")  # every commit is on disk before going on
         self._db.executescript(_SCHEMA)
         self._db.execute(
             "INSERT OR IGNORE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
@@ -531,6 +549,22 @@ class AuditStore:
                 )
             )
         return out
+
+    def action_run_status(self, run_id: int) -> str | None:
+        row = self._db.execute(
+            "SELECT status FROM action_runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return str(row[0]) if row else None
+
+    def interrupted_action_runs(self) -> list[int]:
+        """Runs that never finished (the app or the computer stopped in the middle)."""
+        return [
+            int(r[0])
+            for r in self._db.execute(
+                "SELECT run_id FROM action_runs WHERE status='running' AND dry_run=0"
+                " AND action NOT LIKE 'undo:%' ORDER BY run_id"
+            )
+        ]
 
     def action_runs(self, limit: int = 50) -> list[tuple[int, str, bool, str, str]]:
         """(run_id, action, dry_run, status, created_at), newest first."""

@@ -68,3 +68,28 @@ def test_fingerprint_and_tags() -> None:
     assert tag_from_name("상담기록.hwp 외 2개 (암호화 0a1b2c3d).zip") == "0a1b2c3d"
     assert tag_from_name("상담기록 (암호화).7z") is None
     assert tag_from_name("사진.zip") is None
+
+
+def test_derivation_never_changes() -> None:
+    """D-104: every archive ever made must keep opening with its recovery key. These values
+    were produced by v0.2.5 from the synthetic test key; if this test fails, the change would
+    lock users out of their files — do not "fix" the expected values, fix the code."""
+    from pathlib import Path
+
+    key = (
+        (
+            Path(__file__).resolve().parents[2]
+            / "extension"
+            / "app"
+            / "test"
+            / "fixtures"
+            / "recovery.txt"
+        )
+        .read_text(encoding="utf-8")
+        .splitlines()[0]
+        .strip()
+    )
+    raw = parse_recovery_key(key)
+    assert fingerprint(raw) == "525ADC3A"
+    assert derive_password(raw, "0a1b2c3d") == "KZaY-wJRt-lIAZ-LNoc-uQo3-ptSc"
+    assert derive_password(raw, "ffffffff") == "Biud-RZi9-qz2p-pqN5-HdM1-uL2i"
