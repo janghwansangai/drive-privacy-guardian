@@ -485,7 +485,7 @@ def test_small_result_is_not_trimmed(
 
 
 def test_folders_above_the_result_give_the_whole_path(store: AuditStore) -> None:
-    """D-103: in 「링크로 공개된 내 파일만」 the folders are not results, yet 「위치」 shows them."""
+    """D-103: in the public-only scope the folders are not results, yet 「위치」 shows them."""
     from dpg.gui.results_model import ResultsModel
 
     fake = FakeDrive(me=ME)
