@@ -118,7 +118,11 @@ def recommend(
         recs.append(Recommendation(Level.HIGH, "외부 계정 확인 후 제거", "remove_external"))
     elif det.detected and det.high_sensitivity and audit.exposure == Exposure.EXTERNAL:
         recs.append(Recommendation(Level.HIGH, "외부 공유 확인 후 제거", "remove_external"))
-    if det.status in (DetectStatus.UNSCANNABLE, DetectStatus.FAILED) and link:
+    unread = (
+        det.status in (DetectStatus.UNSCANNABLE, DetectStatus.FAILED)
+        and det.reason is not UnscannableReason.VAULT  # locked on purpose: nothing to check
+    )
+    if unread and link:
         recs.append(Recommendation(Level.REVIEW, "수동 검토 필요 (검사 불가 + 링크 공개)"))
     if det.detected and audit.exposure == Exposure.DOMAIN:
         recs.append(
@@ -150,7 +154,7 @@ def recommend(
                 "archive",
             )
         )
-    if det.status in (DetectStatus.UNSCANNABLE, DetectStatus.FAILED) and not link:
+    if unread and not link:
         recs.append(Recommendation(Level.INFO, "내용을 읽지 못함: 직접 열어 개인정보 여부 확인"))
     if det.status is DetectStatus.SUSPECT:
         recs.append(Recommendation(Level.INFO, "의심 항목: 내용 확인 필요"))

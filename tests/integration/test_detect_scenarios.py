@@ -73,6 +73,13 @@ def _drive() -> tuple[FakeDrive, dict[str, str]]:
     ids["zip"] = fake.add_file(
         "백업.zip", parent=folder, mime_type="application/zip", content=b"PK"
     )
+    ids["vault"] = fake.add_file(  # made by this app: locked on purpose
+        "상담기록_가상.hwp (암호화 7f3a9c2e).zip",
+        parent=folder,
+        mime_type="application/zip",
+        content=b"PK",
+    )
+    fake.share(ids["vault"], "anyone", "reader")
     fake.share(ids["6-2_학생_연락처.csv"], "anyone", "reader")
     fake.share(ids["학생명단_가상.hwpx"], "user", "reader", email="parent@gmail.example")
     fake.share(ids["스캔_가상.pdf"], "anyone", "reader")
@@ -204,3 +211,19 @@ def test_review_is_masked(store: AuditStore) -> None:
 
     for value in re.findall(r"\d{6}-\d{7}|9999-\d{4}-\d{4}-\d{4}", raw):
         assert all(value not in line.snippet for line in lines)
+
+
+def test_own_encrypted_archives_are_locked_not_unread(store: AuditStore) -> None:
+    """The app's archives are not downloaded to "read" and get no 'open it and check' advice;
+    they are still never reported as clean (status stays 검사 불가, reason VAULT)."""
+    fake, ids = _drive()
+    result, dets = _scan(fake, store)
+    det = dets[ids["vault"]]
+    assert det.status is DetectStatus.UNSCANNABLE
+    assert det.reason is UnscannableReason.VAULT
+    fetched = [kw.get("fileId") for name, kw in fake.calls if name == "files.get_media"]
+    assert ids["vault"] not in fetched
+    audit = next(a for a in result.items if a.file_id == ids["vault"])  # type: ignore[attr-defined]
+    assert recommend(audit, det) == []  # link-shared, but nothing to review: it is locked
+    plain_zip = next(a for a in result.items if a.file_id == ids["zip"])  # type: ignore[attr-defined]
+    assert recommend(plain_zip, dets[ids["zip"]])  # an ordinary unread zip still asks for a look

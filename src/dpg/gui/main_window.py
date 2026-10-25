@@ -54,7 +54,7 @@ from dpg.core.auth.scopes import LEVEL_EXPLAIN_KO, LEVEL_LABEL_KO
 from dpg.core.detect.rules import KIND_LABEL_KO
 from dpg.core.detect.runner import DetectProgress, DetectRunner, review
 from dpg.core.drive.client import VAULT_NAME_RE, DriveClient, DriveHttpError
-from dpg.core.extract import UNSCANNABLE_LABEL_KO, Unscannable
+from dpg.core.extract import UNSCANNABLE_LABEL_KO, Unscannable, UnscannableReason
 from dpg.core.logging import get_logger
 from dpg.core.organize import build_move_plan, duplicate_groups, new_folder_audit, suggest
 from dpg.core.policy import DetectStatus, FileDetection
@@ -2004,7 +2004,8 @@ class MainWindow(QMainWindow):
             unscannable = sum(
                 1
                 for d in detections.values()
-                if d.status in (DetectStatus.UNSCANNABLE, DetectStatus.FAILED) or d.partial
+                if (d.status in (DetectStatus.UNSCANNABLE, DetectStatus.FAILED) or d.partial)
+                and d.reason is not UnscannableReason.VAULT  # our own archives: locked on purpose
             )
             if unscannable:
                 notices.append(

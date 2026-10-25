@@ -54,7 +54,7 @@ def _archive() -> str:
         blob = archive.create({"t.txt": b"ok"}, "Aa1-selftest", fmt)
         if archive.open_archive(blob, "Aa1-selftest") != {"t.txt": b"ok"}:
             raise AssertionError(f"{fmt} round trip failed")
-    return "7z AES-256 · AES-ZIP"
+    return "기본 ZIP · 7z AES-256 · AES-ZIP"
 
 
 def _extractors() -> str:

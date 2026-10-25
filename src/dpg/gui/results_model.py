@@ -27,7 +27,7 @@ from dpg.core.audit.model import (
 )
 from dpg.core.detect.rules import KIND_LABEL_KO, Confidence
 from dpg.core.drive.client import VAULT_NAME_RE
-from dpg.core.extract.base import UNSCANNABLE_LABEL_KO
+from dpg.core.extract.base import UNSCANNABLE_LABEL_KO, UnscannableReason
 from dpg.core.policy import (
     DETECT_STATUS_LABEL_KO,
     LEVEL_LABEL_KO,
@@ -37,6 +37,7 @@ from dpg.core.policy import (
     Recommendation,
     recommend,
 )
+from dpg.core.vault.recovery import tag_from_name
 
 COLUMNS = [
     "",  # checkbox
@@ -150,6 +151,8 @@ def privacy_text(det: FileDetection | None) -> str:
     if det is None:
         return ""
     partial = " (일부 검사 불가)" if det.partial else ""
+    if det.status is DetectStatus.UNSCANNABLE and det.reason is UnscannableReason.VAULT:
+        return "🔒 암호화한 보관 파일 (잠겨 있음)"
     if det.status is DetectStatus.UNSCANNABLE and det.reason is not None:
         return f"검사 불가: {UNSCANNABLE_LABEL_KO[det.reason]}"
     if det.status in (DetectStatus.DETECTED, DetectStatus.SUSPECT):
@@ -302,12 +305,7 @@ class ResultsModel(QAbstractTableModel):
             if col == COL_LOCATION:
                 return self.paths.get(a.file_id, "")
             if col == COL_NOTES and VAULT_NAME_RE.match(a.name):
-                key = (
-                    "🔑 비밀번호: 키체인에 저장됨"
-                    if a.name in self.vault_saved
-                    else "🔑 비밀번호: 키체인에 없음 (적어 둔 곳 확인)"
-                )
-                return " / ".join([key, *a.notes])
+                return " / ".join([self._vault_note(a.name), *a.notes])
             return self._text(a, det, recs, col)
         if role == Qt.ItemDataRole.UserRole:  # sort key
             if col == COL_LOCATION:
@@ -358,6 +356,16 @@ class ResultsModel(QAbstractTableModel):
                     for k, v in det.kinds.items()
                 )
         return None
+
+    def _vault_note(self, name: str) -> str:
+        """How this archive opens (D-107: standard ZIPs with the common password)."""
+        if name in self.vault_saved:
+            return "🔑 비밀번호: 키체인에 저장됨"
+        if name.lower().endswith(".zip"):
+            return "🔑 ZIP: 공통 비밀번호로 열림 (예전 ZIP은 복구 키)"
+        if tag_from_name(name):
+            return "🔑 높은 보안 7z: 복구 키로 열림"
+        return "🔑 비밀번호: 키체인에 없음 (적어 둔 곳 확인)"
 
     @staticmethod
     def _text(a: FileAudit, det: FileDetection | None, recs: list[Recommendation], col: int) -> str:

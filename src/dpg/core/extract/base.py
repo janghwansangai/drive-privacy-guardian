@@ -31,6 +31,7 @@ class UnscannableReason(StrEnum):
     UNSUPPORTED = "unsupported"  # 미지원 형식
     IMAGE_ONLY = "image_only"  # 이미지·스캔 문서 (OCR 필요)
     NOT_DOWNLOADABLE = "not_downloadable"  # 다운로드 금지 등
+    VAULT = "vault"  # 이 앱이 암호화한 보관 파일 (잠겨 있어 읽지 않음)
 
 
 UNSCANNABLE_LABEL_KO = {
@@ -42,6 +43,7 @@ UNSCANNABLE_LABEL_KO = {
     UnscannableReason.UNSUPPORTED: "지원하지 않는 형식",
     UnscannableReason.IMAGE_ONLY: "이미지·스캔 문서(글자 인식 미지원)",
     UnscannableReason.NOT_DOWNLOADABLE: "내려받을 수 없는 파일",
+    UnscannableReason.VAULT: "이 앱으로 암호화한 보관 파일 (잠겨 있음)",
 }
 
 

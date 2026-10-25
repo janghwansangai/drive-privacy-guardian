@@ -23,7 +23,7 @@ from dpg.core.detect.rules import (
     detect_text_spans,
     summarize,
 )
-from dpg.core.drive.client import DriveClient, DriveHttpError
+from dpg.core.drive.client import VAULT_NAME_RE, DriveClient, DriveHttpError
 from dpg.core.extract import Plan, Unscannable, UnscannableReason, extract, plan_for
 from dpg.core.extract.base import MAX_FILE_BYTES
 from dpg.core.logging import get_logger
@@ -130,6 +130,12 @@ class DetectRunner:
         if item.is_folder:
             kinds = summarize(name_findings)
             return FileDetection(item.file_id, status_for(kinds), kinds)
+        if VAULT_NAME_RE.match(item.name):
+            # this app's own encrypted archive: locked on purpose, never downloaded to read
+            kinds = {k: v for k, v in summarize(name_findings).items() if k not in excluded_rules}
+            return FileDetection(
+                item.file_id, DetectStatus.UNSCANNABLE, kinds, UnscannableReason.VAULT
+            )
         try:
             plan = plan_for(item.mime_type, item.name)
             data = fetch_content(self.client, item, plan)
