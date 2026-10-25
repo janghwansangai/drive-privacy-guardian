@@ -84,8 +84,10 @@ def test_detect_outputs_contain_no_personal_data(
     # log, DB, report: zero detections by the leak scanner
     leak = scan_paths([isolated_app_home, report])
     assert leak.total == 0, leak.summary()
-    # console must not echo values either
-    assert count_matches(out.out + out.err) == {}
+    # console must not echo values either. The report path the user chose is printed on
+    # purpose; a CI temp folder name can hold a long digit run, so it is left out here.
+    console = (out.out + out.err).replace(str(report), "<REPORT>")
+    assert count_matches(console) == {}
     # no temp files created by the app (everything happens in memory, SPEC 5.2)
     new_temp = (
         [p for p in (set(temp_root.iterdir()) - before) if not p.name.startswith("pytest-")]
