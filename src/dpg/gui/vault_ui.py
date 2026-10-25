@@ -642,6 +642,9 @@ def recovery_key_html(key: str, fp: str, today: dt.date | None = None) -> str:
         "금고나 잠긴 서랍에 보관하고, 사진을 찍어 휴대폰·메일에 두지 마세요.</p>"
         "<p>사용법: 보관 파일을 풀 때 비밀번호 칸에 이 키(35자)를 입력하거나, "
         "설정 → 복구 키 입력.</p>"
+        "<p><b>프로그램이 없을 때</b>: 「비밀번호 복구 도구」(privacy-guardian.janhan97.workers.dev"
+        "/recover, 또는 GitHub 릴리스의 Recovery-Tool.html)에 이 키와 암호화 파일 이름을 넣으면 "
+        "그 파일의 비밀번호가 나옵니다. 그 비밀번호로 7-Zip(Windows)·Keka(Mac)에서 엽니다.</p>"
     )
 
 

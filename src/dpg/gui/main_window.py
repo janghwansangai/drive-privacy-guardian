@@ -167,6 +167,7 @@ def _duration_ko(seconds: float) -> str:
 
 
 OPEN_MAX = 10
+RECOVERY_TOOL = Path(__file__).resolve().parents[1] / "resources" / "recovery-tool.html"
 
 
 def drive_link(a: FileAudit) -> str:
@@ -653,6 +654,9 @@ class MainWindow(QMainWindow):
         checklist = QAction("보안 점검표…", self)
         checklist.triggered.connect(self.show_checklist)
         help_menu.addAction(checklist)
+        recovery_tool = QAction("비밀번호 복구 도구 저장… (프로그램 없이 열기)", self)
+        recovery_tool.triggered.connect(self.save_recovery_tool)
+        help_menu.addAction(recovery_tool)
         about = QAction("정보…", self)
         about.triggered.connect(self.show_about)
         help_menu.addAction(about)
@@ -2274,6 +2278,30 @@ class MainWindow(QMainWindow):
         return out
 
     # -- recovery key (D-074) -------------------------------------------------------------------
+
+    def save_recovery_tool(self) -> None:
+        """D-106: a copy of the offline tool that turns the paper recovery key + an archive's
+        name into its password, so the files open in 7-Zip / Keka even without this app."""
+        default = str(Path.home() / "개인정보보안관_비밀번호복구도구.html")
+        path_str, _ = QFileDialog.getSaveFileName(
+            self, "비밀번호 복구 도구 저장", default, "*.html"
+        )
+        if not path_str:
+            return
+        try:
+            Path(path_str).write_bytes(RECOVERY_TOOL.read_bytes())
+        except OSError:
+            self.ctx.notify(
+                self, "비밀번호 복구 도구", "저장하지 못했습니다. 다른 폴더를 골라 주세요."
+            )
+            return
+        self.ctx.notify(
+            self,
+            "비밀번호 복구 도구",
+            "저장했습니다. 복구 키 종이와 함께 USB 등에 보관하세요. 이 프로그램이 없어도 "
+            "이 파일을 브라우저로 열어 복구 키와 암호화 파일 이름을 넣으면 비밀번호가 나오고, "
+            "7-Zip(Windows)·Keka(Mac)로 열 수 있습니다. (인터넷 연결 없이 동작)",
+        )
 
     def _recovery_key(self) -> bytes | None:
         text = self.ctx.manager.secret_store.get(RECOVERY_KEY_NAME)

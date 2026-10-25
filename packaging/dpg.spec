@@ -22,6 +22,8 @@ datas = [
     (str(ROOT / "LICENSE"), "."),
     (str(ROOT / "build" / "licenses" / "THIRD_PARTY_LICENSES.txt"), "."),
     (str(ROOT / "packaging" / "NOTICE_KO.txt"), "."),
+    # offline password recovery tool, saved from 도움말 (D-106)
+    (str(ROOT / "src" / "dpg" / "resources" / "recovery-tool.html"), "dpg/resources"),
     # Qt / PySide6 are used under LGPL-3.0 (which incorporates GPL-3.0 terms): ship both texts.
     (str(ROOT / "packaging" / "licenses" / "LGPL-3.0.txt"), "licenses"),
     (str(ROOT / "packaging" / "licenses" / "GPL-3.0.txt"), "licenses"),

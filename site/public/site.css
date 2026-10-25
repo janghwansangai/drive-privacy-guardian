@@ -114,3 +114,6 @@ ol.big .shot{margin:10px 0;max-width:100%}
 .usageLinks a{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 16px;text-decoration:none;color:var(--text);font-weight:600}
 .shot{background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .shot img{display:block;max-width:100%;height:auto}
+
+.grid3:has(> :nth-child(4)){grid-template-columns:repeat(2,1fr)}
+@media (max-width:820px){.grid3:has(> :nth-child(4)){grid-template-columns:1fr}}

@@ -1112,3 +1112,18 @@ def test_look_actions_use_what_is_on_screen_not_hidden_checks(qtbot: Any, env: E
     item = window.selected_item()
     assert item is not None
     assert item.file_id == ids["link"]
+
+
+def test_recovery_tool_is_saved_from_help(
+    qtbot: Any, env: Env, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    assert env.ctx is not None
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    target = tmp_path / "도구.html"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), ""))
+    window.save_recovery_tool()
+    text = target.read_text(encoding="utf-8")
+    assert "비밀번호 복구 도구" in text
+    assert "default-src 'none'" in text
+    assert env.notices[-1][0] == "비밀번호 복구 도구"

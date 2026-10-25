@@ -91,7 +91,10 @@ def _qt() -> str:
     app.processEvents()
     label.close()
     # the main window module and the menu-bar icon of scheduled scans load in this build
-    import dpg.gui.main_window  # noqa: F401
+    import dpg.gui.main_window
+
+    if not dpg.gui.main_window.RECOVERY_TOOL.is_file():
+        raise AssertionError("password recovery tool missing from the build")
     from dpg.gui.schedule_ui import badge_icon
 
     if badge_icon().isNull():
