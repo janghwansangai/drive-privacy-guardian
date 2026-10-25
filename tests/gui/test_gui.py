@@ -1205,3 +1205,17 @@ def test_theme_follows_the_os_and_icons_draw(
         assert not shell.icon_pixmap(name, "#000000").isNull(), name
     # dialogs keep the native look: rules are on the window's own widgets only
     assert window.styleSheet() == ""
+
+
+def test_window_fits_a_laptop_screen(qtbot: Any, env: Env) -> None:
+    assert env.ctx is not None
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    for page in ("share", "privacy", "vault", "home"):
+        window.show_page(page)
+        assert window.minimumSizeHint().width() <= 1150, page
+    window.show()
+    qtbot.wait(50)
+    assert window.width() <= 1280
+    header = window.table.horizontalHeader()
+    assert [header.logicalIndex(v) for v in range(3)] == [mw.COL_CHECK, mw.COL_RISK, COL_NAME]

@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QInputDialog,
     QLabel,
+    QLayout,
     QLineEdit,
     QMainWindow,
     QMenu,
@@ -1113,7 +1114,13 @@ class MainWindow(QMainWindow):
         self.table.setColumnWidth(COL_PRIVACY, 220)
         self.table.setColumnWidth(COL_EXPOSURE, 120)
         self.table.setColumnWidth(COL_NAME, 260)
-        self.table.setColumnWidth(COL_LOCATION, 200)
+        self.table.setColumnWidth(COL_LOCATION, 220)
+        # what the file is and where it is first, without scrolling (display order only)
+        header = self.table.horizontalHeader()
+        for visual, logical in enumerate(
+            (COL_CHECK, COL_RISK, COL_NAME, COL_LOCATION, COL_EXPOSURE, COL_PRIVACY, COL_ADVICE)
+        ):
+            header.moveSection(header.visualIndex(logical), visual)
         self.table.doubleClicked.connect(lambda _i: self.review_selected())
         self.table.selectionModel().selectionChanged.connect(lambda *_a: self._update_actions())
         list_col.addWidget(self.table, 1)
@@ -1134,7 +1141,12 @@ class MainWindow(QMainWindow):
             "지금 안 보이는 다른 보기(칸)에서 체크한 파일까지 모두 해제합니다"
         )
         self.select_none_btn.clicked.connect(self.uncheck_all)
-        pick_row.addWidget(self.selection_label, 1)
+        self.bar_hint = QLabel("미리 보고 승인해야 바뀌어요 · 되돌릴 수 있어요")
+        self.bar_hint.setObjectName("barHint")
+        self.bar_hint.setWordWrap(True)
+        self.bar_hint.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        pick_row.addWidget(self.selection_label, 3)
+        pick_row.addWidget(self.bar_hint, 2)
         pick_row.addWidget(self.select_none_btn)
         bar_col.addLayout(pick_row)
         self.bar_row = QHBoxLayout()
@@ -1200,9 +1212,6 @@ class MainWindow(QMainWindow):
         self.bar_more.clicked.connect(self.popup_more_actions)
         self.bar_row.addWidget(self.bar_more)
         self.bar_row.addStretch(1)
-        self.bar_hint = QLabel("미리 보고 승인해야 바뀌어요 · 되돌릴 수 있어요")
-        self.bar_hint.setObjectName("barHint")
-        self.bar_row.addWidget(self.bar_hint)
         bar_col.addLayout(self.bar_row)
         col.addWidget(bar)
         return page
@@ -1241,7 +1250,25 @@ class MainWindow(QMainWindow):
             repolish(action_btn)
         self._apply_bar_icons()
         self.bar_hint.setVisible(key != "vault")
+        self._relayout(self.bar_row, self.tiles_row)
         self.set_filter(spec.default_filter)
+
+    @staticmethod
+    def _relayout(*layouts: QLayout) -> None:
+        """Forget cached sizes after showing/hiding widgets in these rows (hiding a widget that
+        was never on screen does not tell the layouts above it, so the window stayed wide)."""
+        for lay in layouts:
+            node: QObject | None = lay
+            while isinstance(node, QLayout):
+                node.invalidate()
+                node = node.parent()
+            widget = lay.parentWidget()
+            while widget is not None:
+                own = widget.layout()
+                if own is not None:
+                    own.invalidate()
+                widget.updateGeometry()  # the layout above caches this widget's size too
+                widget = widget.parentWidget()
 
     def _key_action(self, action: Any) -> None:
         action()
@@ -1320,6 +1347,10 @@ class MainWindow(QMainWindow):
     def _apply_theme(self) -> None:
         t = tokens()
         self.shell.setStyleSheet(stylesheet(t))
+        # measure with the real styles: unpolished native buttons are wider, and the window
+        # would otherwise open (and stay) far wider than a laptop screen
+        for w in self.shell.findChildren(QWidget):
+            w.ensurePolished()
         self.logo.setPixmap(icon_pixmap("shield", t["gold"], 18))
         others = [self.nav_schedule, self.nav_history, self.nav_settings, self.nav_help]
         for nav_btn in [*self.nav_buttons.values(), *others]:
