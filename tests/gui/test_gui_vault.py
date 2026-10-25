@@ -53,9 +53,10 @@ def test_archive_flow_end_to_end(qtbot: Any, env: Env) -> None:
     def show(dialog: Any) -> int:
         if isinstance(dialog, ArchiveDialog):
             assert "영구 삭제" in dialog.findChildren(type(dialog.fmt_warning))[0].text()
-            dialog.fmt.setCurrentIndex(1)
-            assert "파일 이름" in dialog.fmt_warning.text()  # AES-ZIP trade-off shown
-            dialog.fmt.setCurrentIndex(0)
+            assert dialog.fmt.currentData() == archive.ArchiveFormat.STANDARD_ZIP  # default
+            assert "비밀번호만" in dialog.fmt_warning.text()
+            dialog.fmt.setCurrentIndex(1)  # this test: the high-security 7z path
+            assert "7-Zip" in dialog.fmt_warning.text()
             assert "원래 있던 자리" in dialog.dest.itemText(0)  # in place is the default
             assert dialog.replace.isChecked()
             dialog.select_destination(vault_dir)
@@ -735,6 +736,7 @@ def test_recovery_key_opens_archive_after_losing_every_password(
 
     def show(dialog: Any) -> int:
         if isinstance(dialog, ArchiveDialog):
+            dialog.fmt.setCurrentIndex(dialog.fmt.findData(archive.ArchiveFormat.SEVEN_ZIP))
             return 1
         if isinstance(dialog, RecoveryKeyDialog):
             assert not dialog.ok.isEnabled()  # must confirm a paper copy exists
@@ -841,3 +843,68 @@ def test_check_update_only_opens_the_browser(
     window.check_update()
     assert env.opened[-1] == "https://github.com/example/dpg/releases"
     assert env.fake.calls == []
+
+
+def test_standard_zip_opens_with_the_common_password_alone(qtbot: Any, env: Env) -> None:
+    """D-107 default: classic ZIP encryption with the user's common password — what Windows
+    Explorer and macOS open with nothing but that password."""
+    import io
+    import zipfile
+
+    from dpg.core.vault import common
+    from dpg.gui.vault_ui import CommonPasswordDialog, UnpackDialog
+
+    assert env.ctx is not None
+    fid = env.fake.add_file("가상 명단.csv", content=b"name,phone\nA,010\n")
+    window = _window(qtbot, env)
+    _audit(qtbot, window)
+
+    def show(dialog: Any) -> int:
+        if isinstance(dialog, ArchiveDialog):
+            assert dialog.fmt.currentData() == archive.ArchiveFormat.STANDARD_ZIP
+            return 1
+        if isinstance(dialog, CommonPasswordDialog):
+            dialog.first.setText("짧음")
+            assert "8자" in dialog.problem.text() or "영문" in dialog.problem.text()
+            dialog.first.setText("School-2026!")
+            dialog.second.setText("School-2026!")
+            assert not dialog.ok.isEnabled()  # must confirm it is remembered / written down
+            dialog.kept.setChecked(True)
+            assert dialog.ok.isEnabled()
+            return 1
+        if isinstance(dialog, ArchiveResultDialog):
+            dialog._trash()
+            return 1
+        if isinstance(dialog, (PasswordDialog, RecoveryKeyDialog)):
+            raise AssertionError("standard ZIP needs no recovery key or per-file password")
+        return 0
+
+    env.ctx.show_dialog = show
+    _select_file(window, "가상 명단.csv")
+    window.archive_selected()
+    qtbot.waitUntil(lambda: env.fake.items[fid].trashed, timeout=20000)
+    qtbot.waitUntil(lambda: window.task is None, timeout=20000)
+    assert common.current(env.store) == "School-2026!"
+    arc = next(it for it in env.fake.items.values() if it.name.endswith(").zip"))
+    with zipfile.ZipFile(io.BytesIO(arc.content)) as z:
+        info = z.infolist()[0]
+        assert info.flag_bits & 1  # classic ZIP encryption
+        assert z.read(info, pwd=b"School-2026!") == b"name,phone\nA,010\n"
+    # the app opens it again without asking (common password first)
+    window.uncheck_all()
+    _audit(qtbot, window)
+
+    def show_unpack(dialog: Any) -> int:
+        if isinstance(dialog, UnpackDialog):
+            assert dialog.uses_saved  # the common password is tried without asking
+            dialog.done(1)
+            return 1
+        return 0
+
+    env.ctx.show_dialog = show_unpack
+    _select_file(window, arc.name)
+    window.unpack_btn.click()
+    qtbot.waitUntil(lambda: env.fake.items[arc.id].trashed, timeout=20000)
+    qtbot.waitUntil(lambda: window.task is None, timeout=20000)
+    restored = [i for i in env.fake.items.values() if i.name == "가상 명단.csv" and not i.trashed]
+    assert len(restored) == 1

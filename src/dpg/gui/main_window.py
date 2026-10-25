@@ -61,7 +61,7 @@ from dpg.core.policy import DetectStatus, FileDetection
 from dpg.core.schedule import Schedule
 from dpg.core.store.audit_store import AuditStore
 from dpg.core.store.wipe import remember_vault_password, vault_names, wipe_local_records
-from dpg.core.vault import archive
+from dpg.core.vault import archive, common
 from dpg.core.vault.job import (
     ArchiveJob,
     ArchiveProgress,
@@ -70,6 +70,7 @@ from dpg.core.vault.job import (
     RestoreResult,
     archive_trash_plan,
     member_name,
+    open_with_any,
     trash_plan,
 )
 from dpg.core.vault.recovery import (
@@ -106,6 +107,7 @@ from dpg.gui.vault_ui import (
     ROOT_ID,
     ArchiveDialog,
     ArchiveResultDialog,
+    CommonPasswordDialog,
     Destination,
     ExclusionsDialog,
     MoveDialog,
@@ -478,6 +480,21 @@ class SettingsDialog(QDialog):
                     btn.clicked.connect(lambda _=False, k=key: self._recovery(k))
                     rec_row.addWidget(btn)
             form.addRow("🛟 복구 키", rec_row)
+        if "common_show" in self.recovery:
+            has_common = bool(common.current(ctx.manager.secret_store))
+            common_row = QHBoxLayout()
+            common_row.addWidget(
+                QLabel("정해 둠" if has_common else "아직 없음 (처음 암호화할 때 정함)"), 1
+            )
+            for text, key, show in (
+                ("보기…", "common_show", has_common),
+                ("바꾸기…" if has_common else "정하기…", "common_change", True),
+            ):
+                if show:
+                    btn = QPushButton(text)
+                    btn.clicked.connect(lambda _=False, k=key: self.recovery[k]())
+                    common_row.addWidget(btn)
+            form.addRow("🔐 기본 ZIP 공통 비밀번호", common_row)
         form.addRow("내부 도메인", self.domains)
         form.addRow("", hint)
         client_row = QHBoxLayout()
@@ -1036,6 +1053,8 @@ class MainWindow(QMainWindow):
                 "create": self.create_recovery_key,
                 "show": self.show_recovery_key,
                 "enter": self.enter_recovery_key,
+                "common_show": self.show_common_password,
+                "common_change": self.change_common_password,
             },
         )
         self.ctx.show_dialog(dialog)
@@ -2417,9 +2436,61 @@ class MainWindow(QMainWindow):
             return typed
         return derive_password(raw, tag)
 
+    def ensure_common_password(self) -> str | None:
+        """The common password of standard-ZIP archives; asks once to choose it (D-107)."""
+        store = self.ctx.manager.secret_store
+        pw = common.current(store)
+        if pw:
+            return pw
+        dialog = CommonPasswordDialog(changing=False, parent=self)
+        if not self.ctx.show_dialog(dialog) or not dialog.password:
+            return None
+        common.set_current(store, dialog.password)
+        return dialog.password
+
+    def change_common_password(self) -> None:
+        dialog = CommonPasswordDialog(
+            changing=bool(common.current(self.ctx.manager.secret_store)), parent=self
+        )
+        if self.ctx.show_dialog(dialog) and dialog.password:
+            common.set_current(self.ctx.manager.secret_store, dialog.password)
+            self.ctx.notify(self, "공통 비밀번호", "저장했습니다. 다음 기본 ZIP부터 쓰입니다.")
+
+    def show_common_password(self) -> None:
+        pw = common.current(self.ctx.manager.secret_store)
+        self.ctx.notify(
+            self,
+            "공통 비밀번호",
+            f"기본 ZIP 공통 비밀번호: {pw}\n\n주변에 다른 사람이 없는지 확인하세요."
+            if pw
+            else "아직 정하지 않았습니다. 기본 ZIP으로 처음 암호화할 때 정합니다.",
+        )
+
     def _ask_password_and_archive(
         self, items: list[FileAudit], fmt: archive.ArchiveFormat, parent_id: str
     ) -> None:
+        if fmt is archive.ArchiveFormat.STANDARD_ZIP:
+            password = self.ensure_common_password()
+            if password is None:
+                self.ctx.notify(self, "암호화 보관", "공통 비밀번호를 정해야 암호화할 수 있습니다.")
+                self._pending_refresh = True
+                self._after_task()
+                return
+            name = archive.archive_name(fmt, names=[member_name(i) for i in items])
+            self._start_archive_job(items, password, fmt, parent_id, name, keep=False)
+            return
+        if not self.ctx.confirm(
+            self,
+            "높은 보안 암호화",
+            archive.SEVEN_ZIP_NOTE_KO
+            + "\n\n비밀번호는 복구 키로 만들어지며, 프로그램이 없을 때는 사이트의 "
+            "「비밀번호 복구 도구」로 다시 만들 수 있습니다.",
+            "높은 보안으로 암호화",
+            "취소",
+        ):
+            self._pending_refresh = True
+            self._after_task()
+            return
         raw = self._recovery_key_for_new_archive()
         name = archive.archive_name(fmt, names=[member_name(i) for i in items])
         tag = tag_from_name(name)
@@ -2443,7 +2514,20 @@ class MainWindow(QMainWindow):
             self._pending_refresh = True
             self._after_task()
             return
-        keep = pw_dialog.save_keychain.isChecked()
+        self._start_archive_job(
+            items, password, fmt, parent_id, name, keep=pw_dialog.save_keychain.isChecked()
+        )
+
+    def _start_archive_job(
+        self,
+        items: list[FileAudit],
+        password: str,
+        fmt: archive.ArchiveFormat,
+        parent_id: str,
+        name: str,
+        *,
+        keep: bool,
+    ) -> None:
         manager, factory = self.ctx.manager, self.ctx.service_factory
         cancel = self.cancel_event
         cancel.clear()
@@ -2590,13 +2674,10 @@ class MainWindow(QMainWindow):
             self.open_archive_file()
             return
         item = chosen[0]
-        store = self.ctx.manager.secret_store
-        saved = store.get(f"vault:{item.name}")
-        label = "🔑 키체인에 저장된 비밀번호 사용"
+        candidates = self._password_candidates(item.name)
+        saved: str | list[str] | None = [pw for pw, _l in candidates] or None
+        label = candidates[0][1] if candidates else ""
         tag = tag_from_name(item.name)
-        raw = self._recovery_key()
-        if saved is None and raw is not None and tag is not None:
-            saved, label = derive_password(raw, tag), "🛟 복구 키로 만든 비밀번호 사용"
         folder_label = self.model.paths.get(item.file_id, "원래 폴더")
         dialog = UnpackDialog(
             item.name,
@@ -2620,7 +2701,26 @@ class MainWindow(QMainWindow):
         else:
             self._restore_on_drive(item, password)
 
-    def _restore_on_drive(self, item: FileAudit, password: str) -> None:
+    def _password_candidates(self, name: str) -> list[tuple[str, str]]:
+        """Passwords to try for an archive, in order: one saved for it, the one made from the
+        recovery key (its tag), then the common passwords of standard ZIP (newest first)."""
+        store = self.ctx.manager.secret_store
+        out: list[tuple[str, str]] = []
+        saved = store.get(f"vault:{name}")
+        if saved:
+            out.append((saved, "🔑 키체인에 저장된 비밀번호 사용"))
+        raw, tag = self._recovery_key(), tag_from_name(name)
+        if raw is not None and tag is not None:
+            out.append((derive_password(raw, tag), "🛟 복구 키로 만든 비밀번호 사용"))
+        if name.lower().endswith(".zip"):
+            label = "🔐 기본 ZIP 공통 비밀번호 사용"
+            out.extend((pw, label) for pw in common.all_passwords(store))
+            if out and out[0][1] != label and len(out) > 1 and not saved:
+                # a standard ZIP is most likely: try (and label) the common password first
+                out.sort(key=lambda c: c[1] != label)
+        return out
+
+    def _restore_on_drive(self, item: FileAudit, password: str | list[str]) -> None:
         if self.task is not None or item.parent_id is None:
             return
         by_id = {a.file_id: a for a in self.result.items} if self.result else {}
@@ -2708,7 +2808,9 @@ class MainWindow(QMainWindow):
     def open_archive_from_drive(self, item: FileAudit) -> None:
         self._download_and_unpack(item.file_id, item.name)
 
-    def _download_and_unpack(self, file_id: str, name: str, password: str | None = None) -> None:
+    def _download_and_unpack(
+        self, file_id: str, name: str, password: str | list[str] | None = None
+    ) -> None:
         """Download into memory only (the .7z is never written to disk), then decrypt."""
         if self.task is not None:
             return
@@ -2727,7 +2829,9 @@ class MainWindow(QMainWindow):
         self.task.finished.connect(self._task_finished)
         self._start(self.task)
 
-    def _unpack_bytes(self, data: object, label: str, password: str | None = None) -> None:
+    def _unpack_bytes(
+        self, data: object, label: str, password: str | list[str] | None = None
+    ) -> None:
         if not isinstance(data, bytes):
             return
         self.progress_label.setText(f"✓ 받기 완료: {label}")
@@ -2745,20 +2849,17 @@ class MainWindow(QMainWindow):
             self.ctx.notify(self, "보관 파일 풀기", f"열 수 없습니다: {exc}", True)
             return
         name = Path(path).name
-        saved = self.ctx.manager.secret_store.get(f"vault:{name}")
-        raw, tag = self._recovery_key(), tag_from_name(name)
-        for candidate in (saved, derive_password(raw, tag) if raw and tag else None):
-            if candidate:
-                try:
-                    archive.open_archive(data, candidate)
-                except (archive.WrongPassword, archive.ArchiveError):
-                    continue
-                self._decrypt_and_save(data, candidate)
-                return
+        for candidate, _label in self._password_candidates(name):
+            try:
+                archive.open_archive(data, candidate)
+            except (archive.WrongPassword, archive.ArchiveError):
+                continue
+            self._decrypt_and_save(data, candidate)
+            return
         self._decrypt_and_save(data, archive_name=name)
 
     def _decrypt_and_save(
-        self, data: bytes, password: str | None = None, archive_name: str = ""
+        self, data: bytes, password: str | list[str] | None = None, archive_name: str = ""
     ) -> None:
         if password is None:
             typed, ok = QInputDialog.getText(
@@ -2771,7 +2872,7 @@ class MainWindow(QMainWindow):
                 return
             password = self._password_for(archive_name, typed)
         try:
-            files = archive.open_archive(data, password)
+            files = open_with_any(data, [password] if isinstance(password, str) else password)
         except archive.WrongPassword:
             self.ctx.notify(
                 self, "보관 파일 풀기", "비밀번호가 틀렸거나 파일이 손상되었습니다.", True

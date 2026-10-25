@@ -1,8 +1,12 @@
-"""Encrypted archive containers, entirely in memory (SPEC 6.5 steps 3–5, V12).
+"""Encrypted archive containers, entirely in memory (SPEC 6.5 steps 3–5, V12, D-107).
 
-- 7z (default): AES-256 + header encryption, so even the file names inside are hidden.
-- AES-ZIP (compatibility option): WinZip AES-256. File names are visible and Windows
-  Explorer cannot open it — the UI must say so (`AES_ZIP_WARNING_KO`).
+- Standard ZIP (default since D-107): the classic ZIP password ("ZipCrypto"). Windows Explorer
+  and macOS open it with just the password — no program needed, even if this app is gone.
+  It only keeps contents from being seen at a glance: names are visible and the cipher is
+  weak against a determined attacker (the UI says so, `STANDARD_ZIP_NOTE_KO`).
+- 7z (high-security option): AES-256 + header encryption, so even the file names inside are
+  hidden. Needs this app, 7-Zip, Keka or the recovery tool.
+- AES-ZIP (older option, still opened): WinZip AES-256.
 
 Passwords are handed over as Python objects only (never a command line, env var, or log).
 """
@@ -15,6 +19,9 @@ import io
 import posixpath
 import secrets
 import string
+import struct
+import zipfile
+import zlib
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -33,9 +40,24 @@ AES_ZIP_WARNING_KO = (
 )
 
 
+STANDARD_ZIP_NOTE_KO = (
+    "기본 ZIP은 윈도우·맥에서 비밀번호만 넣으면 열립니다(프로그램 필요 없음). 내용이 바로 "
+    "보이지 않게 하는 정도의 보호이고, 압축 안의 파일 이름은 보이며, 작정한 해독에는 약합니다."
+)
+SEVEN_ZIP_NOTE_KO = (
+    "높은 보안(7z AES-256)은 파일 이름까지 숨기고 해독에 강합니다. 대신 이 프로그램, "
+    "7-Zip(Windows)·Keka(Mac), 또는 비밀번호 복구 도구가 있어야 열 수 있습니다."
+)
+
+
 class ArchiveFormat(StrEnum):
     SEVEN_ZIP = "7z"
     AES_ZIP = "zip"
+    STANDARD_ZIP = "zipcrypto"
+
+    @property
+    def extension(self) -> str:
+        return "7z" if self is ArchiveFormat.SEVEN_ZIP else "zip"
 
 
 class WrongPassword(Exception):
@@ -71,11 +93,11 @@ def archive_name(
     tag = secrets.token_hex(4)
     if not names:
         today = today or dt.date.today()
-        return f"보관_{today.isoformat()}_{tag}.{fmt.value}"
+        return f"보관_{today.isoformat()}_{tag}.{fmt.extension}"
     base = display_base(names[0])
     if len(names) > 1:
         base = f"{base} 외 {len(names) - 1}개"
-    return f"{base} (암호화 {tag}).{fmt.value}"
+    return f"{base} (암호화 {tag}).{fmt.extension}"
 
 
 def display_base(name: str, limit: int = 80) -> str:
@@ -133,6 +155,8 @@ def create(files: dict[str, bytes], password: str, fmt: ArchiveFormat) -> bytes:
         ) as z:
             for name, data in files.items():
                 z.writestr(data, name)
+    elif fmt is ArchiveFormat.STANDARD_ZIP:
+        return _standard_zip(files, password)
     else:
         with pyzipper.AESZipFile(
             buf, "w", compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES
@@ -142,6 +166,128 @@ def create(files: dict[str, bytes], password: str, fmt: ArchiveFormat) -> bytes:
             for name, data in files.items():
                 z.writestr(name, data)
     return buf.getvalue()
+
+
+# -- standard ZIP encryption (PKWARE "traditional", APPNOTE 6.1) ---------------------------------
+# No library writes it (pyzipper reads it only), so it is written here; reading back for the
+# verification uses pyzipper / zipfile, and the tests open the result with 7-Zip and libarchive.
+
+_CRC_TABLE = [0] * 256
+for _i in range(256):
+    _c = _i
+    for _ in range(8):
+        _c = (_c >> 1) ^ 0xEDB88320 if _c & 1 else _c >> 1
+    _CRC_TABLE[_i] = _c
+
+
+def _crc_byte(crc: int, b: int) -> int:
+    return _CRC_TABLE[(crc ^ b) & 0xFF] ^ (crc >> 8)
+
+
+class _ZipCrypto:
+    def __init__(self, password: bytes) -> None:
+        self.k0, self.k1, self.k2 = 0x12345678, 0x23456789, 0x34567890
+        for b in password:
+            self._update(b)
+
+    def _update(self, b: int) -> None:
+        self.k0 = _crc_byte(self.k0, b)
+        self.k1 = ((self.k1 + (self.k0 & 0xFF)) * 134775813 + 1) & 0xFFFFFFFF
+        self.k2 = _crc_byte(self.k2, (self.k1 >> 24) & 0xFF)
+
+    def encrypt(self, data: bytes) -> bytes:
+        out = bytearray(len(data))
+        for i, b in enumerate(data):
+            t = (self.k2 | 2) & 0xFFFF
+            out[i] = b ^ (((t * (t ^ 1)) >> 8) & 0xFF)
+            self._update(b)
+        return bytes(out)
+
+
+def standard_zip_password_ok(password: str) -> str | None:
+    """None if usable, else why not (Korean). Windows and macOS read the password bytes in
+    different encodings, so only printable ASCII is safe for "open anywhere"."""
+    if len(password) < 8:
+        return "비밀번호는 8자 이상이어야 합니다."
+    if not all(32 < ord(c) < 127 for c in password):
+        return (
+            "영문·숫자·기호만 쓸 수 있습니다"
+            "(한글·띄어쓰기는 운영체제마다 달라 열리지 않을 수 있음)."
+        )
+    return None
+
+
+def _standard_zip(files: dict[str, bytes], password: str) -> bytes:
+    if standard_zip_password_ok(password) is not None:
+        raise ValueError("password must be 8+ printable ASCII characters")
+    if len(files) > 60000 or sum(len(d) for d in files.values()) > 3_500_000_000:
+        raise ArchiveError("기본 ZIP으로는 너무 큽니다. 높은 보안(7z)을 쓰거나 나눠 주세요.")
+    now = dt.datetime.now()
+    dos_time = (now.hour << 11) | (now.minute << 5) | (now.second // 2)
+    dos_date = ((max(now.year, 1980) - 1980) << 9) | (now.month << 5) | now.day
+    flags = 0x0001 | 0x0800  # encrypted | names in UTF-8 (Windows and macOS honour it)
+    pw = password.encode("ascii")
+    out = io.BytesIO()
+    central = io.BytesIO()
+    for name, data in files.items():
+        crc = zlib.crc32(data) & 0xFFFFFFFF
+        comp = zlib.compressobj(6, zlib.DEFLATED, -15)
+        packed = comp.compress(data) + comp.flush()
+        method = 8
+        if len(packed) >= len(data):  # incompressible: store
+            packed, method = data, 0
+        header = secrets.token_bytes(11) + bytes([crc >> 24])  # last byte checks the password
+        body = _ZipCrypto(pw).encrypt(header + packed)
+        raw_name = name.encode("utf-8")
+        offset = out.tell()
+        out.write(
+            struct.pack(
+                "<IHHHHHIIIHH",
+                0x04034B50,
+                20,
+                flags,
+                method,
+                dos_time,
+                dos_date,
+                crc,
+                len(body),
+                len(data),
+                len(raw_name),
+                0,
+            )
+        )
+        out.write(raw_name)
+        out.write(body)
+        central.write(
+            struct.pack(
+                "<IHHHHHHIIIHHHHHII",
+                0x02014B50,
+                20,
+                20,
+                flags,
+                method,
+                dos_time,
+                dos_date,
+                crc,
+                len(body),
+                len(data),
+                len(raw_name),
+                0,
+                0,
+                0,
+                0,
+                0,
+                offset,
+            )
+        )
+        central.write(raw_name)
+    cd_offset = out.tell()
+    cd = central.getvalue()
+    out.write(cd)
+    out.write(
+        struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, len(files), len(files), len(cd), cd_offset, 0)
+    )
+    return out.getvalue()
 
 
 def detect_format(data: bytes) -> ArchiveFormat:
@@ -205,9 +351,23 @@ def _open_zip(data: bytes, password: str) -> dict[str, bytes]:
         if "password" in str(exc).lower():
             raise WrongPassword() from None
         raise ArchiveError("보관 파일을 열 수 없습니다.") from None
+    except (zlib.error, zipfile.BadZipFile) as exc:
+        # Standard ZIP checks the password with one byte (1 in 256 wrong passwords pass it);
+        # the data then fails to inflate or its CRC differs: that is a wrong password too.
+        if _encrypted(data):
+            raise WrongPassword() from None
+        raise ArchiveError("보관 파일을 열 수 없습니다.") from exc
     except Exception:  # noqa: BLE001
         raise ArchiveError("보관 파일을 열 수 없습니다(손상 또는 지원하지 않는 형식).") from None
     return out
+
+
+def _encrypted(data: bytes) -> bool:
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            return any(i.flag_bits & 1 for i in z.infolist())
+    except zipfile.BadZipFile:
+        return False
 
 
 @dataclass(frozen=True)

@@ -28,7 +28,12 @@ from PySide6.QtWidgets import (
 from dpg.core.actions.model import Plan
 from dpg.core.audit.model import FileAudit
 from dpg.core.organize import CATEGORY_LABEL_KO, Suggestion
-from dpg.core.vault.archive import AES_ZIP_WARNING_KO, ArchiveFormat
+from dpg.core.vault.archive import (
+    SEVEN_ZIP_NOTE_KO,
+    STANDARD_ZIP_NOTE_KO,
+    ArchiveFormat,
+    standard_zip_password_ok,
+)
 from dpg.core.vault.job import ArchiveResult
 
 ROOT_ID = "root"
@@ -83,8 +88,13 @@ class ArchiveDialog(QDialog):
         )
         intro.setWordWrap(True)
         self.fmt = QComboBox()
-        self.fmt.addItem("7z (권장: 파일 이름까지 암호화)", ArchiveFormat.SEVEN_ZIP)
-        self.fmt.addItem("AES-ZIP (호환용)", ArchiveFormat.AES_ZIP)
+        self.fmt.addItem(
+            "기본 ZIP — 윈도우·맥에서 비밀번호만 넣으면 열림", ArchiveFormat.STANDARD_ZIP
+        )
+        self.fmt.addItem(
+            "높은 보안 7z — 파일 이름까지 숨김 (이 프로그램·7-Zip·Keka 필요)",
+            ArchiveFormat.SEVEN_ZIP,
+        )
         self.fmt_warning = QLabel("")
         self.fmt_warning.setWordWrap(True)
         self.fmt.currentIndexChanged.connect(self._fmt_changed)
@@ -125,10 +135,12 @@ class ArchiveDialog(QDialog):
         layout.addWidget(self.replace)
         layout.addWidget(buttons)
         self._dest_changed()
+        self._fmt_changed()
 
     def _fmt_changed(self) -> None:
-        is_zip = self.fmt.currentData() == ArchiveFormat.AES_ZIP
-        self.fmt_warning.setText(f"⚠ {AES_ZIP_WARNING_KO}" if is_zip else "")
+        standard = self.fmt.currentData() == ArchiveFormat.STANDARD_ZIP
+        self.fmt_warning.setText(STANDARD_ZIP_NOTE_KO if standard else f"⚠ {SEVEN_ZIP_NOTE_KO}")
+        self.fmt_warning.setStyleSheet("color: #5f6368;" if standard else "color: #b06000;")
 
     def _dest_changed(self) -> None:
         i = self.dest.currentIndex()
@@ -657,6 +669,89 @@ def print_recovery_key(key: str, fp: str, parent: QWidget | None = None) -> None
         doc.setHtml(recovery_key_html(key, fp))
         doc.print_(printer)
         doc.clear()
+
+
+class CommonPasswordDialog(QDialog):
+    """Choose (or change) the common password of standard-ZIP archives (D-107)."""
+
+    def __init__(self, *, changing: bool, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("공통 비밀번호 바꾸기" if changing else "공통 비밀번호 정하기")
+        self.resize(560, 360)
+        intro = QLabel(
+            "기본 ZIP으로 암호화하는 모든 파일에 이 비밀번호 하나를 씁니다. 윈도우·맥에서 "
+            "파일을 더블클릭하고 이 비밀번호만 넣으면 열립니다 — 이 프로그램이 없어도 됩니다."
+            + (
+                "\n\n바꾸면 그 뒤에 만드는 파일부터 새 비밀번호가 쓰입니다. 예전 파일은 예전 "
+                "비밀번호로 열리며, 이 프로그램은 예전 비밀번호도 기억해 자동으로 엽니다."
+                if changing
+                else ""
+            )
+        )
+        intro.setWordWrap(True)
+        self.first = QLineEdit()
+        self.first.setEchoMode(QLineEdit.EchoMode.Password)
+        self.first.setPlaceholderText("비밀번호 (8자 이상, 영문·숫자·기호)")
+        self.second = QLineEdit()
+        self.second.setEchoMode(QLineEdit.EchoMode.Password)
+        self.second.setPlaceholderText("한 번 더")
+        self.show_box = QCheckBox("입력한 비밀번호 보기")
+        self.show_box.toggled.connect(self._show)
+        self.kept = QCheckBox("이 비밀번호를 외우거나 종이에 적어 두었습니다")
+        self.problem = QLabel("")
+        self.problem.setStyleSheet("color: #b06000;")
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.ok = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
+        self.ok.setText("저장")
+        self.ok.setEnabled(False)
+        self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        for w in (self.first, self.second):
+            w.textChanged.connect(self._update)
+        self.kept.toggled.connect(self._update)
+        note = QLabel(
+            "⚠ 이 비밀번호를 잊으면 이 컴퓨터의 프로그램(설정 → 공통 비밀번호 보기) 말고는 "
+            "누구도 알려 줄 수 없습니다. 꼭 외우거나 적어 두세요."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #5f6368;")
+        layout = QVBoxLayout(self)
+        layout.addWidget(intro)
+        layout.addWidget(self.first)
+        layout.addWidget(self.second)
+        layout.addWidget(self.show_box)
+        layout.addWidget(self.problem)
+        layout.addWidget(note)
+        layout.addWidget(self.kept)
+        layout.addWidget(self.buttons)
+
+    @property
+    def password(self) -> str:
+        return self.first.text()
+
+    def _show(self, on: bool) -> None:
+        mode = QLineEdit.EchoMode.Normal if on else QLineEdit.EchoMode.Password
+        self.first.setEchoMode(mode)
+        self.second.setEchoMode(mode)
+
+    def _update(self) -> None:
+        pw = self.first.text()
+        why = standard_zip_password_ok(pw) if pw else None
+        if not why and self.second.text() and self.second.text() != pw:
+            why = "두 번 넣은 비밀번호가 다릅니다."
+        self.problem.setText(why or "")
+        self.ok.setEnabled(
+            bool(pw) and why is None and self.second.text() == pw and self.kept.isChecked()
+        )
+
+    def done(self, result: int) -> None:
+        if result != QDialog.DialogCode.Accepted:
+            self.first.clear()
+        self.second.clear()
+        super().done(result)
 
 
 _CONFUSABLE = str.maketrans({"0": "O", "1": "I", "8": "B"})

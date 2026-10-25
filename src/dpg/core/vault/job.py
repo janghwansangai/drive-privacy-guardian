@@ -33,6 +33,7 @@ MAX_FILE_BYTES = 500 * 1024**2
 ARCHIVE_MIME = {
     ArchiveFormat.SEVEN_ZIP: "application/x-7z-compressed",
     ArchiveFormat.AES_ZIP: "application/zip",
+    ArchiveFormat.STANDARD_ZIP: "application/zip",
 }
 
 # Google Workspace types → (export MIME, extension). Office formats keep the document usable.
@@ -287,12 +288,15 @@ class RestoreJob:
         if self.on_progress is not None:
             self.on_progress(ArchiveProgress(step, done, total))
 
-    def run(self, archive_id: str, archive_name: str, password: str, parent: str) -> RestoreResult:
+    def run(
+        self, archive_id: str, archive_name: str, password: str | list[str], parent: str
+    ) -> RestoreResult:
+        """`password` may be several candidates (e.g. the common passwords, newest first)."""
         result = RestoreResult(archive_id, archive_name, parent)
         self._tick("보관 파일 받는 중(메모리에만)", 0, 1)
         blob = self.client.download(archive_id, archive.MAX_ARCHIVE_BYTES)
         try:
-            files = archive.open_archive(blob, password)
+            files = open_with_any(blob, [password] if isinstance(password, str) else password)
         except archive.WrongPassword:
             raise ArchiveFailed("비밀번호가 틀렸거나 파일이 손상되었습니다.") from None
         except archive.ArchiveError as exc:
@@ -324,6 +328,18 @@ class RestoreJob:
         self._tick("완료", len(files), len(files))
         log.info("restore done files=%s verified=%s", len(result.uploaded), verified)
         return result
+
+
+def open_with_any(blob: bytes, passwords: list[str]) -> dict[str, bytes]:
+    """The first password that opens it; WrongPassword if none does."""
+    for pw in passwords:
+        if not pw:
+            continue
+        try:
+            return archive.open_archive(blob, pw)
+        except archive.WrongPassword:
+            continue
+    raise archive.WrongPassword()
 
 
 def archive_trash_plan(result: RestoreResult) -> Plan:

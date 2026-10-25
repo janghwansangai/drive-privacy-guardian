@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from dpg.core.auth.secret_store import SecretStore
 from dpg.core.logging import get_logger
 from dpg.core.paths import app_data_dir, log_dir
+from dpg.core.vault import common
 from dpg.core.vault.recovery import RECOVERY_KEY_NAME
 
 log = get_logger("store")
@@ -78,6 +79,8 @@ def wipe_local_records(secrets: SecretStore, *, include_vault_passwords: bool) -
             secrets.delete(f"vault:{name}")
             report.vault_passwords += 1
         secrets.delete(VAULT_INDEX_KEY)
+        if common.forget(secrets):
+            report.vault_passwords += 1
         if secrets.get(RECOVERY_KEY_NAME):
             secrets.delete(RECOVERY_KEY_NAME)
             report.recovery_key = True
