@@ -32,6 +32,7 @@ datas = [
 hiddenimports = [
     *collect_submodules("keyring.backends"),
     "PySide6.QtPrintSupport",
+    "PySide6.QtSvg",  # screen icons (dpg.gui.shell), drawn from inline SVG
 ]
 
 # Never ship Qt networking / web engines: they would bypass the network guard (CLAUDE.md).

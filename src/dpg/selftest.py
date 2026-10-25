@@ -99,6 +99,10 @@ def _qt() -> str:
 
     if badge_icon().isNull():
         raise AssertionError("menu-bar icon could not be drawn")
+    from dpg.gui.shell import icon_pixmap
+
+    if icon_pixmap("lock", "#1F7A4D").toImage().allGray():  # blank → nothing was drawn
+        raise AssertionError("screen icons (QtSvg) could not be drawn")
     import sys
 
     if "PySide6.QtNetwork" in sys.modules:

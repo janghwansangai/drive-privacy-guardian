@@ -12,7 +12,7 @@ from typing import Any
 from urllib.parse import quote
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
+from PySide6.QtGui import QAction, QCloseEvent, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -32,6 +31,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QProgressBar,
     QPushButton,
+    QStackedWidget,
     QSystemTrayIcon,
     QTableView,
     QTableWidget,
@@ -105,6 +105,18 @@ from dpg.gui.results_model import (
     matches_filter,
 )
 from dpg.gui.schedule_ui import ScheduleDialog, badge_icon
+from dpg.gui.shell import (
+    PAGES,
+    NavButton,
+    PageSpec,
+    StatTile,
+    StepGuide,
+    icon_pixmap,
+    make_icon,
+    repolish,
+    stylesheet,
+    tokens,
+)
 from dpg.gui.tasks import Task, user_message_for
 from dpg.gui.vault_ui import (
     ROOT_ID,
@@ -194,48 +206,31 @@ SCOPE_CHOICES = [
 DASHBOARD = [
     ("all", "전체"),
     ("urgent", "긴급·높음 조치"),
-    ("detected", "개인정보 탐지"),
-    ("link", "링크 공개"),
-    ("external", "외부 계정 공유"),
-    ("domain", "도메인 공개"),
-    ("review", "확인 필요"),
-    ("excluded", "🙈 탐지 제외"),
-    ("vault", "🔐 암호화된 파일"),
+    ("detected", "개인정보가 든 파일"),
+    ("link", "링크 공개 (누구나)"),
+    ("external", "외부 계정과 공유"),
+    ("domain", "도메인 전체 공개"),
+    ("review", "확인 필요 (권한 없음)"),
+    ("excluded", "탐지에서 제외함"),
+    ("vault", "암호화된 파일"),
 ]
-
-# ①–④ section colours (Google palette) — number badge + left bar
-_SECTION_COLORS = {1: "#1a73e8", 2: "#188038", 3: "#9334e6", 4: "#e8710a"}
-
-
-def _section(number: int, title: str, hint: str) -> tuple[QFrame, QVBoxLayout]:
-    """A card with a big coloured step number, so ① → ④ reads at a glance."""
-    color = _SECTION_COLORS[number]
-    frame = QFrame()
-    frame.setObjectName(f"section{number}")
-    frame.setStyleSheet(
-        f"QFrame#section{number} {{ border: 1px solid #dadce0; border-left: 6px solid {color};"
-        " border-radius: 8px; }"
-    )
-    col = QVBoxLayout(frame)
-    col.setContentsMargins(12, 8, 12, 10)
-    head = QHBoxLayout()
-    badge = QLabel(str(number))
-    badge.setFixedSize(30, 30)
-    badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    badge.setStyleSheet(
-        f"background: {color}; color: white; border-radius: 15px;"
-        " font-size: 17px; font-weight: bold;"
-    )
-    label = QLabel(title)
-    label.setStyleSheet(f"color: {color}; font-size: 17px; font-weight: bold;")
-    sub = QLabel(hint)
-    sub.setStyleSheet("color: #5f6368;")
-    head.addWidget(badge)
-    head.addWidget(label)
-    head.addSpacing(8)
-    head.addWidget(sub, 1)
-    col.addLayout(head)
-    return frame, col
+TILE_TONE = {
+    "all": "gray",
+    "urgent": "red",
+    "detected": "amber",
+    "link": "red",
+    "external": "amber",
+    "domain": "amber",
+    "review": "gray",
+    "excluded": "gray",
+    "vault": "green",
+}
+HOME_DESC_KO = {
+    "share": "누가 내 파일을 볼 수 있는지 확인하고, 필요 없는 공유를 끕니다.",
+    "privacy": "주민번호·연락처 등이 든 파일을 찾습니다. 내용은 이 컴퓨터 메모리에서만 읽어요.",
+    "vault": "끝난 문서를 비밀번호로 잠가 보관합니다. 윈도우·맥에서 비밀번호만 넣으면 열려요.",
+}
+GUIDE_URL = "https://privacy-guardian.janhan97.workers.dev/desktop.html"
 
 
 def folder_id_from(text: str) -> str:
@@ -596,6 +591,7 @@ class MainWindow(QMainWindow):
         self._auto_run = False
         self._live_token: str | None = None
         self._live_check: Task | None = None  # a callable to start once the current task is done
+        self._last_counts: Counter[str] = Counter()
         self.setWindowTitle(f"개인정보 보안관 {__version__}")
         self.resize(1200, 760)
         self._build_menu()
@@ -623,7 +619,6 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             app.installEventFilter(self)
-        self._last_counts: Counter[str] = Counter()
         self._sched_no_detect_permission = False
         self._apply_schedule()
         self.refresh_account()
@@ -675,6 +670,10 @@ class MainWindow(QMainWindow):
             act.setEnabled(False)
             tools.addAction(act)
         help_menu = self.menuBar().addMenu("도움말")
+        self.help_menu = help_menu
+        guide = QAction("사용 설명서 (사이트)", self)
+        guide.triggered.connect(lambda: self.ctx.open_url(GUIDE_URL))
+        help_menu.addAction(guide)
         update = QAction("새 버전 확인…", self)
         update.triggered.connect(self.check_update)
         help_menu.addAction(update)
@@ -689,28 +688,222 @@ class MainWindow(QMainWindow):
         help_menu.addAction(about)
 
     def _build_ui(self) -> None:
-        root = QWidget()
-        layout = QVBoxLayout(root)
-        layout.setSpacing(8)
+        """Left menu + pages (2026-10 redesign): 처음 화면, then one page per job, each with a
+        1→2→3 step guide, summary tiles that filter one shared file list, and an action bar."""
+        shell = QWidget()
+        shell.setObjectName("shell")
+        self.shell = shell
+        outer = QHBoxLayout(shell)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        outer.addWidget(self._build_nav())
+        self.stack = QStackedWidget()
+        self.home = self._build_home()
+        self.work = self._build_work()
+        self.stack.addWidget(self.home)
+        self.stack.addWidget(self.work)
+        outer.addWidget(self.stack, 1)
+        self.setCentralWidget(shell)
+        self.page: PageSpec = PAGES["share"]
+        self.page_key = "home"
+        self._apply_theme()
+        hints = QGuiApplication.styleHints()
+        if hints is not None:
+            hints.colorSchemeChanged.connect(lambda _scheme: self._apply_theme())
+        self.apply_sort(0)
+        self.show_page("share")
+        self.show_page("home")
 
-        # account bar
-        account_row = QHBoxLayout()
+    def _build_nav(self) -> QFrame:
+        nav = QFrame()
+        nav.setObjectName("nav")
+        nav.setFixedWidth(236)
+        col = QVBoxLayout(nav)
+        col.setContentsMargins(12, 16, 12, 12)
+        col.setSpacing(3)
+        brand_row = QHBoxLayout()
+        self.logo = QLabel()
+        self.logo.setObjectName("logo")
+        self.logo.setFixedSize(30, 30)
+        self.logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        brand = QLabel("개인정보 보안관")
+        brand.setObjectName("brand")
+        brand_row.addWidget(self.logo)
+        brand_row.addWidget(brand, 1)
+        col.addLayout(brand_row)
+        col.addSpacing(12)
+        self.nav_buttons: dict[str, NavButton] = {}
+        for key, text, icon_name, tone in (
+            ("home", "처음 화면", "home", "ink"),
+            ("share", "공유 점검", "share", "blue"),
+            ("privacy", "개인정보 점검", "scan", "amber"),
+            ("vault", "암호화 관리", "lock", "green"),
+        ):
+            btn = NavButton(text, icon_name, tone)
+            btn.clicked.connect(lambda _=False, k=key: self.show_page(k))
+            self.nav_buttons[key] = btn
+            col.addWidget(btn)
+        sep = QFrame()
+        sep.setObjectName("navSep")
+        sep.setFixedHeight(1)
+        col.addSpacing(8)
+        col.addWidget(sep)
+        col.addSpacing(8)
+        self.nav_schedule = NavButton("예약 점검", "clock", "ink", checkable=False)
+        self.nav_schedule.clicked.connect(self.open_schedule)
+        self.nav_history = NavButton("바꾼 기록·되돌리기", "undo", "ink", checkable=False)
+        self.nav_history.clicked.connect(self.open_history)
+        col.addWidget(self.nav_schedule)
+        col.addWidget(self.nav_history)
+        col.addStretch(1)
+        self.nav_settings = NavButton("설정", "gear", "ink", checkable=False)
+        self.nav_settings.clicked.connect(self.open_settings)
+        self.nav_help = NavButton("도움말", "help", "ink", checkable=False)
+        self.nav_help.clicked.connect(self.popup_help)
+        col.addWidget(self.nav_settings)
+        col.addWidget(self.nav_help)
+        acct = QFrame()
+        acct.setObjectName("acct")
+        acct_col = QVBoxLayout(acct)
+        acct_col.setContentsMargins(6, 10, 6, 0)
+        acct_col.setSpacing(2)
         self.account_label = QLabel()
-        self.logout_btn = QPushButton("로그아웃")
-        self.logout_btn.clicked.connect(self._account_clicked)
-        self.switch_btn = QPushButton("🔁 계정·열쇠 바꾸기")
+        self.account_label.setObjectName("acctText")
+        self.account_label.setWordWrap(True)
+        self.switch_btn = QPushButton("계정·열쇠 바꾸기")
+        self.switch_btn.setObjectName("acctBtn")
         self.switch_btn.setToolTip(
             "다른 구글 계정이나 새 로그인 열쇠(클라이언트 JSON)로 바꿉니다. "
             "로그인 화면에 '액세스 차단됨'이나 다른 앱 이름이 나올 때 누르세요."
         )
         self.switch_btn.clicked.connect(self.switch_client)
-        account_row.addWidget(self.account_label, 1)
-        account_row.addWidget(self.switch_btn)
-        account_row.addWidget(self.logout_btn)
-        layout.addLayout(account_row)
+        self.logout_btn = QPushButton("로그아웃")
+        self.logout_btn.setObjectName("acctBtn")
+        self.logout_btn.clicked.connect(self._account_clicked)
+        acct_buttons = QHBoxLayout()
+        acct_buttons.setSpacing(12)
+        acct_buttons.addWidget(self.switch_btn)
+        acct_buttons.addWidget(self.logout_btn)
+        acct_buttons.addStretch(1)
+        acct_col.addWidget(self.account_label)
+        acct_col.addLayout(acct_buttons)
+        col.addSpacing(6)
+        col.addWidget(acct)
+        return nav
 
-        # ① 검사
-        scope_box, scope_col = _section(1, "검사하기", "읽기 전용 — 드라이브를 바꾸지 않습니다")
+    def _build_home(self) -> QWidget:
+        """「무엇을 할까요?」: the three jobs as big cards (the start screen)."""
+        page = QWidget()
+        col = QVBoxLayout(page)
+        col.setContentsMargins(36, 24, 36, 24)
+        col.setSpacing(6)
+        col.addStretch(1)
+        title = QLabel("무엇을 할까요?")
+        title.setObjectName("homeTitle")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sub = QLabel(
+            "하나를 고르면 한 단계씩 안내합니다. 직접 승인하기 전에는 드라이브가 바뀌지 않아요."
+        )
+        sub.setObjectName("muted")
+        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        col.addWidget(title)
+        col.addWidget(sub)
+        col.addSpacing(20)
+        cards = QHBoxLayout()
+        cards.setSpacing(18)
+        self.home_states: dict[str, QLabel] = {}
+        self.home_icons: list[tuple[QLabel, str, str]] = []
+        for number, key in enumerate(("share", "privacy", "vault"), start=1):
+            spec = PAGES[key]
+            card = QFrame()
+            card.setObjectName("homeCard")
+            card.setProperty("rec", key == "share")
+            card.setMinimumHeight(300)
+            c = QVBoxLayout(card)
+            c.setContentsMargins(22, 20, 22, 20)
+            c.setSpacing(8)
+            top = QHBoxLayout()
+            pic = QLabel()
+            pic.setObjectName("homeIcon")
+            pic.setProperty("tone", spec.tone)
+            pic.setFixedSize(48, 48)
+            pic.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.home_icons.append((pic, spec.icon, spec.tone))
+            top.addWidget(pic)
+            top.addStretch(1)
+            if key == "share":
+                tag = QLabel("먼저 하면 좋아요")
+                tag.setObjectName("recTag")
+                top.addWidget(tag, 0, Qt.AlignmentFlag.AlignTop)
+            c.addLayout(top)
+            num = QLabel(str(number))
+            num.setObjectName("homeNum")
+            name = QLabel(spec.title)
+            name.setObjectName("homeName")
+            desc = QLabel(HOME_DESC_KO[key])
+            desc.setObjectName("muted")
+            desc.setWordWrap(True)
+            state = QLabel("")
+            state.setObjectName("homeState")
+            state.setProperty("tone", "gray")
+            state.setWordWrap(True)
+            self.home_states[key] = state
+            go = QPushButton("시작하기  →")
+            go.setObjectName("homeGo")
+            go.setProperty("tone", spec.tone)
+            go.setCursor(Qt.CursorShape.PointingHandCursor)
+            go.clicked.connect(lambda _=False, k=key: self.show_page(k))
+            for w in (num, name, desc):
+                c.addWidget(w)
+            c.addStretch(1)
+            c.addWidget(state)
+            c.addWidget(go)
+            cards.addWidget(card, 1)
+        col.addLayout(cards)
+        col.addSpacing(18)
+        links = QHBoxLayout()
+        links.addStretch(1)
+        self.home_links: list[tuple[QPushButton, str]] = []
+        for text, icon_name, slot in (
+            ("예약 점검", "clock", self.open_schedule),
+            ("바꾼 기록·되돌리기", "undo", self.open_history),
+            ("설정", "gear", self.open_settings),
+            ("도움말", "help", self.popup_help),
+        ):
+            link = QPushButton(text)
+            link.setObjectName("homeLink")
+            link.setCursor(Qt.CursorShape.PointingHandCursor)
+            link.clicked.connect(slot)
+            self.home_links.append((link, icon_name))
+            links.addWidget(link)
+        links.addStretch(1)
+        col.addLayout(links)
+        col.addStretch(1)
+        return page
+
+    def _build_work(self) -> QWidget:
+        page = QWidget()
+        col = QVBoxLayout(page)
+        col.setContentsMargins(24, 18, 24, 16)
+        col.setSpacing(12)
+        head = QVBoxLayout()
+        head.setSpacing(4)
+        self.page_title = QLabel("")
+        self.page_title.setObjectName("pageTitle")
+        self.page_sub = QLabel("")
+        self.page_sub.setObjectName("pageSub")
+        head.addWidget(self.page_title)
+        head.addWidget(self.page_sub)
+        col.addLayout(head)
+        self.steps = StepGuide()
+        col.addWidget(self.steps)
+
+        # ① 검사: where, what, start (read-only)
+        scan = QFrame()
+        scan.setObjectName("card")
+        scan_col = QVBoxLayout(scan)
+        scan_col.setContentsMargins(16, 12, 16, 12)
+        scan_col.setSpacing(8)
         scope_row = QHBoxLayout()
         self.scope_combo = QComboBox()
         for key, label in SCOPE_CHOICES:
@@ -735,14 +928,18 @@ class MainWindow(QMainWindow):
         self.detect_check.toggled.connect(self.detect_shared_check.setEnabled)
         self.restart_check = QCheckBox("처음부터 다시")
         self.restart_check.setToolTip("체크하지 않으면 중단된 감사를 이어서 진행합니다.")
-        self.start_btn = QPushButton("▶ 검사 시작")
+        self.start_btn = QPushButton("검사 시작")
+        self.start_btn.setObjectName("primary")
         self.start_btn.setDefault(True)
         self.start_btn.setMinimumWidth(120)
         self.start_btn.clicked.connect(self.start_audit)
-        self.cancel_btn = QPushButton("■ 중단")
+        self.cancel_btn = QPushButton("중단")
+        self.cancel_btn.setObjectName("soft")
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self.cancel_audit)
-        scope_row.addWidget(QLabel("어디를:"))
+        where = QLabel("어디를")
+        where.setStyleSheet("font-weight: 700;")
+        scope_row.addWidget(where)
         scope_row.addWidget(self.scope_combo)
         scope_row.addWidget(self.drive_combo, 1)
         scope_row.addWidget(self.folder_edit, 1)
@@ -752,61 +949,88 @@ class MainWindow(QMainWindow):
         scope_row.addWidget(self.restart_check)
         scope_row.addWidget(self.start_btn)
         scope_row.addWidget(self.cancel_btn)
-        scope_col.addLayout(scope_row)
+        scan_col.addLayout(scope_row)
         progress_row = QHBoxLayout()
         self.progress_bar = QProgressBar()
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setRange(0, 1)
-        self.progress_bar.setMaximumHeight(8)
+        self.progress_bar.setMaximumHeight(6)
+        self.progress_bar.setMaximumWidth(160)
         self.progress_label = QLabel("「검사 시작」을 누르면 진행 상황이 여기에 표시됩니다.")
+        self.progress_label.setObjectName("muted")
         self.live_label = QLabel("")
-        self.live_label.setStyleSheet("color: #188038;")
+        self.live_label.setObjectName("liveLabel")
         self.live_label.setToolTip(
             "앱이 열려 있는 동안 1분마다 구글 드라이브의 '변경 목록'만 확인합니다. "
             "바뀐 것이 없으면 아주 작은 요청 하나로 끝나고, 바뀐 파일만 다시 검사합니다."
         )
         self.live_btn = QPushButton("끄기")
+        self.live_btn.setObjectName("link")
         self.live_btn.setToolTip(
             "드라이브 변경 자동 반영을 끄거나 켭니다 (설정에서도 바꿀 수 있음)"
         )
         self.live_btn.clicked.connect(self.toggle_live)
-        progress_row.addWidget(self.progress_bar, 1)
-        progress_row.addWidget(self.progress_label, 2)
         self.schedule_btn = QPushButton("⏰ 예약")
+        self.schedule_btn.setObjectName("link")
         self.schedule_btn.clicked.connect(self.open_schedule)
+        progress_row.addWidget(self.progress_bar)
+        progress_row.addWidget(self.progress_label, 1)
         progress_row.addWidget(self.live_label)
         progress_row.addWidget(self.live_btn)
         progress_row.addWidget(self.schedule_btn)
-        scope_col.addLayout(progress_row)
-        layout.addWidget(scope_box)
+        scan_col.addLayout(progress_row)
+        col.addWidget(scan)
 
-        # ② 결과 요약
-        summary_box, summary_col = _section(
-            2, "결과 요약", "칸을 누르면 그 파일만 아래 목록에 보입니다"
-        )
-        dash = QGridLayout()
-        summary_col.addLayout(dash)
+        # ② 요약 칸 (filters of the one list below)
+        self.tiles_row = QHBoxLayout()
+        self.tiles_row.setSpacing(10)
         self.dash_buttons: dict[str, QPushButton] = {}
-        for col, (key, label) in enumerate(DASHBOARD):
-            btn = QPushButton(f"{label}\n–")
-            btn.setMinimumHeight(52)
-            btn.setCheckable(True)
-            btn.clicked.connect(lambda _=False, k=key: self.set_filter(k))
-            self.dash_buttons[key] = btn
-            dash.addWidget(btn, 0, col)
+        for key, label in DASHBOARD:
+            tile = StatTile(label, TILE_TONE[key])
+            tile.setText(f"{label}\n–")
+            tile.clicked.connect(lambda _=False, k=key: self.set_filter(k))
+            self.dash_buttons[key] = tile
+            self.tiles_row.addWidget(tile)
         self.vault_btn = self.dash_buttons["vault"]
         self.vault_btn.setToolTip("이 앱으로 암호화한 보관 파일만 아래 목록에 보여 줍니다")
         self.dash_buttons["excluded"].setToolTip("개인정보 탐지에서 제외한 파일")
+        col.addLayout(self.tiles_row)
         self.notice_label = QLabel("")
+        self.notice_label.setObjectName("notice")
         self.notice_label.setWordWrap(True)
-        self.notice_label.setStyleSheet("color: #9a6700;")
         self.notice_label.setVisible(False)
-        dash.addWidget(self.notice_label, 1, 0, 1, len(DASHBOARD))
-        layout.addWidget(summary_box)
+        col.addWidget(self.notice_label)
+
+        # 암호화 관리: the common password, in view
+        self.vault_card = QFrame()
+        self.vault_card.setObjectName("card")
+        vault_row = QHBoxLayout(self.vault_card)
+        vault_row.setContentsMargins(14, 10, 14, 10)
+        self.key_line = QLabel("")
+        self.key_line.setObjectName("keyLine")
+        vault_row.addWidget(self.key_line, 1)
+        self.key_buttons: list[QPushButton] = []
+        for text, slot in (
+            ("보기", lambda: self.show_common_password()),
+            ("바꾸기", lambda: self.change_common_password()),
+            ("프로그램 없이 여는 도구 저장", lambda: self.save_recovery_tool()),
+        ):
+            btn = QPushButton(text)
+            btn.setObjectName("link")
+            btn.clicked.connect(lambda _=False, s=slot: self._key_action(s))
+            self.key_buttons.append(btn)
+            vault_row.addWidget(btn)
+        self.vault_card.setVisible(False)
+        col.addWidget(self.vault_card)
 
         # ③ 파일 목록
-        list_box, list_col = _section(3, "파일 목록", "왼쪽 체크박스로 파일을 고르세요")
+        list_card = QFrame()
+        list_card.setObjectName("card")
+        list_col = QVBoxLayout(list_card)
+        list_col.setContentsMargins(0, 10, 0, 0)
+        list_col.setSpacing(6)
         filter_row = QHBoxLayout()
+        filter_row.setContentsMargins(12, 0, 12, 0)
         self.filter_combo = QComboBox()
         for key, label in FILTERS.items():
             self.filter_combo.addItem(label, key)
@@ -818,34 +1042,45 @@ class MainWindow(QMainWindow):
             self.sort_combo.addItem(label)
         self.sort_combo.currentIndexChanged.connect(self.apply_sort)
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("🔎 파일 이름 검색")
+        self.search_edit.setPlaceholderText("파일 이름 검색")
+        self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(self._search_changed)
         self.count_label = QLabel("")
-        filter_row.addWidget(QLabel("보기:"))
-        filter_row.addWidget(self.filter_combo)
-        filter_row.addWidget(QLabel("정렬:"))
-        filter_row.addWidget(self.sort_combo)
-        filter_row.addWidget(self.search_edit, 1)
-        filter_row.addWidget(self.count_label)
-        # list-wide tools (no selection needed)
-        self.export_btn = QPushButton("📄 보고서 저장")
+        self.count_label.setObjectName("muted")
+        # list-wide tools (no selection needed) live under 「목록 도구」
+        self.export_btn = QPushButton("보고서 저장 (엑셀·CSV)…")
         self.export_btn.setToolTip(
             "지금 결과를 엑셀/CSV로 저장합니다 (이름·이메일은 기본으로 가림)"
         )
         self.export_btn.clicked.connect(self.export_report)
-        self.organize_btn = QPushButton("🧹 정리 제안·중복")
+        self.organize_btn = QPushButton("정리 제안·중복 후보…")
         self.organize_btn.setToolTip("분류 제안과 내용이 같은 파일을 보여 줍니다 (보기만 함)")
         self.organize_btn.clicked.connect(self.show_organize)
-        self.exclusions_btn = QPushButton("🙈 제외 목록")
+        self.exclusions_btn = QPushButton("탐지 제외 목록…")
         self.exclusions_btn.setToolTip("개인정보 탐지에서 제외한 파일을 보고, 되돌립니다")
         self.exclusions_btn.clicked.connect(self.show_exclusions)
-        self.history_btn = QPushButton("🕘 변경 기록")
+        self.history_btn = QPushButton("바꾼 기록·되돌리기…")
         self.history_btn.setToolTip("이 앱으로 바꾼 내용을 보고 되돌립니다")
         self.history_btn.clicked.connect(self.open_history)
         for b in (self.export_btn, self.organize_btn):
             b.setEnabled(False)
-        for b in (self.export_btn, self.organize_btn, self.exclusions_btn, self.history_btn):
-            filter_row.addWidget(b)
+        self.list_tools = (
+            self.export_btn,
+            self.organize_btn,
+            self.exclusions_btn,
+            self.history_btn,
+        )
+        self.tools_btn = QPushButton("목록 도구")
+        self.tools_btn.setObjectName("soft")
+        self.tools_btn.clicked.connect(self.popup_list_tools)
+        filter_row.addWidget(self.search_edit, 2)
+        filter_row.addWidget(QLabel("보기"))
+        filter_row.addWidget(self.filter_combo)
+        filter_row.addWidget(QLabel("정렬"))
+        filter_row.addWidget(self.sort_combo)
+        filter_row.addWidget(self.count_label)
+        filter_row.addStretch(1)
+        filter_row.addWidget(self.tools_btn)
         list_col.addLayout(filter_row)
 
         self.model = ResultsModel()
@@ -857,6 +1092,7 @@ class MainWindow(QMainWindow):
         self.model.dataChanged.connect(lambda *_a: self._update_actions())
         self.model.modelReset.connect(self._update_actions)
         self.table = QTableView()
+        self.table.setObjectName("results")
         self.check_header = CheckHeader(self._visible_check_state)
         self.check_header.toggled_all.connect(self.check_visible)
         self.table.setHorizontalHeader(self.check_header)
@@ -866,7 +1102,9 @@ class MainWindow(QMainWindow):
         self.table.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(34)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setColumnWidth(COL_CHECK, 34)
@@ -879,87 +1117,260 @@ class MainWindow(QMainWindow):
         self.table.doubleClicked.connect(lambda _i: self.review_selected())
         self.table.selectionModel().selectionChanged.connect(lambda *_a: self._update_actions())
         list_col.addWidget(self.table, 1)
+        col.addWidget(list_card, 1)
 
-        # ④ selection action bar
-        action_box, action_col = _section(4, "고른 파일로 할 일", "버튼은 파일을 고르면 켜집니다")
+        # ④ 고른 파일로 할 일 — only what fits this page; the rest under 「더보기」
+        bar = QFrame()
+        bar.setObjectName("actionBar")
+        bar_col = QVBoxLayout(bar)
+        bar_col.setContentsMargins(14, 10, 14, 10)
+        bar_col.setSpacing(8)
         pick_row = QHBoxLayout()
         self.selection_label = QLabel("고른 파일 없음")
-        self.select_none_btn = QPushButton("모든 체크 해제 (다른 보기 포함)")
+        self.selection_label.setWordWrap(True)
+        self.select_none_btn = QPushButton("체크 모두 해제")
+        self.select_none_btn.setObjectName("barLink")
         self.select_none_btn.setToolTip(
             "지금 안 보이는 다른 보기(칸)에서 체크한 파일까지 모두 해제합니다"
         )
         self.select_none_btn.clicked.connect(self.uncheck_all)
         pick_row.addWidget(self.selection_label, 1)
         pick_row.addWidget(self.select_none_btn)
-        action_col.addLayout(pick_row)
-        buttons_row = QHBoxLayout()
-        self.change_btn = QPushButton("🔗 공유 설정 바꾸기")
+        bar_col.addLayout(pick_row)
+        self.bar_row = QHBoxLayout()
+        self.bar_row.setSpacing(8)
+        self.change_btn = QPushButton("공유 설정 바꾸기")
         self.change_btn.setToolTip(
             "링크 공개 해제, 외부 사용자 삭제 등. "
             "미리보기와 승인 후에만 바뀌고, 되돌릴 수 있습니다."
         )
         self.change_btn.clicked.connect(self.change_selected)
-        self.archive_btn = QPushButton("🔒 암호화 보관")
+        self.archive_btn = QPushButton("암호화 보관")
         self.archive_btn.setToolTip("끝난 문서를 비밀번호로 잠가 드라이브에 보관합니다")
         self.archive_btn.clicked.connect(self.archive_selected)
-        self.move_btn = QPushButton("📁 폴더로 옮기기")
+        self.move_btn = QPushButton("폴더로 옮기기")
         self.move_btn.setToolTip("더 넓게 공유된 폴더로는 옮기지 않습니다")
         self.move_btn.clicked.connect(self.move_selected)
-        self.detect_btn = QPushButton("🔎 개인정보 검사")
+        self.detect_btn = QPushButton("개인정보 검사")
         self.detect_btn.setToolTip(
             "고른 파일만 내용을 읽어 주민번호·연락처 등을 찾습니다 (예: 「링크 공개」 칸에서 "
             "걸러 본 파일). 이미 검사한 파일은 다시 읽지 않고, 중단해도 이어서 합니다."
         )
         self.detect_btn.clicked.connect(self.detect_selected)
-        self.open_btn = QPushButton("↗ 드라이브에서 열기")
+        self.open_btn = QPushButton("드라이브에서 열기")
         self.open_btn.setToolTip(
             "고른 파일을 브라우저의 구글 드라이브에서 엽니다 (직접 열어 확인). 한 번에 10개까지"
         )
         self.open_btn.clicked.connect(self.open_selected_in_drive)
-        self.review_btn = QPushButton("🔍 내용 확인")
+        self.review_btn = QPushButton("내용 확인")
         self.review_btn.setToolTip(
             "파일 1개를 다시 읽어 개인정보 위치를 가린 채로 보여 줍니다 (저장 안 함)"
         )
         self.review_btn.clicked.connect(self.review_selected)
-        self.exclude_btn = QPushButton("🙈 탐지에서 제외")
+        self.exclude_btn = QPushButton("탐지에서 제외")
         self.exclude_btn.setToolTip("개인정보가 아닌데 잘못 찾은 파일을 다음 탐지부터 뺍니다")
         self.exclude_btn.clicked.connect(self.exclude_selected)
-        self.unpack_btn = QPushButton("🔓 보관 파일 풀기")
+        self.unpack_btn = QPushButton("보관 파일 풀기")
         self.unpack_btn.setToolTip(
             "고른 보관 파일(.7z/.zip)을 드라이브에서 바로 풉니다. "
             "고르지 않으면 이 컴퓨터의 파일을 고릅니다."
         )
         self.unpack_btn.clicked.connect(self.unpack_clicked)
-        for b in (
-            self.change_btn,
-            self.archive_btn,
-            self.move_btn,
-            self.detect_btn,
-            self.open_btn,
-            self.review_btn,
-            self.exclude_btn,
-            self.unpack_btn,
-        ):
-            b.setMinimumHeight(34)
-            buttons_row.addWidget(b)
-        action_col.addLayout(buttons_row)
-        layout.addWidget(list_box, 1)
-        layout.addWidget(action_box)
-        self.setCentralWidget(root)
-        self.apply_sort(0)
-        self._update_actions()
+        self.convert_btn = QPushButton("기본 ZIP으로 바꾸기")
+        self.convert_btn.setToolTip(
+            "고른 7z 보관 파일을 공통 비밀번호의 기본 ZIP으로 다시 암호화합니다 "
+            "(윈도우·맥에서 비밀번호만으로 열림)"
+        )
+        self.convert_btn.clicked.connect(self.convert_to_standard_zip)
+        self.bar_actions: dict[str, tuple[QPushButton, str]] = {
+            "change": (self.change_btn, "share"),
+            "archive": (self.archive_btn, "lock"),
+            "review": (self.review_btn, "eye"),
+            "open": (self.open_btn, "external"),
+            "exclude": (self.exclude_btn, "hide"),
+            "detect": (self.detect_btn, "scan"),
+            "unpack": (self.unpack_btn, "unlock"),
+            "convert": (self.convert_btn, "zip"),
+            "move": (self.move_btn, "folder"),
+        }
+        for b, _icon in self.bar_actions.values():
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.bar_row.addWidget(b)
+        self.bar_more = QPushButton("더보기")
+        self.bar_more.clicked.connect(self.popup_more_actions)
+        self.bar_row.addWidget(self.bar_more)
+        self.bar_row.addStretch(1)
+        self.bar_hint = QLabel("미리 보고 승인해야 바뀌어요 · 되돌릴 수 있어요")
+        self.bar_hint.setObjectName("barHint")
+        self.bar_row.addWidget(self.bar_hint)
+        bar_col.addLayout(self.bar_row)
+        col.addWidget(bar)
+        return page
+
+    # -- pages ----------------------------------------------------------------------------------
+
+    def show_page(self, key: str) -> None:
+        """처음 화면, or one job's page: its steps, tiles, default view and action buttons."""
+        self.page_key = key
+        for k, btn in self.nav_buttons.items():
+            btn.setChecked(k == key)
+        if key == "home":
+            self._refresh_home()
+            self.stack.setCurrentWidget(self.home)
+            return
+        spec = PAGES[key]
+        self.page = spec
+        self.stack.setCurrentWidget(self.work)
+        self.page_title.setText(spec.title)
+        self.page_sub.setText(spec.subtitle)
+        self.steps.set_steps(spec.steps)
+        for tile in self.dash_buttons.values():
+            self.tiles_row.removeWidget(tile)
+            tile.setVisible(False)
+        for k in spec.tiles:
+            self.tiles_row.addWidget(self.dash_buttons[k], 1)
+            self.dash_buttons[k].setVisible(True)
+        if spec.detect and self.task is None and not self.detect_check.isChecked():
+            self.detect_check.setChecked(True)  # this page's scan is the contents check
+        self.vault_card.setVisible(key == "vault")
+        if key == "vault":
+            self._refresh_key_line()
+        for name, (action_btn, _icon) in self.bar_actions.items():
+            action_btn.setVisible(name in spec.actions)
+            action_btn.setObjectName("barMain" if name == spec.actions[0] else "")
+            repolish(action_btn)
+        self._apply_bar_icons()
+        self.bar_hint.setVisible(key != "vault")
+        self.set_filter(spec.default_filter)
+
+    def _key_action(self, action: Any) -> None:
+        action()
+        self._refresh_key_line()
+
+    def _refresh_key_line(self) -> None:
+        has = bool(common.current(self.ctx.manager.secret_store))
+        self.key_buttons[0].setVisible(has)
+        self.key_buttons[1].setText("바꾸기" if has else "정하기")
+        self.key_line.setText(
+            "🔑 기본 ZIP은 공통 비밀번호로 잠급니다 — 정해 둠 (이 컴퓨터 키체인)"
+            if has
+            else "🔑 기본 ZIP은 공통 비밀번호로 잠급니다 — 처음 암호화할 때 정합니다"
+        )
+
+    def _refresh_home(self) -> None:
+        counts = self._last_counts
+        tone_text: dict[str, tuple[str, str]] = {}
+        if self.result is None:
+            tone_text["share"] = ("gray", "아직 검사 전이에요")
+            tone_text["vault"] = ("gray", "검사하면 암호화된 파일이 보여요")
+        else:
+            out = counts["shared_out"]
+            tone_text["share"] = (
+                ("red", f"밖으로 공유된 파일 {out:,}개 · 전체 {counts['all']:,}개")
+                if out
+                else ("green", f"밖으로 공유된 파일 없음 · 전체 {counts['all']:,}개")
+            )
+            tone_text["vault"] = (
+                ("green", f"암호화된 파일 {counts['vault']:,}개")
+                if counts["vault"]
+                else ("gray", "아직 암호화한 파일이 없어요")
+            )
+        if self.detections is None:
+            tone_text["privacy"] = ("gray", "아직 하지 않았어요")
+        else:
+            n = counts["detected"]
+            tone_text["privacy"] = (
+                ("red", f"개인정보가 든 파일 {n:,}개") if n else ("green", "찾은 개인정보 없음")
+            )
+        for key, (tone, text) in tone_text.items():
+            label = self.home_states[key]
+            label.setText(text)
+            if label.property("tone") != tone:
+                label.setProperty("tone", tone)
+                repolish(label)
+
+    def _refresh_badges(self) -> None:
+        counts = self._last_counts
+        if self.result is None:
+            for key in ("share", "privacy", "vault"):
+                self.nav_buttons[key].set_badge(None)
+            return
+        self.nav_buttons["share"].set_badge(counts["shared_out"], "red")
+        self.nav_buttons["privacy"].set_badge(
+            counts["detected"] if self.detections is not None else None, "red"
+        )
+        self.nav_buttons["vault"].set_badge(counts["vault"], "gray")
+
+    def _update_steps(self) -> None:
+        if not hasattr(self, "steps"):
+            return
+        spec = self.page
+        chosen = bool(self.model.checked) or bool(self.highlighted_items())
+        if spec.key == "vault":
+            index = 1 if chosen and self.result is not None else 0
+        elif self.result is None or (spec.detect and self.detections is None):
+            index = 0
+        else:
+            index = 2 if chosen else 1
+        hint = spec.hints[index]
+        if self.task is not None and index == 0:
+            hint = "검사 중이에요 — 끝나면 다음 단계로 넘어갑니다. 중단해도 이어서 할 수 있어요."
+        self.steps.set_current(index, hint)
+
+    def _apply_theme(self) -> None:
+        t = tokens()
+        self.shell.setStyleSheet(stylesheet(t))
+        self.logo.setPixmap(icon_pixmap("shield", t["gold"], 18))
+        others = [self.nav_schedule, self.nav_history, self.nav_settings, self.nav_help]
+        for nav_btn in [*self.nav_buttons.values(), *others]:
+            nav_btn.apply_icon(t)
+        for pic, icon_name, tone in self.home_icons:
+            pic.setPixmap(icon_pixmap(icon_name, t[tone], 26))
+        for link, icon_name in self.home_links:
+            link.setIcon(make_icon(icon_name, t["muted"]))
+        self.start_btn.setIcon(make_icon("play", t["on_primary"]))
+        self.tools_btn.setIcon(make_icon("report", t["ink"]))
+        self._apply_bar_icons()
+
+    def _apply_bar_icons(self) -> None:
+        for btn, icon_name in self.bar_actions.values():
+            main = btn.objectName() == "barMain"
+            btn.setIcon(make_icon(icon_name, "#1B2230" if main else "#FFFFFF"))
+        self.bar_more.setIcon(make_icon("more", "#FFFFFF"))
+
+    def popup_help(self) -> None:
+        self.help_menu.exec(self.cursor().pos())
+
+    def popup_list_tools(self) -> None:
+        menu = QMenu(self)
+        for btn in self.list_tools:
+            act = menu.addAction(btn.text())
+            act.setToolTip(btn.toolTip())
+            act.setEnabled(btn.isEnabled())
+            act.triggered.connect(lambda _=False, b=btn: b.click())
+        menu.exec(self.tools_btn.mapToGlobal(self.tools_btn.rect().bottomLeft()))
+
+    def popup_more_actions(self) -> None:
+        """The other things that can be done with the chosen files (not shown on this page)."""
+        menu = QMenu(self)
+        for name, (btn, _icon) in self.bar_actions.items():
+            if name in self.page.actions:
+                continue
+            act = menu.addAction(btn.text())
+            act.setEnabled(btn.isEnabled())
+            act.triggered.connect(lambda _=False, b=btn: b.click())
+        menu.exec(self.bar_more.mapToGlobal(self.bar_more.rect().topLeft()))
 
     # -- account --------------------------------------------------------------------------------
 
     def refresh_account(self) -> None:
         st = self.ctx.manager.status()
         client = self.ctx.manager.client()
-        key = f"  ·  열쇠: {client.project_id}" if client and client.project_id else ""
+        key = f"\n열쇠: {client.project_id}" if client and client.project_id else ""
         if st.logged_in:
             level = LEVEL_LABEL_KO[st.level] if st.level else "권한 없음"
-            self.account_label.setText(
-                f"로그인: {st.account or '(계정 미확인)'}  ·  권한: {level}{key}"
-            )
+            self.account_label.setText(f"{st.account or '(계정 미확인)'}\n권한: {level}{key}")
+            self.account_label.setToolTip(f"로그인한 구글 계정 · 권한: {level}")
         else:
             self.account_label.setText(f"로그인되어 있지 않습니다.{key}")
         self.logout_btn.setText("로그아웃" if st.logged_in else "🔑 로그인")
@@ -1493,6 +1904,7 @@ class MainWindow(QMainWindow):
         self.switch_btn.setEnabled(not running)
         self.progress_bar.setRange(0, 0 if running else 1)
         self.progress_bar.setValue(0 if running else 1)
+        self._update_steps()
 
     def _speed(self, kind: str, count: int) -> float | None:
         """Items per minute for the current phase (None until there is enough to measure)."""
@@ -1608,7 +2020,7 @@ class MainWindow(QMainWindow):
         if result.interrupted_actions:
             notices.append(
                 f"⚠ 지난번 권한 변경 {len(result.interrupted_actions)}건이 중간에 멈췄습니다"
-                "(프로그램 종료·정전 등). 「변경 기록」에서 「⚠ 중간에 멈춤」을 골라 "
+                "(프로그램 종료·정전 등). 왼쪽 「바꾼 기록·되돌리기」에서 「⚠ 중간에 멈춤」을 골라 "
                 "되돌리면 실제 드라이브 상태를 확인해 정리합니다."
             )
         if result.trimmed:
@@ -1661,9 +2073,13 @@ class MainWindow(QMainWindow):
             for key, _label in DASHBOARD:
                 if matches_filter(a, key, det, recs):
                     counts[key] += 1
+            if any(matches_filter(a, k, det, recs) for k in ("link", "external", "domain")):
+                counts["shared_out"] += 1  # each file once, for the menu and the start screen
         for key, label in DASHBOARD:
             self.dash_buttons[key].setText(f"{label}\n{counts[key]:,}")
         self._last_counts = counts
+        self._refresh_badges()
+        self._refresh_home()
 
     def set_filter(self, key: str) -> None:
         self.proxy.set_key(key)
@@ -1854,7 +2270,7 @@ class MainWindow(QMainWindow):
             "탐지에서 제외",
             f"{what}을(를) 개인정보 탐지에서 제외할까요?\n"
             "(다음 탐지부터 읽지 않습니다. 설정은 이 컴퓨터에만 저장됩니다.\n"
-            "잘못 제외했다면 「🙈 제외 목록」에서 바로 되돌릴 수 있습니다.)",
+            "잘못 제외했다면 「목록 도구 → 탐지 제외 목록」에서 바로 되돌릴 수 있습니다.)",
             "제외",
             "취소",
         ):
@@ -1876,7 +2292,7 @@ class MainWindow(QMainWindow):
         if self.result is not None:
             self._update_dashboard(self.result.items)
         self.progress_label.setText(
-            f"✓ {what} 제외함 — 되돌리려면 「🙈 제외 목록」 (보기: '탐지에서 제외한 파일')"
+            f"✓ {what} 제외함 — 되돌리려면 「목록 도구 → 탐지 제외 목록」 (칸: '탐지에서 제외함')"
         )
 
     def show_exclusions(self) -> None:
@@ -2024,10 +2440,15 @@ class MainWindow(QMainWindow):
         self.exclude_btn.setText(
             "↩ 탐지 제외 해제"
             if has and detected and self._all_excluded(items)
-            else "🙈 탐지에서 제외"
+            else "탐지에서 제외"
         )
         self.unpack_btn.setEnabled(True)
+        self.convert_btn.setEnabled(
+            has
+            and any(a.name.lower().endswith(".7z") and VAULT_NAME_RE.match(a.name) for a in items)
+        )
         self.select_none_btn.setEnabled(bool(checked) or n > 0)
+        self._update_steps()
 
     def ensure_modify_permission(self) -> bool:
         st = self.ctx.manager.status()

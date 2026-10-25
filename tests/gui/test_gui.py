@@ -1127,3 +1127,81 @@ def test_recovery_tool_is_saved_from_help(
     assert "비밀번호 복구 도구" in text
     assert "default-src 'none'" in text
     assert env.notices[-1][0] == "비밀번호 복구 도구"
+
+
+# --- 2026-10 redesign: left menu, start screen, step guide, action bar ----------------------
+
+
+def test_start_screen_then_pages_guide_step_by_step(qtbot: Any, env: Env) -> None:
+    assert env.ctx is not None
+    _login(env)
+    ids = _populate(env.fake)
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    # opens on 「무엇을 할까요?」 with the three jobs, nothing checked yet
+    assert window.stack.currentWidget() is window.home
+    assert window.nav_buttons["home"].isChecked()
+    assert window.home_states["share"].text() == "아직 검사 전이에요"
+    # 공유 점검: step ① until a scan has run
+    window.show_page("share")
+    assert window.stack.currentWidget() is window.work
+    assert window.page_title.text() == "공유 점검"
+    assert window.steps.states() == ["now", "todo", "todo"]
+    shown = [k for k, tile in window.dash_buttons.items() if not tile.isHidden()]
+    assert shown == ["all", "urgent", "link", "external", "domain", "review"]
+    assert not window.change_btn.isHidden()
+    assert window.move_btn.isHidden()  # under 「더보기」 on this page
+    assert window.change_btn.objectName() == "barMain"  # the page's main action stands out
+    _audit(qtbot, window)
+    assert window.steps.states() == ["done", "now", "todo"]  # ② choose files
+    # files shared outside (link 2 + external 1), each counted once, on the menu
+    assert window.nav_buttons["share"].badge.text() == "3"
+    window.model.set_checked([ids["link"]], True)
+    window._update_actions()
+    assert window.steps.states() == ["done", "done", "now"]  # ③ preview and change
+    assert window.change_btn.isEnabled()
+    # back on the start screen the cards say what was found
+    window.show_page("home")
+    assert window.home_states["share"].text() == "밖으로 공유된 파일 3개 · 전체 4개"
+    assert window.home_states["share"].property("tone") == "red"
+    assert window.home_states["privacy"].text() == "아직 하지 않았어요"
+
+
+def test_pages_choose_their_view_tiles_and_actions(qtbot: Any, env: Env) -> None:
+    assert env.ctx is not None
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    assert not window.detect_check.isChecked()
+    window.show_page("privacy")
+    assert window.detect_check.isChecked()  # this page's scan reads contents
+    assert window.filter_combo.currentData() == "detected"
+    assert window.review_btn.objectName() == "barMain"
+    assert window.vault_card.isHidden()
+    window.show_page("vault")
+    assert window.filter_combo.currentData() == "vault"
+    assert not window.vault_card.isHidden()
+    assert "처음 암호화할 때 정합니다" in window.key_line.text()
+    assert window.key_buttons[1].text() == "정하기"
+    assert window.key_buttons[0].isHidden()
+    assert not window.convert_btn.isHidden()
+    assert window.change_btn.isHidden()
+    assert window.steps.states() == ["now", "todo", "todo"]
+
+
+def test_theme_follows_the_os_and_icons_draw(
+    qtbot: Any, env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dpg.gui import shell
+
+    assert env.ctx is not None
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    assert shell.LIGHT["ground"] in window.shell.styleSheet()
+    monkeypatch.setattr(shell, "is_dark", lambda: True)
+    window._apply_theme()
+    assert shell.DARK["ground"] in window.shell.styleSheet()
+    assert set(shell.LIGHT) == set(shell.DARK)
+    for name in shell._PATHS:
+        assert not shell.icon_pixmap(name, "#000000").isNull(), name
+    # dialogs keep the native look: rules are on the window's own widgets only
+    assert window.styleSheet() == ""
