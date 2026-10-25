@@ -66,9 +66,12 @@ from dpg.core.vault.job import (
     ArchiveJob,
     ArchiveProgress,
     ArchiveResult,
+    ConvertJob,
+    ConvertResult,
     RestoreJob,
     RestoreResult,
     archive_trash_plan,
+    convert_trash_plan,
     member_name,
     open_with_any,
     trash_plan,
@@ -659,9 +662,16 @@ class MainWindow(QMainWindow):
         self.archive_action.triggered.connect(self.archive_selected)
         self.move_action = QAction("선택 파일 폴더로 이동…", self)
         self.move_action.triggered.connect(self.move_selected)
+        self.convert_action = QAction("고른 7z 보관 파일을 기본 ZIP으로 바꾸기…", self)
+        self.convert_action.triggered.connect(self.convert_to_standard_zip)
         self.organize_action = QAction("정리 제안 · 중복 후보…", self)
         self.organize_action.triggered.connect(self.show_organize)
-        for act in (self.archive_action, self.move_action, self.organize_action):
+        for act in (
+            self.archive_action,
+            self.move_action,
+            self.convert_action,
+            self.organize_action,
+        ):
             act.setEnabled(False)
             tools.addAction(act)
         help_menu = self.menuBar().addMenu("도움말")
@@ -1545,7 +1555,12 @@ class MainWindow(QMainWindow):
         self._update_dashboard(result.items)
         self.export_btn.setEnabled(bool(result.items))
         self.organize_btn.setEnabled(bool(result.items))
-        for act in (self.archive_action, self.move_action, self.organize_action):
+        for act in (
+            self.archive_action,
+            self.move_action,
+            self.convert_action,
+            self.organize_action,
+        ):
             act.setEnabled(bool(result.items))
         if detections is None and self._keep_detections is not None:
             detections = self._keep_detections  # permission changes do not change contents
@@ -2700,6 +2715,76 @@ class MainWindow(QMainWindow):
             self._download_and_unpack(item.file_id, item.name, password)
         else:
             self._restore_on_drive(item, password)
+
+    def convert_to_standard_zip(self) -> None:
+        """D-107: re-encrypt chosen 7z archives as standard ZIP with the common password, so
+        they open in Windows / macOS with that password alone. Old ones go to the trash only
+        after the new ZIP is verified (undoable)."""
+        items = [
+            a
+            for a in self.selected_items()
+            if VAULT_NAME_RE.match(a.name) and a.name.lower().endswith(".7z") and a.parent_id
+        ]
+        if not items or self.task is not None or self.result is None:
+            self.ctx.notify(self, "기본 ZIP으로 바꾸기", "목록에서 .7z 보관 파일을 골라 주세요.")
+            return
+        if not self.ensure_modify_permission():
+            return
+        common_pw = self.ensure_common_password()
+        if common_pw is None:
+            return
+        if not self.ctx.confirm(
+            self,
+            "기본 ZIP으로 바꾸기",
+            f"보관 파일 {len(items):,}개를 기본 ZIP(공통 비밀번호)으로 다시 암호화합니다.\n"
+            "새 ZIP을 풀어 확인하고 올린 뒤, 원래 7z는 휴지통으로 옮깁니다(되돌리기 가능).\n\n"
+            + archive.STANDARD_ZIP_NOTE_KO,
+            "바꾸기",
+            "취소",
+        ):
+            return
+        jobs = [
+            (a.file_id, a.name, [pw for pw, _l in self._password_candidates(a.name)], a.parent_id)
+            for a in items
+        ]
+        manager, factory, cancel = self.ctx.manager, self.ctx.service_factory, self.cancel_event
+        cancel.clear()
+
+        def work(progress: Any) -> Any:
+            job = ConvertJob(DriveClient(factory(manager)), on_progress=progress, cancel=cancel)
+            out: list[ConvertResult] = []
+            for i, (fid, name, pws, parent) in enumerate(jobs):
+                out.append(job.run(fid, name, pws, common_pw, str(parent), (i, len(jobs))))
+            return out
+
+        def done(results: object) -> None:
+            if not isinstance(results, list):
+                return
+            ok = [r for r in results if r.safe_to_trash_source]
+            self.progress_label.setText(
+                f"✓ 기본 ZIP으로 바꿈 {len(ok):,}개"
+                + (
+                    f" · ⚠ 확인 실패 {len(results) - len(ok)}개는 그대로"
+                    if len(ok) < len(results)
+                    else ""
+                )
+            )
+            self._pending_refresh = True
+            if ok:
+                plan = convert_trash_plan(ok)
+                names = {r.source_id: r.source_name for r in ok}
+                self._pending_next = lambda: self.run_plan(
+                    plan, dry_run=False, names=names, labels=("기본 ZIP으로 바꾸기", "✓ 완료")
+                )
+
+        self._set_running(True)
+        self.progress_label.setText("기본 ZIP으로 바꾸는 중…")
+        self.task = Task(work)
+        self.task.progress.connect(self._on_archive_progress)
+        self.task.succeeded.connect(done)
+        self.task.failed.connect(self._on_failed)
+        self.task.finished.connect(self._task_finished)
+        self._start(self.task)
 
     def _password_candidates(self, name: str) -> list[tuple[str, str]]:
         """Passwords to try for an archive, in order: one saved for it, the one made from the

@@ -359,3 +359,98 @@ def archive_trash_plan(result: RestoreResult) -> Plan:
         )
     )
     return plan
+
+
+# -- 7z → standard ZIP (D-107: "원하면 ZIP으로 바꾸는 기능") ------------------------------
+
+
+@dataclass
+class ConvertResult:
+    source_id: str
+    source_name: str
+    new_name: str = ""
+    uploaded_id: str | None = None
+    verified: bool = False  # the new ZIP opens with the common password, same files
+    upload_verified: bool = False  # the copy on Drive is byte-identical
+
+    @property
+    def safe_to_trash_source(self) -> bool:
+        return self.verified and self.upload_verified
+
+
+class ConvertJob:
+    """Re-encrypt an archive as a standard ZIP with the common password, next to the old one.
+    Same safety sequence as ArchiveJob: verify in memory → upload → download again → only then
+    may the old archive go to the trash (undoable)."""
+
+    def __init__(
+        self,
+        client: DriveClient,
+        *,
+        on_progress: Callable[[ArchiveProgress], None] | None = None,
+        cancel: threading.Event | None = None,
+    ) -> None:
+        self.client = client
+        self.writer = DriveWriter(client)
+        self.on_progress = on_progress
+        self.cancel = cancel
+
+    def run(
+        self,
+        archive_id: str,
+        archive_name: str,
+        passwords: list[str],
+        common_password: str,
+        parent: str,
+        step: tuple[int, int] = (0, 1),
+    ) -> ConvertResult:
+        result = ConvertResult(archive_id, archive_name)
+        if self.cancel is not None and self.cancel.is_set():
+            raise ArchiveCancelled()
+        if self.on_progress is not None:
+            self.on_progress(ArchiveProgress("기본 ZIP으로 바꾸는 중", *step))
+        blob = self.client.download(archive_id, archive.MAX_ARCHIVE_BYTES)
+        try:
+            files = open_with_any(blob, passwords)
+        except archive.WrongPassword:
+            raise ArchiveFailed(
+                f"'{archive_name}'을(를) 열 비밀번호가 없습니다(복구 키를 입력해 주세요)."
+            ) from None
+        except archive.ArchiveError as exc:
+            raise ArchiveFailed(str(exc)) from None
+        del blob
+        fmt = ArchiveFormat.STANDARD_ZIP
+        new = archive.create(files, common_password, fmt)
+        result.verified = archive.verify(new, common_password, files).ok
+        if not result.verified:
+            return result
+        result.new_name = archive.archive_name(fmt, names=list(files))
+        meta = self.writer.upload(result.new_name, parent, new, ARCHIVE_MIME[fmt])
+        result.uploaded_id = str(meta["id"])
+        try:
+            back = self.client.download(result.uploaded_id, len(new) + 1)
+        except DriveHttpError:
+            back = b""
+        result.upload_verified = archive.sha256(back) == archive.sha256(new)
+        log.info("convert done verified=%s", result.upload_verified)
+        return result
+
+
+def convert_trash_plan(results: list[ConvertResult]) -> Plan:
+    """The old archives whose ZIP copy was verified go to the trash — undoable."""
+    plan = Plan(ActionKind.TRASH)
+    for r in results:
+        if not r.safe_to_trash_source:
+            continue
+        plan.changes.append(
+            Change(
+                r.source_id,
+                Op.TRASH,
+                None,
+                {"trashed": False},
+                {"trashed": True},
+                f"예전 보관 파일 {r.source_name} 휴지통으로 이동 (기본 ZIP {r.new_name}을 "
+                "확인함, 30일 안에 복원 가능)",
+            )
+        )
+    return plan

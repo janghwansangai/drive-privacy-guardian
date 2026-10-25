@@ -908,3 +908,39 @@ def test_standard_zip_opens_with_the_common_password_alone(qtbot: Any, env: Env)
     qtbot.waitUntil(lambda: window.task is None, timeout=20000)
     restored = [i for i in env.fake.items.values() if i.name == "가상 명단.csv" and not i.trashed]
     assert len(restored) == 1
+
+
+def test_old_7z_archives_convert_to_standard_zip(qtbot: Any, env: Env) -> None:
+    """D-107: a 7z made with the recovery key becomes a standard ZIP with the common password;
+    the old 7z goes to the trash only after the new ZIP is verified."""
+    import io
+    import zipfile
+
+    from dpg.core.vault import common
+    from dpg.core.vault.recovery import (
+        RECOVERY_KEY_NAME,
+        derive_password,
+        new_recovery_key,
+        parse_recovery_key,
+        tag_from_name,
+    )
+
+    assert env.ctx is not None
+    key = new_recovery_key()
+    env.store.set(RECOVERY_KEY_NAME, key)
+    common.set_current(env.store, "School-2026!")
+    name = "상담 기록.hwp (암호화 0a1b2c3d).7z"
+    pw = derive_password(parse_recovery_key(key), tag_from_name(name) or "")
+    blob = archive.create({"상담 기록.hwp": b"synthetic"}, pw, archive.ArchiveFormat.SEVEN_ZIP)
+    old = env.fake.add_file(name, mime_type="application/x-7z-compressed", content=blob)
+    window = _window(qtbot, env)
+    _audit(qtbot, window)
+    env.ctx.show_dialog = lambda d: 1 if isinstance(d, ArchiveResultDialog) else 0
+    _select_file(window, name)
+    window.convert_to_standard_zip()
+    qtbot.waitUntil(lambda: env.fake.items[old].trashed, timeout=20000)
+    qtbot.waitUntil(lambda: window.task is None, timeout=20000)
+    new = next(i for i in env.fake.items.values() if i.name.endswith(").zip") and not i.trashed)
+    assert new.name.startswith("상담 기록.hwp (암호화 ")
+    with zipfile.ZipFile(io.BytesIO(new.content)) as z:
+        assert z.read("상담 기록.hwp", pwd=b"School-2026!") == b"synthetic"
