@@ -1,8 +1,8 @@
 # CLAUDE.md — Drive Privacy Guardian
 
 ## 최우선 규칙
-- 이 앱은 개인정보를 외부로 보내지 않는다. Google 인증·Drive API 허용 호스트 외 네트워크 코드를 추가하지 마라.
-- 텔레메트리, 오류 보고 SDK, 외부 AI API, 유료 API, 자동 업데이트 호출을 추가하지 마라.
+- 이 앱은 개인정보를 외부로 보내지 않는다. Google 인증·Drive API 허용 호스트 외 네트워크 코드를 추가하지 마라. 유일한 예외는 D-110 「새 버전 확인」: `dpg.core.update`(데스크톱)·`lib/update.js`(확장)가 api.github.com의 최신 릴리스 정보를 GET 한 건(하루 한 번, 설정에서 끄기). 다른 곳에서 이 주소를 쓰지 마라.
+- 텔레메트리, 오류 보고 SDK, 외부 AI API, 유료 API를 추가하지 마라. 업데이트는 버전 번호 확인까지만(D-110): 앱이 코드를 받거나 실행·설치하지 않는다(받기는 사용자의 브라우저).
 - 탐지된 개인정보 원문을 DB·로그·파일·예외 메시지·print에 남기지 마라. 저장은 유형·건수·신뢰도·위치만.
 - 영구 삭제 API를 호출하는 코드를 작성하지 마라. 모든 쓰기 동작은 actions/ 모듈의 계획-승인-실행 경로로만.
 - 서비스 계정, 도메인 전체 위임을 사용하지 마라.
@@ -67,7 +67,7 @@
 
 ## 저장소 메모 (확장 프로그램)
 - `extension/app`은 빌드 단계가 없다. 테스트: `cd extension/app && npm ci && npm test`. 뷰어 화면 확인은 `.claude/launch.json`의 `extension-harness`(저장소 루트를 서빙: `/extension/app/test/harness/index.html`, 가짜 chrome API·가짜 Drive·가짜 업로드/휴지통). `test/harness/serve.py`(캐시 끔)로 서빙하며 주소는 `http://127.0.0.1:8765/...`.
-- 확장 프로그램 코드는 `textContent`만 쓰고(innerHTML 금지), 접속은 googleapis.com만, 저장소에는 클라이언트 ID만 — `test/security.test.mjs`가 검사한다.
+- 확장 프로그램 코드는 `textContent`만 쓰고(innerHTML 금지), 접속은 googleapis.com만(예외: `lib/update.js`의 api.github.com 버전 확인, D-110), 저장소에는 클라이언트 ID만 — `test/security.test.mjs`가 검사한다.
 - 콘텐츠 스크립트는 `drive_watch.js` 하나(drive.google.com, 파일 ID만 전달, 페이지에는 크게 보기 iframe 하나만, 네트워크·저장 금지).
 - 새 보관 파일은 기본 ZIP(공통 비밀번호, D-107) 또는 고른 경우 7z(복구 키 파생, `lib/keyring.js`의 잠금 해제된 키). 저장소 허용 키: local `clientId`·`vaultWrap`(암호화)·`lockMinutes`·`commonCheck`(PBKDF2 오타 확인값), session `auth`·`vaultKey`·`commonPw`·`auditRun`·`piiRun`(점검 이어 하기, D-101). 공통 비밀번호는 local에 두지 마라. 전체 `drive` 범위는 `requestFullAccess()`(드라이브 파일 암호화)에서만.
 - 파서를 바꾸면 `uv run python tools/make_ext_fixtures.py`로 기대값을 다시 만들고 데스크톱 앱과 같은 결과인지 확인한다.
@@ -81,4 +81,4 @@
 - 「내용 확인」·「드라이브에서 열기」 같은 보기 동작은 `look_targets()`(화면에 보이는 항목)만 쓴다.
 - 윈도우 실기 점검은 `docs/WINDOWS_TEST_KO.md`.
 - 메인 창 배치는 `gui/shell.py`(색·아이콘·단계 표시·요약 칸·화면별 `PAGES`)와 `MainWindow._build_*`(D-108). 새 버튼은 기존처럼 `MainWindow` 속성으로 만들고 `bar_actions`·`PageSpec.actions`에 넣는다. 색은 `LIGHT`/`DARK` 두 벌을 같이 고친다.
-- 「오류 신고」·「새 버전 확인」은 사용자의 브라우저로 주소를 여는 것뿐이다(D-109). 앱·확장에서 그 주소로 요청을 보내지 마라. 확장의 외부 주소는 `lib/links.js`에만.
+- 「오류 신고」는 사용자의 브라우저로 주소를 여는 것뿐이다(D-109). 앱·확장에서 그 주소로 요청을 보내지 마라. 확장의 외부 주소는 `lib/links.js`(브라우저로 열기)와 `lib/update.js`(버전 확인)에만. 확장 저장소 키 추가: local `updateCheck`·`updateOff`.

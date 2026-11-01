@@ -27,6 +27,8 @@ from urllib.parse import urlsplit
 
 __all__ = [
     "DEFAULT_POLICY",
+    "SOCKET_POLICY",
+    "UPDATE_POLICY",
     "BlockedAttempt",
     "BlockedConnectionError",
     "HostPolicy",
@@ -103,6 +105,15 @@ DEFAULT_POLICY = HostPolicy(
     suffixes=(".googleusercontent.com",),
 )
 
+# D-110 (user decision 2026-11-02): the update check (dpg.core.update) may read GitHub's
+# latest-release API — that one host, and only through its own transport. Google traffic keeps
+# DEFAULT_POLICY; the socket backstop allows the union of the two.
+UPDATE_POLICY = HostPolicy(exact_hosts=frozenset({"api.github.com"}), suffixes=())
+SOCKET_POLICY = HostPolicy(
+    exact_hosts=DEFAULT_POLICY.exact_hosts | UPDATE_POLICY.exact_hosts,
+    suffixes=DEFAULT_POLICY.suffixes,
+)
+
 
 @dataclass(frozen=True)
 class BlockedAttempt:
@@ -116,7 +127,8 @@ _Addr = Any  # socket address tuples vary by family
 
 
 class NetGuard:
-    def __init__(self, policy: HostPolicy = DEFAULT_POLICY) -> None:
+    def __init__(self, policy: HostPolicy | None = None) -> None:
+        policy = policy or SOCKET_POLICY
         self.policy = policy
         self.blocked: list[BlockedAttempt] = []
         self._resolved_ips: set[str] = set()

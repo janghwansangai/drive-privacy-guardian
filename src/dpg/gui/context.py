@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 from dpg.core.auth import AuthManager
 from dpg.core.paths import app_data_dir, ensure_private_dir
 from dpg.core.schedule import Schedule
+from dpg.core.update import fetch_latest
 from dpg.gui import autostart as autostart_mod
 
 
@@ -33,6 +34,9 @@ class Prefs:
     checklist_done: list[str] = field(default_factory=list)  # SPEC 6.7 ticked items
     recovery_fingerprint: str = ""  # non-secret id of the recovery key (D-074)
     schedule: dict[str, Any] = field(default_factory=dict)  # dpg.core.schedule.Schedule (D-099)
+    update_check: bool = True  # D-110: read the latest version number at start, once a day
+    update_checked_at: float = 0.0
+    update_latest: str = ""  # the latest version seen (shown without asking again)
 
     @staticmethod
     def path() -> Path:
@@ -53,6 +57,9 @@ class Prefs:
             checklist_done=[str(k) for k in data.get("checklist_done", [])][:200],
             recovery_fingerprint=str(data.get("recovery_fingerprint", ""))[:16],
             schedule=Schedule.from_json(data.get("schedule")).to_json(),
+            update_check=bool(data.get("update_check", True)),
+            update_checked_at=_as_float(data.get("update_checked_at", 0.0)),
+            update_latest=str(data.get("update_latest", ""))[:20],
         )
 
     def save(self) -> None:
@@ -70,6 +77,13 @@ class Prefs:
 
 
 RETENTION_CHOICES = (7, 30, 90, 180, 365)
+
+
+def _as_float(value: object) -> float:
+    try:
+        return float(str(value))
+    except ValueError:
+        return 0.0
 
 
 def _clamp_days(value: object) -> int:
@@ -102,6 +116,7 @@ class AppContext:
     confirm: Callable[..., bool] = _confirm
     show_dialog: Callable[[QDialog], object] = lambda dialog: dialog.exec()
     autostart: Any = autostart_mod  # login item for scheduled scans; tests inject a fake
+    update_fetcher: Callable[[], Any] = fetch_latest  # D-110; tests inject a fake
     prefs: Prefs = field(default_factory=Prefs.load)
 
     _manager: AuthManager | None = None

@@ -15,7 +15,8 @@ test("network: only Google sign-in and the Drive API", () => {
   // is open); nothing is fetched from it and no code is injected into it.
   assert.deepEqual(manifest.host_permissions, ["https://www.googleapis.com/*", "https://drive.google.com/*"]);
   const csp = manifest.content_security_policy.extension_pages;
-  assert.match(csp, /connect-src 'self' https:\/\/www\.googleapis\.com;/);
+  // D-110: GitHub's API only for the version number (lib/update.js)
+  assert.match(csp, /connect-src 'self' https:\/\/www\.googleapis\.com https:\/\/api\.github\.com;/);
   assert.match(csp, /script-src 'self' 'wasm-unsafe-eval';/);
   // only Drive may frame the viewer (the large view, D-089)
   assert.match(csp, /frame-ancestors https:\/\/drive\.google\.com$/);
@@ -36,7 +37,16 @@ test("network: only Google sign-in and the Drive API", () => {
     const uses = [...v.matchAll(new RegExp(`[^\\n]*\\b${name}\\b[^\\n]*`, "g"))].map((m) => m[0]).filter((line) => !line.startsWith("import"));
     assert.ok(uses.length && uses.every((line) => /window\.open\(/.test(line)), `${name}: ${uses.join(" | ")}`);
   }
-  for (const f of SHIPPED.filter((x) => x !== "lib/links.js")) {
+  // D-110: lib/update.js reads exactly one address (the latest-release record) and only keeps
+  // download addresses of this project's own release files.
+  const u = src("lib/update.js");
+  assert.deepEqual(new Set(u.match(/https?:\/\/[^\s"'`)]+/g)), new Set([
+    "https://api.github.com/repos/janghwansangai/drive-privacy-guardian/releases/latest",
+    "https://github.com/janghwansangai/drive-privacy-guardian/releases/download/",
+  ]));
+  assert.deepEqual([...u.matchAll(/fetchFn\(([^,)]+)/g)].map((m) => m[1]), ["LATEST_URL"]);
+  assert.match(u, /credentials: "omit", cache: "no-store", referrerPolicy: "no-referrer"/);
+  for (const f of SHIPPED.filter((x) => x !== "lib/links.js" && x !== "lib/update.js")) {
     for (const url of (src(f).match(/https?:\/\/[^\s"'`)]+/g) || []).filter((u) => !NAMESPACES.has(u))) {
       // drive.google.com appears only as a sender check (startsWith) — never fetched (see connect-src).
       // (and as the postMessage target of the large view's close request)
@@ -68,7 +78,7 @@ test("nothing decrypted is persisted; storage holds only what D-088 allows", () 
     "lib/drive.js": ["clientId", "auth"], // auth → session storage (memory only)
     // vaultWrap is AES-GCM encrypted; commonCheck is a PBKDF2 typo check (D-107)
     "lib/keyring.js": ["vaultWrap", "vaultKey", "lockMinutes", "commonCheck", "commonPw"],
-    "viewer.js": ["auditRun", "piiRun"], // D-101: check progress, session memory only
+    "viewer.js": ["auditRun", "piiRun", "updateOff"], // D-101 session; D-110 local switch
   };
   for (const f of SHIPPED) {
     const s = src(f);

@@ -161,6 +161,12 @@ table.rows td.state { width: 52px; font-size: 12px; font-weight: 600; color: var
 .tips { list-style: none; padding: 0; margin: 4px 0; display: flex; flex-direction: column; gap: 12px; }
 .tips li { display: flex; gap: 12px; align-items: center; }
 .helpLinks { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.updatePill { margin-left: 4px; border: 0; border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12px; font-weight: 700; background: var(--blue); color: #fff; cursor: pointer; white-space: nowrap; }
+.brand { flex-wrap: wrap; row-gap: 4px; } .brand b { white-space: nowrap; }
+.updatePill[hidden] { display: none; }
+.updateBox { border: 2px solid var(--blue); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.updateBox[hidden] { display: none; }
+.updateBox ol { margin: 0; padding-left: 18px; }
 .maker { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; margin-top: 6px; }
 .maker img { border-radius: 5px; }
 

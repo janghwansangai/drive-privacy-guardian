@@ -79,8 +79,15 @@ def env() -> Env:
         confirm=lambda *a: True,
         prefs=Prefs(),
         autostart=FakeAutostart(),
+        update_fetcher=_no_update_answer,  # D-110: never reach GitHub from tests
     )
     return e
+
+
+def _no_update_answer() -> Any:
+    from dpg.core.update import UpdateCheckFailed
+
+    raise UpdateCheckFailed("테스트: 확인하지 않음")
 
 
 def _login(env: Env) -> None:
@@ -1256,6 +1263,85 @@ def test_bug_report_opens_the_form_with_only_app_version_and_screen(
     assert env.fake.calls == []  # Drive is not touched
     # the version and 「새 버전 확인」 are always in view; the latest release opens in the browser
     assert window.version_btn.text() == f"v{dpg.__version__} · 새 버전 확인"
-    window.version_btn.click()
+    window.version_btn.click()  # offline in tests → offers the latest-release page
+    qtbot.waitUntil(lambda: window._update_task is None, timeout=5000)
     assert opened[-1].endswith("/releases/latest")
     assert not window.maker_logo.pixmap().isNull()  # 「만든 사람 · 다있쌤」
+
+
+def test_update_check_banner_dialog_and_download(
+    qtbot: Any, env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-110: at start (once a day) the latest version number is read; a newer one shows
+    「⬆ 새 버전 · 업데이트」, which opens what changed and downloads this computer's installer
+    in the browser. The app itself downloads and runs nothing."""
+    import dpg
+    from dpg.core.update import ASSETS, Release
+    from dpg.gui.update_ui import UpdateDialog
+
+    assert env.ctx is not None
+    newer = Release(
+        version="9.9.9",
+        notes="### v9.9.9\n- 새 기능",
+        downloads={
+            name: f"{dpg.REPOSITORY_URL}/releases/download/v9.9.9/{name}"
+            for name in ASSETS.values()
+        },
+    )
+    calls: list[int] = []
+    env.ctx.update_fetcher = lambda: calls.append(1) or newer
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    window._auto_check_update()
+    qtbot.waitUntil(lambda: window._update_task is None and bool(calls), timeout=5000)
+    assert window.version_btn.text() == "⬆ 새 버전 v9.9.9 · 업데이트"
+    assert window.version_btn.objectName() == "updateBtn"
+    assert env.ctx.prefs.update_latest == "9.9.9"
+    window._auto_check_update()  # checked today: not again
+    assert calls == [1]
+
+    shown: list[UpdateDialog] = []
+
+    def show(dialog: Any) -> int:
+        shown.append(dialog)
+        dialog.download()
+        dialog.request_quit()
+        return 1
+
+    env.ctx.show_dialog = show
+    opened: list[str] = []
+    env.ctx.open_url = lambda url: opened.append(url) or True
+    quits: list[bool] = []
+    monkeypatch.setattr(window, "quit_app", lambda: quits.append(True))
+    monkeypatch.setattr(mw.platform, "system", lambda: "Windows")
+    window.version_btn.click()
+    assert isinstance(shown[0], UpdateDialog)
+    assert opened == [newer.downloads[ASSETS["Windows"]]]  # the browser downloads it
+    assert quits == [True]  # 「앱 끝내기」 to install
+    assert env.fake.calls == []
+
+    # same version → 「최신 버전」; off in settings → no request at start
+    env.ctx.update_fetcher = lambda: Release(version=dpg.__version__)
+    window._latest = None
+    window.check_update()
+    qtbot.waitUntil(lambda: window._update_task is None, timeout=5000)
+    assert "최신 버전" in env.notices[-1][1]
+    assert window.version_btn.text() == f"v{dpg.__version__} · 새 버전 확인"
+    env.ctx.prefs.update_check = False
+    env.ctx.prefs.update_checked_at = 0
+    env.ctx.update_fetcher = lambda: calls.append(2) or newer
+    window._auto_check_update()
+    assert calls == [1]
+
+
+def test_update_check_failure_offers_the_page(qtbot: Any, env: Env) -> None:
+    from dpg.core.update import RELEASES_PAGE
+
+    assert env.ctx is not None
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    opened: list[str] = []
+    env.ctx.open_url = lambda url: opened.append(url) or True
+    window.check_update()  # the fixture's fetcher fails (offline)
+    qtbot.waitUntil(lambda: window._update_task is None, timeout=5000)
+    assert opened == [RELEASES_PAGE]  # confirm() says yes in tests

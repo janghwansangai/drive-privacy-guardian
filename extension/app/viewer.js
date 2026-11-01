@@ -11,6 +11,7 @@ import { viewModel } from "./lib/view.js";
 import { renderModel } from "./lib/render.js";
 import { planMembers, reencrypt, ReencryptFailed } from "./lib/reencrypt.js";
 import { RELEASES_URL, bugReportUrl } from "./lib/links.js";
+import { checkDaily, fetchLatest, isNewer, UpdateCheckFailed } from "./lib/update.js";
 import { parseDriveUrl } from "./lib/driveurl.js";
 import { restoreToDrive, RestoreFailed } from "./lib/restore.js";
 import * as sharing from "./lib/sharing.js";
@@ -126,7 +127,30 @@ $("guideBtn").onclick = () => window.open(chrome.runtime.getURL("guide.html"), "
 // D-109: both open in a new tab only when pressed; nothing is sent or checked by the extension.
 const VERSION = chrome.runtime.getManifest?.().version || "";
 $("updateBtn").textContent = `새 버전 확인 (지금 v${VERSION})`;
-$("updateBtn").onclick = () => window.open(RELEASES_URL, "_blank", "noopener");
+// D-110: a newer version → 「⬆ 새 버전」 at the top; 도움말 shows how to update and 「받기」
+let latest = null; // { version, download }
+function showLatest(found) {
+  latest = found && isNewer(found.version, VERSION) ? found : null;
+  $("updatePill").hidden = !latest;
+  $("updateBox").hidden = !latest;
+  if (latest) $("updateTitle").textContent = `⬆ 새 버전 v${latest.version}이 나왔습니다 (지금 v${VERSION})`;
+}
+$("updatePill").onclick = () => setView("help");
+$("updateGet").onclick = () => window.open(latest?.download || RELEASES_URL, "_blank", "noopener");
+$("updateBtn").onclick = async () => {
+  $("updateMsg").textContent = "확인하는 중…";
+  try {
+    const found = await fetchLatest();
+    showLatest(found);
+    $("updateMsg").textContent = latest ? "" : `지금 쓰는 v${VERSION}이 최신 버전입니다.`;
+  } catch (e) {
+    $("updateMsg").textContent = `${e instanceof UpdateCheckFailed ? e.message : "확인하지 못했습니다."} 최신 버전 페이지를 엽니다.`;
+    window.open(RELEASES_URL, "_blank", "noopener");
+  }
+};
+chrome.storage.local.get("updateOff").then(({ updateOff }) => { $("updateAuto").checked = !updateOff; }).catch(() => {});
+$("updateAuto").onchange = () => chrome.storage.local.set({ updateOff: !$("updateAuto").checked });
+checkDaily({ storage: chrome.storage.local }).then(showLatest).catch(() => {});
 $("reportBtn").onclick = () => window.open(bugReportUrl(VERSION, VIEW_TITLES[workView] || ""), "_blank", "noopener");
 drive.clientId().then((id) => {
   $("client").value = id;

@@ -351,6 +351,8 @@ QLabel#acctText {{ color: {t["muted"]}; font-size: 12px; }}
 QPushButton#acctBtn {{ border: 0; color: {t["blue"]}; font-size: 12px; font-weight: 600;
   text-align: left; padding: 2px 0; background: transparent; }}
 QLabel#maker {{ color: {t["muted"]}; font-size: 11px; font-weight: 600; }}
+QPushButton#updateBtn {{ border: 0; border-radius: 9px; background: {t["blue"]}; color: {t["surf"]};
+  font-size: 12px; font-weight: 700; text-align: left; padding: 6px 9px; }}
 
 QLabel#pageTitle {{ color: {t["ink"]}; font-size: 22px; font-weight: 700; }}
 QLabel#pageSub {{ color: {t["muted"]}; font-size: 13px; }}

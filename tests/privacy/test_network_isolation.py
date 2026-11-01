@@ -119,3 +119,14 @@ def test_no_bundled_oauth_client_or_secrets() -> None:
             if '"client_secret"' in text or '"refresh_token"' in text:
                 suspicious.append(str(path.relative_to(ROOT)))
     assert suspicious == []
+
+
+def test_the_only_non_google_host_is_the_update_check() -> None:
+    """D-110: GitHub's API is reachable only through dpg.core.update (its own transport)."""
+    users = {
+        path.relative_to(SRC).as_posix()
+        for path in SRC.rglob("*.py")
+        if "api.github.com" in path.read_text(encoding="utf-8")
+        or "UPDATE_POLICY" in path.read_text(encoding="utf-8")
+    }
+    assert users == {"core/net_guard/__init__.py", "core/update.py"}

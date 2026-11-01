@@ -69,7 +69,7 @@ globalThis.chrome = {
     const listeners = [];
     const area = (name, data) => ({
       data,
-      get: async (k) => ({ [k]: data[k] }),
+      get: async (k) => (Array.isArray(k) ? Object.fromEntries(k.map((x) => [x, data[x]])) : { [k]: data[k] }),
       set: async (o) => {
         const changes = {};
         for (const [k, v] of Object.entries(o)) { changes[k] = { oldValue: data[k], newValue: v }; data[k] = JSON.parse(JSON.stringify(v)); }
@@ -130,6 +130,11 @@ window.harnessCalls = [];
 window.harnessUploads = 0;
 window.fetch = async (input, init) => {
   const url = new URL(String(input), location.href);
+  if (url.hostname === "api.github.com") { // D-110: a fake "newer version" (never the real GitHub)
+    window.harnessUpdateChecks = (window.harnessUpdateChecks || 0) + 1;
+    const zip = "https://github.com/janghwansangai/drive-privacy-guardian/releases/download/v9.9.9/DrivePrivacyGuardian-Extension.zip";
+    return new Response(JSON.stringify({ tag_name: "v9.9.9", assets: [{ name: "DrivePrivacyGuardian-Extension.zip", browser_download_url: zip }] }), { headers: { "content-type": "application/json" } });
+  }
   if (url.hostname === "www.googleapis.com") {
     window.harnessCalls.push(`${init?.method || "GET"} ${url.pathname}`);
     if (url.pathname.startsWith("/upload/") && init?.method === "POST") {

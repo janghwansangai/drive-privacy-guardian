@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import platform
 import threading
 import time
 from collections import Counter
@@ -62,6 +63,8 @@ from dpg.core.policy import DetectStatus, FileDetection
 from dpg.core.schedule import Schedule
 from dpg.core.store.audit_store import AuditStore
 from dpg.core.store.wipe import remember_vault_password, vault_names, wipe_local_records
+from dpg.core.update import RELEASES_PAGE, Release, UpdateCheckFailed, is_newer
+from dpg.core.update import due as update_due
 from dpg.core.vault import archive, common
 from dpg.core.vault.job import (
     ArchiveJob,
@@ -119,6 +122,7 @@ from dpg.gui.shell import (
     tokens,
 )
 from dpg.gui.tasks import Task, user_message_for
+from dpg.gui.update_ui import UpdateDialog
 from dpg.gui.vault_ui import (
     ROOT_ID,
     ArchiveDialog,
@@ -247,7 +251,7 @@ ABOUT_TEXT = (
     f"개인정보 보안관 (Drive Privacy Guardian) {__version__}\n\n"
     "구글 드라이브 공유 권한과 개인정보 포함 파일을 "
     "이 컴퓨터 안에서만 점검하는 무료 프로그램입니다. "
-    "구글 외 어떤 서버와도 통신하지 않습니다.\n\n"
+    "구글 외에는 새 버전 확인(버전 번호만, 설정에서 끄기)으로 깃허브에만 묻습니다.\n\n"
     "본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.\n\n"
     "만든 사람: 다있쌤\n\n"
     "라이선스: MIT. Qt/PySide6는 LGPL-3.0으로 사용하며 교체할 수 있습니다(NOTICE_KO.txt). "
@@ -418,6 +422,10 @@ class SettingsDialog(QDialog):
             "권한 변경 드라이런 모드 (실제로 바꾸지 않고 실행 직전 확인까지만)"
         )
         self.dry_run.setChecked(ctx.prefs.dry_run_mode)
+        self.update_check = QCheckBox(
+            "켤 때 새 버전 확인 (하루 한 번, 깃허브에서 최신 버전 번호만 읽음)"
+        )
+        self.update_check.setChecked(ctx.prefs.update_check)
         self.live = QCheckBox("드라이브 변경 자동 반영 (앱이 열려 있는 동안 1분마다 확인)")
         self.live.setChecked(ctx.prefs.live_refresh)
         self.live.setToolTip(
@@ -457,6 +465,7 @@ class SettingsDialog(QDialog):
         form.addRow("", self.auto_logout)
         form.addRow("", self.dry_run)
         form.addRow("", self.live)
+        form.addRow("", self.update_check)
         form.addRow("검사 기록 보관 기간", self.retention)
         form.addRow("", QLabel("기간이 지난 검사 결과와 변경 기록은 앱을 열 때 자동으로 지웁니다."))
         form.addRow("내 컴퓨터의 기록", wipe_btn)
@@ -565,6 +574,7 @@ class SettingsDialog(QDialog):
 
     def _save(self) -> None:
         self.ctx.prefs.live_refresh = self.live.isChecked()
+        self.ctx.prefs.update_check = self.update_check.isChecked()
         self.ctx.prefs.retention_days = int(self.retention.currentData())
         self.ctx.prefs.auto_logout_on_exit = self.auto_logout.isChecked()
         self.ctx.prefs.dry_run_mode = self.dry_run.isChecked()
@@ -625,6 +635,11 @@ class MainWindow(QMainWindow):
         self._sched_no_detect_permission = False
         self._apply_schedule()
         self.refresh_account()
+        # D-110: the latest version number, at most once a day (off in 설정)
+        self._latest: Release | None = None
+        self._update_task: Task | None = None
+        self._show_update(self.ctx.prefs.update_latest)
+        QTimer.singleShot(4000, self._auto_check_update)
 
     # -- construction ---------------------------------------------------------------------------
 
@@ -797,7 +812,7 @@ class MainWindow(QMainWindow):
         self.version_btn = QPushButton(f"v{__version__} · 새 버전 확인")
         self.version_btn.setObjectName("acctBtn")
         self.version_btn.setToolTip(
-            "브라우저에서 최신 버전 페이지를 엽니다 (이 앱은 직접 확인하지 않음)"
+            "깃허브에서 최신 버전 번호만 읽어 비교합니다 (켤 때 하루 한 번 · 설정에서 끄기)"
         )
         self.version_btn.clicked.connect(self.check_update)
         acct_col.addWidget(self.version_btn)
@@ -3479,17 +3494,79 @@ class MainWindow(QMainWindow):
         )
 
     def check_update(self) -> None:
-        """Opens the Releases page in the browser; the app never contacts it itself."""
-        from dpg import REPOSITORY_URL
-
-        if not REPOSITORY_URL:
-            self.ctx.notify(
-                self,
-                "새 버전 확인",
-                f"현재 버전: {__version__}\n배포 저장소 주소가 아직 설정되지 않았습니다.",
-            )
+        """「새 버전 확인」/「업데이트」: the update window if a newer version is known, otherwise
+        ask GitHub now (D-110) and say so."""
+        if self._latest is not None and is_newer(self._latest.version):
+            self.show_update()
             return
-        self.ctx.open_url(REPOSITORY_URL.rstrip("/") + "/releases/latest")
+        self._run_update_check(quiet=False)
+
+    def _auto_check_update(self) -> None:
+        prefs = self.ctx.prefs
+        if prefs.update_check and update_due(prefs.update_checked_at, time.time()):
+            self._run_update_check(quiet=True)
+
+    def _run_update_check(self, *, quiet: bool) -> None:
+        if self._update_task is not None:
+            return
+        fetch = self.ctx.update_fetcher
+        task = Task(lambda _progress: fetch())
+        task.succeeded.connect(lambda r, q=quiet: self._update_checked(r, quiet=q))
+        task.failed.connect(lambda e, q=quiet: self._update_failed(e, quiet=q))
+        task.finished.connect(self._update_task_done)
+        self._update_task = task
+        if not quiet:
+            self.version_btn.setText("새 버전 확인 중…")
+        self._start(task)
+
+    def _update_task_done(self) -> None:
+        self._update_task = None
+        self._show_update(self._latest.version if self._latest else self.ctx.prefs.update_latest)
+
+    def _update_checked(self, release: object, *, quiet: bool) -> None:
+        if not isinstance(release, Release):
+            return
+        self._latest = release
+        self.ctx.prefs.update_checked_at = time.time()
+        self.ctx.prefs.update_latest = release.version
+        self.ctx.prefs.save()
+        self._show_update(release.version)
+        if quiet:
+            return
+        if is_newer(release.version):
+            self.show_update()
+        else:
+            self.ctx.notify(self, "새 버전 확인", f"지금 쓰는 v{__version__}이 최신 버전입니다.")
+
+    def _update_failed(self, exc: object, *, quiet: bool) -> None:
+        if quiet:
+            return  # next start tries again; nothing to bother the user with
+        reason = str(exc) if isinstance(exc, UpdateCheckFailed) else "확인하지 못했습니다."
+        if self.ctx.confirm(
+            self,
+            "새 버전 확인",
+            f"{reason}\n\n브라우저에서 최신 버전 페이지를 열까요?",
+            "페이지 열기",
+            "닫기",
+        ):
+            self.ctx.open_url(RELEASES_PAGE)
+
+    def _show_update(self, latest: str) -> None:
+        """The left-menu line: 「⬆ 새 버전 vX · 업데이트」 when newer, else the version."""
+        newer = bool(latest) and is_newer(latest)
+        self.version_btn.setText(
+            f"⬆ 새 버전 v{latest} · 업데이트" if newer else f"v{__version__} · 새 버전 확인"
+        )
+        self.version_btn.setObjectName("updateBtn" if newer else "acctBtn")
+        repolish(self.version_btn)
+
+    def show_update(self) -> None:
+        if self._latest is None:
+            return
+        dialog = UpdateDialog(self._latest, __version__, platform.system(), self.ctx.open_url, self)
+        self.ctx.show_dialog(dialog)
+        if dialog.quit_requested:
+            self.quit_app()
 
     def report_problem(self) -> None:
         """「오류 신고」 (D-109): the maker's report form in the user's browser. Only the app name,

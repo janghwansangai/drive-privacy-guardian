@@ -828,23 +828,6 @@ def test_recovery_key_is_never_replaced_and_reentry_checks_fingerprint(
     assert env.store.get(RECOVERY_KEY_NAME) == first
 
 
-def test_check_update_only_opens_the_browser(
-    qtbot: Any, env: Env, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import dpg
-
-    assert env.ctx is not None
-    window = MainWindow(env.ctx)
-    qtbot.addWidget(window)
-    monkeypatch.setattr(dpg, "REPOSITORY_URL", "")
-    window.check_update()
-    assert "저장소 주소" in env.notices[-1][1]
-    monkeypatch.setattr(dpg, "REPOSITORY_URL", "https://github.com/example/dpg/")
-    window.check_update()
-    assert env.opened[-1] == "https://github.com/example/dpg/releases/latest"
-    assert env.fake.calls == []
-
-
 def test_standard_zip_opens_with_the_common_password_alone(qtbot: Any, env: Env) -> None:
     """D-107 default: classic ZIP encryption with the user's common password — what Windows
     Explorer and macOS open with nothing but that password."""
