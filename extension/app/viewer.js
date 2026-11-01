@@ -10,6 +10,7 @@ import * as keyring from "./lib/keyring.js";
 import { viewModel } from "./lib/view.js";
 import { renderModel } from "./lib/render.js";
 import { planMembers, reencrypt, ReencryptFailed } from "./lib/reencrypt.js";
+import { RELEASES_URL, bugReportUrl } from "./lib/links.js";
 import { parseDriveUrl } from "./lib/driveurl.js";
 import { restoreToDrive, RestoreFailed } from "./lib/restore.js";
 import * as sharing from "./lib/sharing.js";
@@ -93,8 +94,10 @@ function toggle(btn, show) {
 // One view at a time (user request): 암호화 파일 / 공유 점검 / 개인정보 검사 / 설정 / 도움말.
 const VIEW_BUTTONS = { vault: "tabVault", audit: "auditBtn", pii: "piiBtn", settings: "settingsBtn", help: "helpBtn" };
 const VIEW_TITLES = { vault: "암호화 관리", audit: "공유 점검", pii: "개인정보 점검", settings: "설정", help: "도움말" };
+let workView = "vault"; // the last job view, for 「오류 신고」 (where the problem was)
 function setView(name) {
   document.body.dataset.view = name;
+  if (name !== "help" && name !== "settings") workView = name;
   $("pageTitle").textContent = VIEW_TITLES[name] || "";
   for (const [v, id] of Object.entries(VIEW_BUTTONS)) toggle($(id), v === name);
   if (name === "pii") updatePiiHint();
@@ -120,6 +123,11 @@ async function showBig(opts) {
 $("settingsBtn").onclick = () => setView("settings");
 $("helpBtn").onclick = () => setView("help");
 $("guideBtn").onclick = () => window.open(chrome.runtime.getURL("guide.html"), "_blank", "noopener");
+// D-109: both open in a new tab only when pressed; nothing is sent or checked by the extension.
+const VERSION = chrome.runtime.getManifest?.().version || "";
+$("updateBtn").textContent = `새 버전 확인 (지금 v${VERSION})`;
+$("updateBtn").onclick = () => window.open(RELEASES_URL, "_blank", "noopener");
+$("reportBtn").onclick = () => window.open(bugReportUrl(VERSION, VIEW_TITLES[workView] || ""), "_blank", "noopener");
 drive.clientId().then((id) => {
   $("client").value = id;
   if (!id) { $("settings").hidden = false; message("처음 한 번 설정에서 클라이언트 ID를 저장해 주세요."); }

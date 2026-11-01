@@ -1222,3 +1222,40 @@ def test_window_fits_a_laptop_screen(qtbot: Any, env: Env) -> None:
     assert window.width() <= 1280
     header = window.table.horizontalHeader()
     assert [header.logicalIndex(v) for v in range(3)] == [mw.COL_CHECK, mw.COL_RISK, COL_NAME]
+
+
+def test_bug_report_opens_the_form_with_only_app_version_and_screen(
+    qtbot: Any, env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-109: the app sends nothing itself; the browser opens the maker's form, and the address
+    carries only the app name, version and screen — no account, file or result."""
+    import dpg
+
+    assert env.ctx is not None
+    _login(env)
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    opened: list[str] = []
+    env.ctx.open_url = lambda url: opened.append(url) or True
+    env.ctx.confirm = lambda *a: False
+    window.report_problem()
+    assert opened == []  # declined: nothing opens
+    env.ctx.confirm = lambda *a: True
+    window.show_page("privacy")
+    window.report_problem()
+    from urllib.parse import parse_qs, urlsplit
+
+    url = urlsplit(opened[-1])
+    assert f"{url.scheme}://{url.netloc}{url.path}" == dpg.BUG_REPORT_URL
+    assert parse_qs(url.query) == {
+        "app": ["google-scerct"],
+        "v": [dpg.__version__],
+        "where": ["개인정보 점검"],
+    }
+    assert ME not in opened[-1]
+    assert env.fake.calls == []  # Drive is not touched
+    # the version and 「새 버전 확인」 are always in view; the latest release opens in the browser
+    assert window.version_btn.text() == f"v{dpg.__version__} · 새 버전 확인"
+    window.version_btn.click()
+    assert opened[-1].endswith("/releases/latest")
+    assert not window.maker_logo.pixmap().isNull()  # 「만든 사람 · 다있쌤」

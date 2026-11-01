@@ -107,6 +107,7 @@ globalThis.chrome = {
   runtime: {
     id: "harness-ext",
     getURL: (path) => new URL(`../../${path}`, location.href).href,
+    getManifest: () => ({ version: "0.2.6" }),
     sendMessage: async (m) => { window.harnessMessages.push(m); return null; },
     onMessage: { addListener: (fn) => { window.harnessMsgListeners.push(fn); } },
   },
@@ -192,6 +193,8 @@ window.fetch = async (input, init) => {
 const html = await (await realFetch("../../viewer.html")).text();
 document.body.innerHTML = new DOMParser().parseFromString(html, "text/html").body.innerHTML; // own trusted file
 document.querySelectorAll("script").forEach((s) => s.remove());
+// relative paths in viewer.html are relative to the extension root, not to this harness page
+document.querySelectorAll('img[src^="img/"]').forEach((i) => { i.src = `../../${i.getAttribute("src")}`; });
 window.harnessKey = (await (await realFetch(FIX + "recovery.txt")).text()).split("\n")[0].trim();
 { // the standard-ZIP fixture's common password: derived from the synthetic key (tag c0ffee00)
   const { parseRecoveryKey, derivePassword } = await import("../../lib/vault.js");

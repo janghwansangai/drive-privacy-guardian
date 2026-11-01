@@ -350,6 +350,7 @@ QFrame#acct {{ border-top: 1px solid {t["line"]}; }}
 QLabel#acctText {{ color: {t["muted"]}; font-size: 12px; }}
 QPushButton#acctBtn {{ border: 0; color: {t["blue"]}; font-size: 12px; font-weight: 600;
   text-align: left; padding: 2px 0; background: transparent; }}
+QLabel#maker {{ color: {t["muted"]}; font-size: 11px; font-weight: 600; }}
 
 QLabel#pageTitle {{ color: {t["ink"]}; font-size: 22px; font-weight: 700; }}
 QLabel#pageSub {{ color: {t["muted"]}; font-size: 13px; }}

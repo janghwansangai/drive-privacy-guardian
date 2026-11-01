@@ -81,3 +81,4 @@
 - 「내용 확인」·「드라이브에서 열기」 같은 보기 동작은 `look_targets()`(화면에 보이는 항목)만 쓴다.
 - 윈도우 실기 점검은 `docs/WINDOWS_TEST_KO.md`.
 - 메인 창 배치는 `gui/shell.py`(색·아이콘·단계 표시·요약 칸·화면별 `PAGES`)와 `MainWindow._build_*`(D-108). 새 버튼은 기존처럼 `MainWindow` 속성으로 만들고 `bar_actions`·`PageSpec.actions`에 넣는다. 색은 `LIGHT`/`DARK` 두 벌을 같이 고친다.
+- 「오류 신고」·「새 버전 확인」은 사용자의 브라우저로 주소를 여는 것뿐이다(D-109). 앱·확장에서 그 주소로 요청을 보내지 마라. 확장의 외부 주소는 `lib/links.js`에만.

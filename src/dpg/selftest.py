@@ -95,6 +95,10 @@ def _qt() -> str:
 
     if not dpg.gui.main_window.RECOVERY_TOOL.is_file():
         raise AssertionError("password recovery tool missing from the build")
+    from PySide6.QtGui import QPixmap
+
+    if QPixmap(str(dpg.gui.main_window.MAKER_LOGO)).isNull():
+        raise AssertionError("maker logo missing from the build")
     from dpg.gui.schedule_ui import badge_icon
 
     if badge_icon().isNull():

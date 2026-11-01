@@ -55,6 +55,8 @@ code{background:var(--ground);padding:1px 6px;border-radius:5px;font-size:.92em}
 .dc small{color:var(--muted)}
 .dc .ar{margin-left:auto;color:var(--blue);font-weight:700;font-size:18px}
 footer{padding:56px 0 32px;color:var(--muted);font-size:14px;text-align:center}
+footer .maker{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:12px;font-weight:600}
+footer .maker img{border-radius:5px}
 @media (max-width:820px){
   .show{grid-template-columns:1fr;padding:18px}
   .tabs{flex-direction:row;overflow-x:auto}

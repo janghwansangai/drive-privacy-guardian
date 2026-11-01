@@ -12,7 +12,7 @@ from typing import Any
 from urllib.parse import quote
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
-from PySide6.QtGui import QAction, QCloseEvent, QGuiApplication, QKeySequence
+from PySide6.QtGui import QAction, QCloseEvent, QGuiApplication, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -41,7 +41,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from dpg import __version__
+from dpg import MAKER_KO, __version__
 from dpg.core.actions.executor import ActionExecutor, ActionProgress
 from dpg.core.actions.model import ActionKind, ChangeState, Plan, RunResult
 from dpg.core.actions.planner import build_plan
@@ -186,6 +186,7 @@ def _duration_ko(seconds: float) -> str:
 
 OPEN_MAX = 10
 RECOVERY_TOOL = Path(__file__).resolve().parents[1] / "resources" / "recovery-tool.html"
+MAKER_LOGO = Path(__file__).resolve().parents[1] / "resources" / "daissam.png"
 
 
 def drive_link(a: FileAudit) -> str:
@@ -248,6 +249,7 @@ ABOUT_TEXT = (
     "이 컴퓨터 안에서만 점검하는 무료 프로그램입니다. "
     "구글 외 어떤 서버와도 통신하지 않습니다.\n\n"
     "본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.\n\n"
+    "만든 사람: 다있쌤\n\n"
     "라이선스: MIT. Qt/PySide6는 LGPL-3.0으로 사용하며 교체할 수 있습니다(NOTICE_KO.txt). "
     "그 밖의 오픈소스 라이선스는 THIRD_PARTY_LICENSES.txt에 있습니다.\n\n"
     "Google Drive는 Google LLC의 상표입니다. 이 프로그램은 Google과 제휴하거나 "
@@ -675,6 +677,9 @@ class MainWindow(QMainWindow):
         guide = QAction("사용 설명서 (사이트)", self)
         guide.triggered.connect(lambda: self.ctx.open_url(GUIDE_URL))
         help_menu.addAction(guide)
+        report = QAction("오류 신고…", self)
+        report.triggered.connect(self.report_problem)
+        help_menu.addAction(report)
         update = QAction("새 버전 확인…", self)
         update.triggered.connect(self.check_update)
         help_menu.addAction(update)
@@ -788,6 +793,34 @@ class MainWindow(QMainWindow):
         acct_buttons.addStretch(1)
         acct_col.addWidget(self.account_label)
         acct_col.addLayout(acct_buttons)
+        # 새 버전 확인: the version in view, the latest one opens in the browser (no check here)
+        self.version_btn = QPushButton(f"v{__version__} · 새 버전 확인")
+        self.version_btn.setObjectName("acctBtn")
+        self.version_btn.setToolTip(
+            "브라우저에서 최신 버전 페이지를 엽니다 (이 앱은 직접 확인하지 않음)"
+        )
+        self.version_btn.clicked.connect(self.check_update)
+        acct_col.addWidget(self.version_btn)
+        maker = QHBoxLayout()
+        maker.setSpacing(6)
+        self.maker_logo = QLabel()
+        self.maker_logo.setFixedSize(18, 18)
+        logo = QPixmap(str(MAKER_LOGO))
+        if not logo.isNull():
+            logo = logo.scaled(
+                36,
+                36,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            logo.setDevicePixelRatio(2.0)
+            self.maker_logo.setPixmap(logo)
+        maker_text = QLabel(f"만든 사람 · {MAKER_KO}")
+        maker_text.setObjectName("maker")
+        maker.addWidget(self.maker_logo)
+        maker.addWidget(maker_text, 1)
+        acct_col.addSpacing(4)
+        acct_col.addLayout(maker)
         col.addSpacing(6)
         col.addWidget(acct)
         return nav
@@ -3456,7 +3489,28 @@ class MainWindow(QMainWindow):
                 f"현재 버전: {__version__}\n배포 저장소 주소가 아직 설정되지 않았습니다.",
             )
             return
-        self.ctx.open_url(REPOSITORY_URL.rstrip("/") + "/releases")
+        self.ctx.open_url(REPOSITORY_URL.rstrip("/") + "/releases/latest")
+
+    def report_problem(self) -> None:
+        """「오류 신고」 (D-109): the maker's report form in the user's browser. Only the app name,
+        version and the screen's name go in the address — never files, accounts or results."""
+        from dpg import BUG_REPORT_APP, BUG_REPORT_URL
+
+        if not self.ctx.confirm(
+            self,
+            "오류 신고",
+            "브라우저에서 오류 신고 양식을 엽니다.\n\n"
+            "이 프로그램은 아무것도 보내지 않습니다. 양식에 직접 쓴 내용만 만든 사람에게 "
+            "전달됩니다. 개인정보·비밀번호·파일 이름은 쓰지 마세요.",
+            "양식 열기",
+            "취소",
+        ):
+            return
+        where = "처음 화면" if self.page_key == "home" else PAGES[self.page_key].title
+        self.ctx.open_url(
+            f"{BUG_REPORT_URL}?app={quote(BUG_REPORT_APP)}"
+            f"&v={quote(__version__)}&where={quote(where)}"
+        )
 
     def show_checklist(self) -> None:
         dialog = ChecklistDialog(set(self.ctx.prefs.checklist_done), self.ctx.open_url, self)

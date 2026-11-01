@@ -841,7 +841,7 @@ def test_check_update_only_opens_the_browser(
     assert "저장소 주소" in env.notices[-1][1]
     monkeypatch.setattr(dpg, "REPOSITORY_URL", "https://github.com/example/dpg/")
     window.check_update()
-    assert env.opened[-1] == "https://github.com/example/dpg/releases"
+    assert env.opened[-1] == "https://github.com/example/dpg/releases/latest"
     assert env.fake.calls == []
 
 

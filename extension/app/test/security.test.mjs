@@ -22,7 +22,21 @@ test("network: only Google sign-in and the Drive API", () => {
   assert.doesNotMatch(csp, /(?<!wasm-)unsafe-eval|unsafe-inline|http:/);
   // XML namespace names are identifiers, never fetched.
   const NAMESPACES = new Set(["http://schemas.openxmlformats.org/officeDocument/2006/relationships", "http://www.w3.org/2000/svg"]);
-  for (const f of SHIPPED) {
+  // D-109: two pages the user can open in a new tab (report form, latest release). They live in
+  // lib/links.js only and are handed to window.open only — never to fetch or XHR.
+  const LINKS = new Set([
+    "https://script.google.com/macros/s/AKfycbxsRD7vRlEP9oKlvlDDPww8cYaDadTTIp1KrqYWSVU5qE5_gUh3bNUskBhHDlXH6FskvA/exec",
+    "https://github.com/janghwansangai/drive-privacy-guardian/releases/latest",
+  ]);
+  const l = src("lib/links.js");
+  assert.deepEqual(new Set(l.match(/https?:\/\/[^\s"'`)]+/g)), LINKS);
+  assert.doesNotMatch(l.replace(/\/\/.*$/gm, ""), /fetch|XMLHttpRequest|sendBeacon|chrome\./); // code, not comments
+  const v = src("viewer.js");
+  for (const name of ["RELEASES_URL", "bugReportUrl"]) {
+    const uses = [...v.matchAll(new RegExp(`[^\\n]*\\b${name}\\b[^\\n]*`, "g"))].map((m) => m[0]).filter((line) => !line.startsWith("import"));
+    assert.ok(uses.length && uses.every((line) => /window\.open\(/.test(line)), `${name}: ${uses.join(" | ")}`);
+  }
+  for (const f of SHIPPED.filter((x) => x !== "lib/links.js")) {
     for (const url of (src(f).match(/https?:\/\/[^\s"'`)]+/g) || []).filter((u) => !NAMESPACES.has(u))) {
       // drive.google.com appears only as a sender check (startsWith) — never fetched (see connect-src).
       // (and as the postMessage target of the large view's close request)
@@ -164,4 +178,12 @@ test("the manual is static: no scripts, nothing loaded from the web, synthetic s
   assert.doesNotMatch(g, /<script|<iframe|https?:\/\//i);
   const imgs = [...g.matchAll(/src="([^"]+)"/g)].map((m) => m[1]);
   assert.ok(imgs.length >= 7 && imgs.every((p) => /^guide\/\d\d-[a-z]+\.png$/.test(p) && fs.existsSync(path.join(ROOT, p))), imgs.join(","));
+});
+
+test("D-109: the report link carries only the app name, version and view", async () => {
+  const { bugReportUrl, BUG_REPORT_URL } = await import("../lib/links.js");
+  const u = new URL(bugReportUrl("0.2.6", "개인정보 점검"));
+  assert.equal(`${u.origin}${u.pathname}`, BUG_REPORT_URL);
+  assert.deepEqual([...u.searchParams], [["app", "google-scerct"], ["v", "0.2.6"], ["where", "개인정보 점검"]]);
+  assert.ok(fs.existsSync(path.join(ROOT, "img", "daissam.png")), "maker's mark shipped with the help view");
 });
