@@ -1897,6 +1897,15 @@ class MainWindow(QMainWindow):
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if event.type() == QEvent.Type.Quit:  # Dock → Quit, Cmd+Q from the system menu
             self._quitting = True
+        elif (
+            event.type() == QEvent.Type.Polish
+            and isinstance(watched, QLabel)
+            and watched.textFormat() == Qt.TextFormat.AutoText
+        ):
+            # Labels and message boxes show Drive file names, which anyone who shares a file
+            # can choose: a name like "<h1>안전함</h1>" must never render as markup (UI spoofing).
+            # Text meant as rich text sets its format explicitly (wizard steps, wipe notice).
+            watched.setTextFormat(Qt.TextFormat.PlainText)
         return super().eventFilter(watched, event)
 
     def _tray_message(self, title: str, text: str) -> None:

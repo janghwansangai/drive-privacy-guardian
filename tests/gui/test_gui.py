@@ -1345,3 +1345,30 @@ def test_update_check_failure_offers_the_page(qtbot: Any, env: Env) -> None:
     window.check_update()  # the fixture's fetcher fails (offline)
     qtbot.waitUntil(lambda: window._update_task is None, timeout=5000)
     assert opened == [RELEASES_PAGE]  # confirm() says yes in tests
+
+
+def test_drive_names_never_render_as_markup(qtbot: Any, env: Env) -> None:
+    """Security check 2026-11-08: a shared file named like HTML must show as plain text in
+    labels and message boxes (no spoofed headings, links or local images)."""
+    from PySide6.QtWidgets import QLabel, QMessageBox
+
+    assert env.ctx is not None
+    window = MainWindow(env.ctx)
+    qtbot.addWidget(window)
+    label = QLabel('✔ 고른 파일 1개: <h1>안전함</h1><img src="file:///etc/hosts">', window)
+    label.show()
+    box = QMessageBox(QMessageBox.Icon.Information, "확인", "<h1>안전함</h1> 외 2개", parent=window)
+    box.show()
+    qtbot.wait(50)
+    assert label.textFormat() == mw.Qt.TextFormat.PlainText
+    inner = [w for w in box.findChildren(QLabel) if "안전함" in w.text()]
+    assert inner
+    assert all(w.textFormat() == mw.Qt.TextFormat.PlainText for w in inner)
+    box.close()
+    wiz = SetupWizard(env.ctx, window)
+    qtbot.addWidget(wiz)
+    wiz.show()
+    qtbot.wait(50)
+    rich = [w for w in wiz.findChildren(QLabel) if w.textFormat() == mw.Qt.TextFormat.RichText]
+    assert rich  # instructions written as rich text on purpose keep their format
+    wiz.close()

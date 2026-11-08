@@ -157,3 +157,22 @@ def test_decode_text_cp949_and_bom() -> None:
     assert decode_text("주소록".encode("cp949")) == "주소록"
     assert decode_text(b"\xef\xbb\xbf" + "명단".encode()) == "명단"
     assert decode_text("명단".encode("utf-16")) == "명단"
+
+
+def test_huge_pdf_is_read_only_up_to_the_page_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Security check 2026-11-08: a huge (or crafted) PDF must not keep the check busy for hours."""
+    from dpg.core.extract import formats
+
+    monkeypatch.setattr(formats, "MAX_PDF_PAGES", 2)
+    doc = extract(
+        build_pdf(
+            [
+                ["연락처 010-0123-4567 입니다"],
+                ["둘째 쪽 글자입니다 충분히"],
+                ["셋째 쪽 010-9999-8888"],
+            ]
+        ),
+        plan_for("", "a.pdf"),
+    )
+    assert doc.truncated
+    assert not any("9999" in s.text for s in doc.segments)

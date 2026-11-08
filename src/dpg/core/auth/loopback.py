@@ -74,6 +74,9 @@ class _CallbackHandler(BaseHTTPRequestHandler):
     server: _LoopbackServer
     server_version = "dpg"
     sys_version = ""
+    # A local program that connects and never sends a request must not hold up the login
+    # (the listener serves one connection at a time).
+    timeout = 5
 
     def log_message(self, format: str, *args: Any) -> None:
         return  # the query string holds the authorization code — never log it

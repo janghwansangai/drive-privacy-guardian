@@ -100,6 +100,7 @@ def extract_xlsx(data: bytes) -> Extracted:
 # --- PDF ---------------------------------------------------------------------------------------
 
 MIN_CHARS_PER_PAGE = 20  # a page with less text than this is treated as an image page
+MAX_PDF_PAGES = 3000
 
 
 def extract_pdf(data: bytes) -> Extracted:
@@ -113,7 +114,9 @@ def extract_pdf(data: bytes) -> Extracted:
             raise Unscannable(UnscannableReason.ENCRYPTED)
         out = Extracted()
         empty_pages = 0
-        for i, page in enumerate(reader.pages, start=1):
+        if len(reader.pages) > MAX_PDF_PAGES:
+            out.truncated = True  # a huge (or crafted) PDF must not keep the check busy for hours
+        for i, page in enumerate(reader.pages[:MAX_PDF_PAGES], start=1):
             text = page.extract_text() or ""
             if len(text.strip()) < MIN_CHARS_PER_PAGE:
                 empty_pages += 1
@@ -123,7 +126,7 @@ def extract_pdf(data: bytes) -> Extracted:
         raise
     except (PdfReadError, ValueError, KeyError, TypeError, OSError):
         raise Unscannable(UnscannableReason.CORRUPT) from None
-    if empty_pages >= len(reader.pages):
+    if empty_pages >= min(len(reader.pages), MAX_PDF_PAGES):
         raise Unscannable(UnscannableReason.IMAGE_ONLY)  # no page has text: scanned PDF
     out.partial = empty_pages > 0  # some pages are images: scanned only in part
     return out

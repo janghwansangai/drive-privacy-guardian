@@ -259,3 +259,27 @@ def test_cli_end_to_end(
         assert "클라이언트가 설정되지 않았습니다" in capsys.readouterr().err
     finally:
         global_guard().uninstall()
+
+
+def test_a_silent_local_connection_cannot_stall_the_login(
+    google: FakeGoogle, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Security check 2026-11-08: another local program that connects to the loopback port and
+    never sends a request must not block the real redirect (one connection at a time)."""
+    from dpg.core.auth import loopback
+
+    assert loopback._CallbackHandler.timeout == 5
+    monkeypatch.setattr(loopback._CallbackHandler, "timeout", 1)
+    stalls: list[socket.socket] = []
+
+    def browser(url: str) -> bool:
+        redirect = parse_qs(urlsplit(url).query)["redirect_uri"][0]
+        s = socket.create_connection(("127.0.0.1", urlsplit(redirect).port or 0))
+        stalls.append(s)  # connected first, sends nothing
+        return google.browser(url)
+
+    try:
+        assert _flow(google, open_browser=browser, timeout=8).run().access_token
+    finally:
+        for s in stalls:
+            s.close()
