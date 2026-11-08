@@ -1,6 +1,6 @@
 개인정보 보안관 (Drive Privacy Guardian) 크롬 확장 프로그램 — 고지
 
-1. MIT 라이선스로 배포됩니다 (저장소의 LICENSE).
+1. MIT 라이선스로 배포됩니다 (LICENSE).
 2. vendor/7z-wasm: 7-Zip 24.09 (Igor Pavlov)을 WebAssembly로 빌드한 7z-wasm 1.2.0.
    GNU LGPL 2.1 이상 + unRAR 제한 (vendor/7z-wasm/License.txt, unRarLicense.txt).
    unRAR 코드는 RAR(WinRAR) 호환 압축 프로그램을 만드는 데 사용할 수 없습니다.
@@ -13,3 +13,8 @@
 4. 본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
 5. Google Drive는 Google LLC의 상표입니다. 이 확장 프로그램은 Google과 제휴하거나
    Google의 보증을 받은 제품이 아닙니다.
+
+6. 면책 안내
+   이 프로그램은 무료로 "있는 그대로" 제공됩니다. 개인정보 탐지는 놓치거나 잘못 찾을 수 있고, 프로그램에 오류가 있을 수 있습니다.
+   중요한 파일은 미리 백업하고, 바꾸기 전 미리보기를 꼭 확인하세요. 프로그램 사용으로 생긴 손해에 대해 만든 사람은 책임을 지지 않으며, 개인정보 보호의 최종 책임은 사용자에게 있습니다.
+   (MIT 라이선스: 보증 없이 "있는 그대로" 제공되며, 저작자는 어떤 손해에도 책임을 지지 않습니다. LICENSE 참고)

@@ -129,3 +129,4 @@ ol.big .shot{margin:10px 0;max-width:100%}
 .video button:hover .play,.video button:focus-visible .play{transform:translate(-50%,-50%) scale(1.08)}
 .video iframe{width:100%;height:100%;border:0;display:block}
 .videoSec .cap{text-align:center}
+footer .disclaimer{max-width:720px;margin:14px auto 0;font-size:13px;line-height:1.6}

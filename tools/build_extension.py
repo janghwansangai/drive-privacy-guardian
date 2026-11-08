@@ -25,6 +25,7 @@ INCLUDE = [
     "guide.html",
     "guide.css",
     "NOTICE_KO.txt",
+    "LICENSE",
 ]
 INCLUDE_DIRS = ["lib", "vendor", "guide", "img"]
 

@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from dpg import MAKER_KO, __version__
+from dpg import DISCLAIMER_KO, MAKER_KO, __version__
 from dpg.core.actions.executor import ActionExecutor, ActionProgress
 from dpg.core.actions.model import ActionKind, ChangeState, Plan, RunResult
 from dpg.core.actions.planner import build_plan
@@ -254,6 +254,7 @@ ABOUT_TEXT = (
     "구글 외에는 새 버전 확인(버전 번호만, 설정에서 끄기)으로 깃허브에만 묻습니다.\n\n"
     "본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.\n\n"
     "만든 사람: 다있쌤\n\n"
+    f"면책 안내: {DISCLAIMER_KO}\n\n"
     "라이선스: MIT. Qt/PySide6는 LGPL-3.0으로 사용하며 교체할 수 있습니다(NOTICE_KO.txt). "
     "그 밖의 오픈소스 라이선스는 THIRD_PARTY_LICENSES.txt에 있습니다.\n\n"
     "Google Drive는 Google LLC의 상표입니다. 이 프로그램은 Google과 제휴하거나 "
