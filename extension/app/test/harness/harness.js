@@ -107,7 +107,7 @@ globalThis.chrome = {
   runtime: {
     id: "harness-ext",
     getURL: (path) => new URL(`../../${path}`, location.href).href,
-    getManifest: () => ({ version: "0.2.10" }),
+    getManifest: () => ({ version: "0.2.11" }),
     sendMessage: async (m) => { window.harnessMessages.push(m); return null; },
     onMessage: { addListener: (fn) => { window.harnessMsgListeners.push(fn); } },
   },
