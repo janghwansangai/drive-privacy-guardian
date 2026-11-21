@@ -39,8 +39,8 @@
   <div class="pair"><figure class="shot"><img src="guide/05-pii.png" alt="개인정보 점검 화면" width="400"><span class="mark" style="left:3%;top:19.5%">1</span><span class="mark" style="left:51%;top:16.5%">2</span><span class="mark" style="left:3%;top:29.5%">3</span><span class="mark" style="left:14%;top:44.5%">4</span><span class="mark" style="left:3%;top:65.5%">5</span></figure><ol class="steps"><li><span class="n">1</span><div>드라이브에서 파일·폴더 <b>선택</b></div></li><li><span class="n">2</span><div><b>검사</b></div></li><li><span class="n">3</span><div>결과 요약 — 있음 · 없음 · 검사 불가</div></li><li><span class="n">4</span><div>파일마다 찾은 종류와 건수 (원문은 보여 주지 않음)</div></li><li><span class="n">5</span><div><b>개인정보 파일 암호화</b></div></li></ol></div>
   <p class="note">「검사 불가」(스캔 PDF·사진 등)는 안전하다는 뜻이 아닙니다. 드라이브 <b>전체</b> 검사는 데스크톱 앱에서 하세요.</p>
 </section><section id="lock" class="gray">
-  <h2><span class="dot"></span>잠금 풀기</h2>
-  <p class="lead">개인 비밀번호 한 번이면 모든 암호화 파일이 열립니다.</p>
+  <h2><span class="dot"></span>잠금 풀기 (높은 보안 7z)</h2>
+  <p class="lead">높은 보안 7z는 개인 비밀번호 한 번이면 열립니다. 기본 ZIP은 공통 비밀번호로 열립니다.</p>
   <div class="pair"><figure class="shot"><img src="guide/06-locked.png" alt="잠금 화면" width="400"><span class="mark" style="left:3%;top:34%">1</span><span class="mark" style="left:3%;top:44%">2</span><span class="mark" style="left:30%;top:53.5%">3</span></figure><ol class="steps"><li><span class="n">1</span><div><b>개인 비밀번호</b> 입력</div></li><li><span class="n">2</span><div><b>잠금 풀기</b></div></li><li><span class="n">3</span><div>잊었으면 — <b>복구 키</b>로 열고 새 비밀번호 정하기</div></li></ol></div>
   
 </section><section id="tab" class="gray">
@@ -48,6 +48,16 @@
   <p class="lead">계정 버튼(로그인됨 ▾) → 「새 탭에서 크게 열기」.</p>
   <div class="pair stack"><figure class="shot wide"><img src="guide/07-tab.png" alt="새 탭 큰 화면" width="1280"><span class="mark" style="left:1%;top:10%">1</span><span class="mark" style="left:80%;top:2%">2</span><span class="mark" style="left:1%;top:83%">3</span></figure><ol class="steps"><li><span class="n">1</span><div>왼쪽 메뉴로 기능 바꾸기</div></li><li><span class="n">2</span><div>계정 — 로그아웃</div></li><li><span class="n">3</span><div>설정 · 도움말</div></li></ol></div>
   
+</section>
+<section id="drivelock" class="gray">
+  <h2><span class="dot"></span>드라이브 잠금 · 초기화</h2>
+  <p class="lead">설정 → 「드라이브 잠금」: <b>잠금 없음</b>(기본) · <b>드라이브 전체</b> · <b>잠근 폴더만</b>.</p>
+  <table class="legend"><tr><th>무엇</th><th>어떻게</th></tr>
+    <tr><td>폴더 잠그기</td><td>드라이브에서 폴더를 고르고 패널의 「🔒 잠그기 (접속 차단)」 → 그 폴더(와 그 안)를 열 때 잠금 비밀번호</td></tr>
+    <tr><td>잠그기와 ZIP의 차이</td><td>잠그기는 이 크롬에서 <b>여는 것만</b> 막습니다(파일은 그대로, 확장 프로그램을 지우면 풀림). ZIP은 <b>파일 자체를 암호화</b>합니다(지워도 잠긴 채 남음, 비밀번호만 있으면 어떤 압축 프로그램으로도 열림)</td></tr>
+    <tr><td>모든 잠금 풀기</td><td>설정 → 「전체 비활성화」 (잠금 비밀번호 필요)</td></tr>
+    <tr><td>확장 프로그램을 지우기 전에</td><td>설정 → 「초기화 → 모두 풀기」: ZIP·7z를 모두 원래 파일로 풀고(다시 받아 비교한 뒤에만 암호화 파일을 휴지통으로) 드라이브 잠금도 풉니다</td></tr>
+  </table>
 </section>
 <section id="trouble" class="gray">
   <h2><span class="dot"></span>문제 해결</h2>

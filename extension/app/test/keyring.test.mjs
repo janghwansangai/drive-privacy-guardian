@@ -87,7 +87,10 @@ test("D-107: common password — only a typo check is stored; kept in session me
   await assert.rejects(keyring.unlockCommon("Gongtong-Test-2025"), /오타/);
   await keyring.unlockCommon("Gongtong-Test-2026");
   assert.equal(await keyring.currentCommon(), "Gongtong-Test-2026");
-  chrome.storage.session.data.commonPw.at = Date.now() - 16 * 60000; // default lock: 15 minutes
+  chrome.storage.session.data.commonPw.at = Date.now() - 16 * 60000;
+  assert.equal(await keyring.currentCommon(), "Gongtong-Test-2026"); // D-112 default: no auto-lock
+  await keyring.setLockMinutes(15);
+  chrome.storage.session.data.commonPw.at = Date.now() - 16 * 60000;
   assert.equal(await keyring.currentCommon(), null);
   await keyring.unlockCommon("Gongtong-Test-2026");
   await keyring.forget();

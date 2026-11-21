@@ -6,7 +6,7 @@ import path from "node:path";
 import { HERE } from "./helpers.mjs";
 
 const ROOT = path.resolve(HERE, "..");
-const SHIPPED = ["viewer.js", "background.js", "drive_watch.js", ...fs.readdirSync(path.join(ROOT, "lib")).map((f) => `lib/${f}`)];
+const SHIPPED = ["viewer.js", "background.js", "drive_watch.js", "drive_gate.js", "gate.js", ...fs.readdirSync(path.join(ROOT, "lib")).map((f) => `lib/${f}`)];
 const src = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
 const manifest = JSON.parse(src("manifest.json"));
 
@@ -18,8 +18,8 @@ test("network: only Google sign-in and the Drive API", () => {
   // D-110: GitHub's API only for the version number (lib/update.js)
   assert.match(csp, /connect-src 'self' https:\/\/www\.googleapis\.com https:\/\/api\.github\.com;/);
   assert.match(csp, /script-src 'self' 'wasm-unsafe-eval';/);
-  // only Drive may frame the viewer (the large view, D-089)
-  assert.match(csp, /frame-ancestors https:\/\/drive\.google\.com$/);
+  // only Drive may frame the viewer (the large view, D-089); Docs only the lock screen (D-112)
+  assert.match(csp, /frame-ancestors https:\/\/drive\.google\.com https:\/\/docs\.google\.com$/);
   assert.doesNotMatch(csp, /(?<!wasm-)unsafe-eval|unsafe-inline|http:/);
   // XML namespace names are identifiers, never fetched.
   const NAMESPACES = new Set(["http://schemas.openxmlformats.org/officeDocument/2006/relationships", "http://www.w3.org/2000/svg"]);
@@ -50,22 +50,27 @@ test("network: only Google sign-in and the Drive API", () => {
     for (const url of (src(f).match(/https?:\/\/[^\s"'`)]+/g) || []).filter((u) => !NAMESPACES.has(u))) {
       // drive.google.com appears only as a sender check (startsWith) — never fetched (see connect-src).
       // (and as the postMessage target of the large view's close request)
-      assert.match(url, /^https:\/\/(www\.googleapis\.com|accounts\.google\.com|drive\.google\.com)(\/|$)/, `${f}: ${url}`);
+      assert.match(url, /^https:\/\/(www\.googleapis\.com|accounts\.google\.com|drive\.google\.com|docs\.google\.com)(\/|$)/, `${f}: ${url}`);
     }
   }
 });
 
 test("minimal permissions, no content scripts, no remote code", () => {
   assert.deepEqual([...manifest.permissions].sort(), ["alarms", "identity", "sidePanel", "storage"]);
-  // One content script, on Drive only (D-086); what it may do is checked below.
+  // The Drive page watcher (D-086) and the 드라이브 잠금 gate on Drive / Docs (D-112); what they
+  // may do is checked below.
   assert.deepEqual(manifest.content_scripts, [
     { matches: ["https://drive.google.com/*"], js: ["drive_watch.js"], run_at: "document_idle", all_frames: false },
+    { matches: ["https://drive.google.com/*", "https://docs.google.com/*"], js: ["drive_gate.js"], run_at: "document_start", all_frames: false },
   ]);
   assert.ok(!manifest.permissions.includes("scripting") && !manifest.permissions.includes("tabs"));
   assert.equal(manifest.side_panel.default_path, "viewer.html");
   for (const f of SHIPPED) assert.doesNotMatch(src(f), /chrome\.scripting|executeScript|insertCSS/, f);
-  // only viewer.html, only for Drive (the large view's iframe, D-089)
-  assert.deepEqual(manifest.web_accessible_resources, [{ resources: ["viewer.html"], matches: ["https://drive.google.com/*"] }]);
+  // only viewer.html, only for Drive (the large view's iframe, D-089); the lock screen (D-112)
+  assert.deepEqual(manifest.web_accessible_resources, [
+    { resources: ["viewer.html"], matches: ["https://drive.google.com/*"] },
+    { resources: ["gate.html"], matches: ["https://drive.google.com/*", "https://docs.google.com/*"] },
+  ]);
   for (const f of SHIPPED) {
     const s = src(f);
     assert.doesNotMatch(s, /\beval\(|new Function\(|importScripts\(/, f);
@@ -79,6 +84,8 @@ test("nothing decrypted is persisted; storage holds only what D-088 allows", () 
     // vaultWrap is AES-GCM encrypted; commonCheck is a PBKDF2 typo check (D-107)
     "lib/keyring.js": ["vaultWrap", "vaultKey", "lockMinutes", "commonCheck", "commonPw"],
     "viewer.js": ["auditRun", "piiRun", "updateOff"], // D-101 session; D-110 local switch
+    // D-112: lock mode + folder IDs + a PBKDF2 check (local); "opened" time (session)
+    "lib/drivelock.js": ["driveLock", "driveLockOpen"],
   };
   for (const f of SHIPPED) {
     const s = src(f);
@@ -97,6 +104,11 @@ test("nothing decrypted is persisted; storage holds only what D-088 allows", () 
   assert.match(v, /chrome\.storage\.session\?\.set\(\{ auditRun:/);
   assert.match(v, /chrome\.storage\.session\?\.set\(\{ piiRun:/);
   assert.doesNotMatch(v, /storage\.local[^;]*(auditRun|piiRun)/);
+  const dl = src("lib/drivelock.js"); // D-112: no password and no folder names on disk
+  assert.match(dl, /session\(\)\.set\(\{ driveLockOpen:/);
+  assert.doesNotMatch(dl, /local\(\)\.set\(\{ driveLockOpen/);
+  assert.match(dl, /async function save\(next\) \{ await local\(\)\.set\(\{ driveLock: next \}\); \}/);
+  assert.match(dl, /save\(\{ v: 1, mode, folders: list, check \}\)/);
   assert.ok(!manifest.permissions.includes("downloads")); // saving uses a one-off <a download> link
 });
 
@@ -180,7 +192,31 @@ test("Drive page watcher: file IDs to this extension, and only the large-view if
   // the receivers check who sent it
   assert.match(src("viewer.js"), /sender\.id !== chrome\.runtime\.id \|\| !sender\.tab \|\| !sender\.url\?\.startsWith\("https:\/\/drive\.google\.com\/"\)/);
   assert.match(w, /if \(sender\.id !== chrome\.runtime\.id \|\| sender\.tab\) return;/);
-  assert.match(src("background.js"), /if \(sender\.id !== chrome\.runtime\.id \|\| sender\.tab/);
+  assert.match(src("background.js"), /if \(sender\.tab \|\| msg\?\.type !== "openTab"\) return undefined;/);
+  assert.match(src("background.js"), /if \(sender\.id !== chrome\.runtime\.id\) return undefined;/);
+});
+
+test("D-112 lock gate: asks the background with the address only; the only page change is the lock screen", () => {
+  const g = src("drive_gate.js");
+  assert.doesNotMatch(g, /fetch\(|XMLHttpRequest|WebSocket|sendBeacon|chrome\.storage|localStorage|indexedDB|chrome\.tabs|postMessage\(/);
+  assert.deepEqual([...g.matchAll(/createElement\("(\w+)"\)/g)].map((m) => m[1]), ["iframe"]);
+  assert.doesNotMatch(g, /\.(innerHTML|outerHTML|textContent|innerText|value)\s*=|appendChild|insertAdjacent|setAttribute|document\.write|querySelector/);
+  const sends = [...g.matchAll(/sendMessage\(\{([^}]*)\}\)/g)].map((m) => m[1].trim());
+  assert.deepEqual(sends, ['type: "gateCheck", url: location.href']);
+  assert.match(g, /ev\.origin === ORIGIN && cover && ev\.source === cover\.contentWindow/);
+  // the gate page sends the password to the background only, and "opened" to Drive / Docs only
+  const p = src("gate.js");
+  assert.deepEqual([...p.matchAll(/sendMessage\(\{([^}]*)\}\)/g)].map((m) => m[1].trim()), ['type: "gateUnlock", password']);
+  assert.match(p, /\/\^https:\\\/\\\/\(drive\|docs\)\\\.google\\\.com\$\/\.test\(parentOrigin\)/);
+  assert.match(p, /window\.parent\.postMessage\(\{ type: "dpgGateOpened" \}, PARENT\)/);
+  assert.doesNotMatch(p, /chrome\.storage|fetch\(|localStorage/);
+  // the background checks the password (PBKDF2 in lib/drivelock.js) and only from its own page
+  const b = src("background.js");
+  assert.match(b, /msg\?\.type === "gateUnlock" && \(sender\.url \|\| ""\)\.startsWith\(GATE_PAGE\)/);
+  assert.match(b, /msg\?\.type === "gateCheck" && sender\.tab && SITES\.test\(sender\.url \|\| ""\)/);
+  // no sign-in window from the background: the quiet lookup only
+  assert.doesNotMatch(b, /signIn\(|requestFullAccess/);
+  assert.match(src("lib/drive.js"), /export async function parentsQuiet[\s\S]*?throw new NotSignedIn\(\);/);
 });
 
 test("the manual is static: no scripts, nothing loaded from the web, synthetic screenshots only", () => {

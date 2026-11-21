@@ -2,6 +2,9 @@
 // computer), then the desktop app's safety sequence:
 //   encrypt → decrypt again and compare every file → upload → download again and compare
 //   → only then (if asked) move the old archive to the Drive trash. Never a permanent delete.
+// D-112 (all-or-nothing): if the uploaded copy does not check out, that copy goes back to the
+// trash (the originals were never touched); an original that changed while it was being
+// encrypted (`stillSame` says no) is kept, not trashed.
 
 import { createArchive, verifyArchive, sha256hex, newArchiveName, derivePassword, tagFromName } from "./vault.js";
 
@@ -58,9 +61,10 @@ export async function passwordForNew(secret, name) {
  * drive: { upload(name, parent, bytes, mimeType), download({ id, size }), trash(id) }
  * trashIds: the replaced archive, or the Drive originals that were just encrypted.
  * format: "zip" (default, D-107: opens with the password alone; needs secret.password) or "7z".
- * Returns { name, id, verified, uploadVerified, trashedOld, trashFailed, parentFallback }.
+ * stillSame(ids) → the ids that did not change since they were read (default: all of them).
+ * Returns { name, id, verified, uploadVerified, rolledBack, trashedOld, trashFailed, changedKept, parentFallback }.
  */
-export async function reencrypt({ files, secret, parent, trashIds = [], trashOld, drive, names, format = "zip", onStep = () => {} }) {
+export async function reencrypt({ files, secret, parent, trashIds = [], trashOld, drive, names, format = "zip", stillSame = async (ids) => ids, onStep = () => {} }) {
   if (!files.size) throw new ReencryptFailed("보관할 파일이 없습니다");
   if (format !== "zip" && format !== "7z") throw new ReencryptFailed("알 수 없는 보관 형식입니다");
   if (format === "zip" && !secret?.password) throw new ReencryptFailed("기본 ZIP에는 공통 비밀번호가 필요합니다");
@@ -94,16 +98,27 @@ export async function reencrypt({ files, secret, parent, trashIds = [], trashOld
   try {
     uploadVerified = (await sha256hex(await drive.download({ id: meta.id, size: blob.length }))) === digest;
   } catch { uploadVerified = false; }
+  let rolledBack = false;
+  if (!uploadVerified) {
+    // all or nothing: the copy in Drive is not proven identical → take it back (trash, restorable)
+    try { await drive.trash(meta.id); rolledBack = true; } catch { rolledBack = false; }
+  }
   let trashed = 0;
+  let changedKept = 0;
   if (trashOld && trashIds.length && uploadVerified) {
+    onStep("원래 파일이 그사이 바뀌지 않았는지 확인 중…");
+    let same;
+    try { same = new Set(await stillSame(trashIds)); } catch { same = new Set(); }
+    changedKept = trashIds.filter((id) => !same.has(id)).length;
     onStep("원래 파일을 휴지통으로…");
     for (const id of trashIds) {
+      if (!same.has(id)) continue; // changed meanwhile (or could not be checked): keep it
       try { await drive.trash(id); trashed += 1; } catch { /* reported below */ }
     }
   }
   return {
-    name, id: meta.id, verified: true, uploadVerified,
-    trashedOld: trashIds.length > 0 && trashed === trashIds.length, trashFailed: trashIds.length - trashed,
+    name, id: meta.id, verified: true, uploadVerified, rolledBack,
+    trashedOld: trashIds.length > 0 && trashed === trashIds.length, trashFailed: trashIds.length - trashed - changedKept, changedKept,
     parentFallback,
   };
 }

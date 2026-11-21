@@ -4,7 +4,8 @@
 //   chrome.storage.local  "vaultWrap" = AES-GCM(key = PBKDF2-SHA256(password, salt, 600 000), raw key)
 //   chrome.storage.session "vaultKey" = the unlocked key + last use (memory only, gone when the
 //   browser closes; content scripts cannot read session storage) — removed after `lockMinutes`
-//   without use (checked on every use and by the background alarm).
+//   without use (checked on every use and by the background alarm). D-112: the default is 0 =
+//   no auto-lock (it stays open until the browser closes); 5–60 minutes are a choice.
 // Forgot the password → type the recovery key → set a new password.
 //
 // Standard ZIP (D-107, default): one common password the user chooses opens every ZIP with the
@@ -15,8 +16,8 @@
 
 const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const ITERATIONS = 600000;
-export const LOCK_CHOICES = [5, 15, 30, 60];
-export const DEFAULT_LOCK_MINUTES = 15;
+export const LOCK_CHOICES = [0, 5, 15, 30, 60]; // 0 = 잠그지 않음 (until the browser closes)
+export const DEFAULT_LOCK_MINUTES = 0;
 
 export class BadPassword extends Error {}
 export class WrongRecoveryKey extends Error {}
@@ -152,7 +153,7 @@ async function keepCommon(password) {
 export async function currentCommon({ touch = true } = {}) {
   const v = (await session().get("commonPw")).commonPw;
   if (!v) return null;
-  if (Date.now() - v.at > (await lockMinutes()) * 60000) { await session().remove("commonPw"); return null; }
+  if (await expired(v.at)) { await session().remove("commonPw"); return null; }
   if (touch && Date.now() - v.at > 20000) await keepCommon(v.p);
   return v.p;
 }
@@ -164,6 +165,12 @@ async function keep(raw) {
 export async function lockMinutes() {
   const m = Number((await local().get("lockMinutes")).lockMinutes);
   return LOCK_CHOICES.includes(m) ? m : DEFAULT_LOCK_MINUTES;
+}
+
+/** Idle past the lock time? Never with 0 (잠그지 않음): session memory ends with the browser. */
+export async function expired(at) {
+  const m = await lockMinutes();
+  return m > 0 && Date.now() - at > m * 60000;
 }
 
 export async function setLockMinutes(value) {
@@ -180,7 +187,7 @@ export async function lock() {
 export async function currentKey({ touch = true } = {}) {
   const v = (await session().get("vaultKey")).vaultKey;
   if (!v) return null;
-  if (Date.now() - v.at > (await lockMinutes()) * 60000) { await lock(); return null; }
+  if (await expired(v.at)) { await lock(); return null; }
   if (touch && Date.now() - v.at > 20000) await session().set({ vaultKey: { k: v.k, at: Date.now() } });
   return unb64(v.k);
 }

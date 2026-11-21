@@ -113,6 +113,21 @@ async function authed(url, init = {}) {
 
 export const isVaultName = (name) => VAULT_NAME.test(name || "");
 
+export class NotSignedIn extends Error {}
+
+/** For the 드라이브 잠금 check in the background (D-112): one item's parent folders, never
+ *  opening a sign-in window — without a usable sign-in it throws NotSignedIn (the gate then asks
+ *  for the lock password: fail closed). 404 = the account cannot see it → no parents. */
+export async function parentsQuiet(id) {
+  if (!/^[\w-]+$/.test(id)) return [];
+  if (!(await restore()) && !(await renewSilently())) throw new NotSignedIn();
+  if (!hasFullAccess()) throw new NotSignedIn();
+  const res = await fetch(`${API}/${encodeURIComponent(id)}?supportsAllDrives=true&fields=parents`, { headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 404) return [];
+  if (!res.ok) throw new NotSignedIn(`구글 드라이브 오류 (${res.status})`);
+  return (await res.json()).parents || [];
+}
+
 /** Encrypted archives visible to this app; `parent` limits it to one folder ("root" = My Drive). */
 export async function listVaultFiles({ parent } = {}) {
   if (parent && !/^[\w-]+$/.test(parent)) throw new Error("폴더 ID 형식이 아닙니다");
@@ -137,7 +152,7 @@ export async function listVaultFiles({ parent } = {}) {
 /** One file's metadata, or null if this app cannot see it (drive.file). */
 export async function getFile(id) {
   if (!/^[\w-]+$/.test(id)) return null;
-  const url = `${API}/${encodeURIComponent(id)}?supportsAllDrives=true&fields=id,name,size,createdTime,parents,trashed,mimeType`;
+  const url = `${API}/${encodeURIComponent(id)}?supportsAllDrives=true&fields=id,name,size,createdTime,parents,trashed,mimeType,version`;
   try {
     const f = await (await authed(url)).json();
     return f.trashed ? null : f;
@@ -212,8 +227,9 @@ export async function fetchContent(file) {
 export const FOLDER_MIME = "application/vnd.google-apps.folder";
 export const TREE_LIMITS = { files: 3000, bytes: 700 * 1024 * 1024 };
 
-/** Every file under a folder, with its path inside it (`하위폴더/파일.hwp`). Shortcuts and forms
- *  are skipped (reported); stops with a clear message past TREE_LIMITS (memory-only work). */
+/** Every file under a folder, with its path inside it (`하위폴더/파일.hwp`). Shortcuts, forms and
+ *  empty sub-folders cannot go into an archive: they are reported in `skipped` (D-112: the caller
+ *  then keeps the folder). Stops with a clear message past TREE_LIMITS (memory-only work). */
 export async function listFolderTree(folder, limits = TREE_LIMITS) {
   const files = [];
   const skipped = [];
@@ -223,14 +239,16 @@ export async function listFolderTree(folder, limits = TREE_LIMITS) {
     const { id, path } = queue.shift();
     if (!/^[\w-]+$/.test(id)) continue;
     let pageToken = "";
+    let children = 0;
     do {
       const url = new URL(API);
       url.search = new URLSearchParams({
         q: `'${id}' in parents and trashed = false`, pageSize: "1000",
-        fields: "nextPageToken,files(id,name,mimeType,size,parents)",
+        fields: "nextPageToken,files(id,name,mimeType,size,parents,version)",
         supportsAllDrives: "true", includeItemsFromAllDrives: "true", ...(pageToken ? { pageToken } : {}),
       }).toString();
       const body = await (await authed(url)).json();
+      children += body.files.length;
       for (const f of body.files) {
         const name = f.name.replace(/[\\/]/g, "_");
         if (f.mimeType === FOLDER_MIME) { queue.push({ id: f.id, path: `${path}${name}/` }); continue; }
@@ -242,6 +260,7 @@ export async function listFolderTree(folder, limits = TREE_LIMITS) {
       }
       pageToken = body.nextPageToken || "";
     } while (pageToken);
+    if (path && !children) skipped.push(`${path.slice(0, -1)} (빈 폴더)`);
   }
   return { files, skipped };
 }

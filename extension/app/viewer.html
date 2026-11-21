@@ -121,8 +121,20 @@
       <p class="cap">리디렉션 주소: <code id="redirect"></code></p>
       <h3>새 버전 확인</h3>
       <label class="radio"><input type="checkbox" id="updateAuto" checked> 켤 때 확인 <span class="cap">(하루 한 번, 깃허브에서 버전 번호만 읽음)</span></label>
-      <h3>자동 잠금</h3>
-      <label class="cap">안 쓰면 잠그기 <select id="lockMinutes"><option value="5">5분</option><option value="15">15분</option><option value="30">30분</option><option value="60">60분</option></select></label>
+      <h3>자동 잠금 <span class="cap">(넣은 비밀번호를 잊는 시간)</span></h3>
+      <label class="cap">안 쓰면 잠그기 <select id="lockMinutes"><option value="0">잠그지 않음 (브라우저를 닫을 때까지)</option><option value="5">5분</option><option value="15">15분</option><option value="30">30분</option><option value="60">60분</option></select></label>
+      <h3>드라이브 잠금 <span class="cap">(웹에서 드라이브를 열 때 비밀번호)</span></h3>
+      <div class="lockModes" role="radiogroup" aria-label="드라이브 잠금">
+        <label class="radio"><input type="radio" name="lockMode" value="none" checked> <span><b>잠금 없음</b> <span class="cap">(기본)</span></span></label>
+        <label class="radio"><input type="radio" name="lockMode" value="all"> <span><b>드라이브 전체</b> <span class="cap">— 드라이브를 열 때마다 비밀번호</span></span></label>
+        <label class="radio"><input type="radio" name="lockMode" value="folders"> <span><b>잠근 폴더만</b> <span class="cap">— 잠근 폴더(와 그 안)를 열 때만 비밀번호</span></span></label>
+      </div>
+      <input id="lockPw" type="password" placeholder="잠금 비밀번호" autocomplete="off">
+      <input id="lockPw2" type="password" placeholder="잠금 비밀번호 확인 (처음 정할 때, 4자 이상)" autocomplete="off" hidden>
+      <div><button id="lockSave" class="btn outline green">적용</button> <span id="lockMsg" class="cap"></span></div>
+      <div id="lockFolderBox" hidden><p class="cap strong">잠근 폴더</p><ul id="lockFolders" class="rows2"></ul></div>
+      <p class="cap">폴더는 드라이브에서 폴더를 고른 뒤 「🔒 잠그기」로 추가합니다. 이 잠금은 <b>이 크롬에서 확장 프로그램이 켜져 있을 때만</b> 작동하며 파일은 그대로입니다 — 확장 프로그램을 지우거나 다른 브라우저·휴대폰에서는 잠금 없이 열립니다. 파일 자체를 지키려면 ZIP 암호화를 쓰세요.</p>
+      <div><button id="lockOffAll" class="btn outline red">전체 비활성화 (모든 잠금 풀기)</button> <span id="lockOffMsg" class="cap"></span></div>
       <h3>공통 비밀번호 바꾸기 <span class="cap">(기본 ZIP)</span></h3>
       <p class="cap">예전 ZIP은 예전 비밀번호로 열립니다. 데스크톱 앱에서도 같은 것으로 바꾸세요.</p>
       <input id="oldCommon" type="password" placeholder="지금 공통 비밀번호" autocomplete="off">
@@ -135,6 +147,14 @@
       <div><button id="changePw" class="btn outline green">바꾸기</button> <span id="changePwMsg" class="cap"></span></div>
       <h3>이 컴퓨터에서 열쇠 지우기</h3>
       <div><button id="forgetKey" class="btn ghost">열쇠 지우기</button></div>
+      <h3>초기화 <span class="cap">(확장 프로그램을 지우기 전에)</span></h3>
+      <p class="cap"><b>ZIP으로 암호화한 파일은 확장 프로그램을 지워도 암호화된 채로 남습니다.</b> 지우기 전에 여기서 모두 원래 파일로 풀어 두세요. 파일마다 드라이브의 같은 폴더에 풀고, 다시 받아 한 바이트씩 비교한 뒤에만 암호화 파일을 휴지통으로 옮깁니다(30일 안에 복원 가능). 하나라도 맞지 않으면 그 파일은 그대로 둡니다. 드라이브 잠금도 모두 풀립니다.</p>
+      <input id="resetPw" type="password" placeholder="공통 비밀번호" autocomplete="off">
+      <input id="resetPw2" type="password" placeholder="예전 비밀번호 또는 복구 키 (있으면)" autocomplete="off">
+      <input id="resetLockPw" type="password" placeholder="드라이브 잠금 비밀번호" autocomplete="off" hidden>
+      <div><button id="resetAllBtn" class="btn primary red">모두 풀기 (초기화)</button> <button id="resetStop" class="btn ghost" hidden>중지</button></div>
+      <p id="resetMsg" class="notice"></p>
+      <ul id="resetList" class="rows2"></ul>
     </div>
   </section>
 
@@ -146,6 +166,7 @@
         <li><span class="sq blue"><svg class="ic"><use href="#i-share"/></svg></span><div><b>공유 점검</b><br><span class="cap">내 드라이브 전체의 공유 상태를 보고 한꺼번에 바꾸기</span></div></li>
         <li><span class="sq amber"><svg class="ic"><use href="#i-idscan"/></svg></span><div><b>개인정보 점검</b><br><span class="cap">고른 파일·폴더에서 주민번호 등 찾기</span></div></li>
         <li><span class="sq green"><svg class="ic"><use href="#i-lock"/></svg></span><div><b>암호화 관리</b><br><span class="cap">드라이브에서 고른 파일 암호화·열기·풀기</span></div></li>
+        <li><span class="sq blue"><svg class="ic"><use href="#i-lock"/></svg></span><div><b>드라이브 잠금</b><br><span class="cap">설정에서 드라이브 전체·잠근 폴더를 열 때 비밀번호 (기본은 잠금 없음)</span></div></li>
       </ul>
       <button id="guideBtn" class="btn primary blue"><svg class="ic"><use href="#i-book"/></svg><span>설명서 열기</span></button>
       <div class="helpLinks"><button id="reportBtn" class="btn outline blue">🐞 오류 신고</button><button id="updateBtn" class="btn outline blue">새 버전 확인</button></div>
@@ -186,6 +207,7 @@
           <button id="setupGo" class="btn primary green wide">설정 완료</button>
           <button type="button" id="setupCancel" class="btn ghost">나중에</button>
         </div>
+        <div id="vaultLocked" class="strip gray" hidden><svg class="ic"><use href="#i-lock"/></svg><span class="grow">복구 키 잠김 <span class="cap">· 높은 보안 7z를 열 때만 필요</span></span><button id="unlockShow" class="stripBtn">풀기</button></div>
         <form id="vaultUnlock" class="card form" hidden autocomplete="off">
           <b><svg class="ic"><use href="#i-lock"/></svg> 복구 키 잠김 <span class="cap">(7z 파일용)</span></b>
           <input id="vaultPw" type="password" placeholder="개인 비밀번호" autocomplete="current-password">
@@ -207,6 +229,14 @@
       <div id="selCard" class="card" hidden>
         <div class="listHead"><span class="cap strong">드라이브에서 선택</span><span class="chip green" id="selTitle"></span></div>
         <ul id="selList" class="rows2"></ul>
+        <p id="selChoice" class="cap choice" hidden></p>
+        <button id="selLock" class="btn outline blue wide" hidden></button>
+        <form id="selLockBox" class="form" hidden autocomplete="off">
+          <input id="selLockPw" type="password" placeholder="잠금 비밀번호" autocomplete="off">
+          <input id="selLockPw2" type="password" placeholder="잠금 비밀번호 확인 (처음 정할 때, 4자 이상)" autocomplete="off" hidden>
+          <div><button type="submit" class="btn primary blue">잠그기</button> <button type="button" id="selLockCancel" class="btn ghost">취소</button></div>
+          <p id="selLockMsg" class="cap"></p>
+        </form>
         <button id="selEncrypt" class="btn primary green wide" hidden></button>
         <button id="selScan" class="btn ghost wide" hidden></button>
       </div>
@@ -267,6 +297,25 @@
       <button id="grantBtn" class="btn primary blue" hidden>드라이브 파일 보기 허용</button>
     </section>
   </main>
+  <dialog id="zipWarn">
+    <h2>ZIP 암호화 전에 꼭 확인하세요</h2>
+    <ul>
+      <li><b>파일 자체가 암호화됩니다.</b> 확장 프로그램을 지워도 이 ZIP은 <b>암호화된 채로 남습니다</b>.</li>
+      <li><b>비밀번호를 잊으면 아무도(만든 사람도) 열 수 없습니다.</b> 종이에 적어 두세요.</li>
+      <li>이 프로그램이 없어도 윈도우·맥 기본 압축 풀기, 반디집, 알집, 7-Zip 등 <b>어떤 압축 프로그램이든 비밀번호만 있으면 열립니다</b>.</li>
+      <li>확장 프로그램을 지우기 전에는 「설정 → 초기화 → 모두 풀기」로 원래 파일로 되돌릴 수 있습니다.</li>
+    </ul>
+    <label class="radio"><input type="checkbox" id="zipWarnOk"> 위 내용을 이해했습니다</label>
+    <div class="dialogButtons"><button id="zipWarnCancel" class="btn ghost">취소</button> <button id="zipWarnGo" class="btn primary green" disabled>암호화하기</button></div>
+  </dialog>
+  <section id="panelGate" class="panelGate" hidden>
+    <div class="card form">
+      <b><svg class="ic"><use href="#i-lock"/></svg> 드라이브 잠금</b>
+      <p class="cap">드라이브 전체가 잠겨 있습니다. 잠금 비밀번호를 넣으면 이 패널과 드라이브가 열립니다.</p>
+      <form id="panelGateForm" autocomplete="off"><input id="panelGatePw" type="password" placeholder="잠금 비밀번호" autocomplete="off"> <button type="submit" class="btn primary green">열기</button></form>
+      <p id="panelGateMsg" class="cap"></p>
+    </div>
+  </section>
   <dialog id="saveDialog">
     <h2>풀린 파일을 이 컴퓨터에 저장할까요?</h2>
     <ul>

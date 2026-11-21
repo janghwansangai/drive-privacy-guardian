@@ -2,6 +2,9 @@
 // uploaded under its original name to the archive's folder — folders inside the archive are
 // created again — downloaded again and compared (SHA-256); only if every file checks out (and
 // the user asked) the archive goes to the trash.
+// D-112 (all-or-nothing): if any file cannot be uploaded or does not check out, every copy made
+// so far (and any folder made for them) goes back to the trash and the archive stays as it was —
+// so trying again never leaves half a folder or duplicates behind.
 
 import { sha256hex } from "./vault.js";
 
@@ -43,11 +46,19 @@ export async function restoreToDrive({ members, parent, archiveId, trashArchive,
     const parts = dir.split("/");
     const up = await folderOf(parts.slice(0, -1).join("/"));
     onStep(`폴더 만드는 중… ${parts.at(-1)}`);
-    const made = await drive.createFolder(parts.at(-1), up);
-    folders.set(dir, made.id);
-    return made.id;
+    const folder = await drive.createFolder(parts.at(-1), up);
+    folders.set(dir, folder.id);
+    made.push(folder.id);
+    return folder.id;
   };
   const done = [];
+  const made = []; // folders created here, in order
+  const rollback = async () => {
+    let ok = true;
+    for (const d of done) { try { await drive.trash(d.id); } catch { ok = false; } }
+    for (const id of made.reverse()) { try { await drive.trash(id); } catch { ok = false; } }
+    return ok;
+  };
   for (const [i, path] of paths.entries()) {
     const data = members.get(path);
     const { dir, name } = plan[i];
@@ -57,17 +68,23 @@ export async function restoreToDrive({ members, parent, archiveId, trashArchive,
     try {
       meta = await drive.upload(name, await folderOf(dir), data, mimeOf(name));
     } catch (e) {
-      throw new RestoreFailed(`「${shown}」을(를) 올리지 못했습니다 (${e.message}). 암호화 파일은 그대로입니다.${done.length ? ` 먼저 올린 ${done.length}개는 드라이브에 있습니다.` : ""}`);
+      const clean = await rollback();
+      throw new RestoreFailed(`「${shown}」을(를) 올리지 못했습니다 (${e.message}). 암호화 파일은 그대로입니다.${done.length ? (clean ? ` 먼저 올린 ${done.length}개는 휴지통으로 되돌렸습니다.` : ` 먼저 올린 ${done.length}개 중 일부를 되돌리지 못했습니다 — 드라이브에서 확인해 주세요.`) : ""}`);
     }
     let ok = false;
     try { ok = (await sha256hex(await drive.download({ id: meta.id, size: data.length }))) === (await sha256hex(data)); } catch { ok = false; }
     done.push({ name: shown, id: meta.id, ok });
   }
   const allVerified = done.every((d) => d.ok);
+  let rolledBack = false;
+  if (!allVerified) {
+    onStep("확인이 맞지 않아 올린 사본을 되돌리는 중…");
+    rolledBack = await rollback();
+  }
   let trashedArchive = false;
   if (trashArchive && archiveId && allVerified) {
     onStep("암호화 파일을 휴지통으로…");
     try { await drive.trash(archiveId); trashedArchive = true; } catch { trashedArchive = false; }
   }
-  return { files: done, allVerified, trashedArchive };
+  return { files: done, allVerified, trashedArchive, rolledBack };
 }

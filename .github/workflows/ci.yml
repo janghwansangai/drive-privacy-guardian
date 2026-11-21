@@ -72,7 +72,7 @@ jobs:
       - name: Dependency audit
         run: npm audit --audit-level=low
       - name: Syntax check of shipped files
-        run: for f in viewer.js background.js lib/*.js; do node --check "$f"; done
+        run: for f in viewer.js background.js drive_watch.js drive_gate.js gate.js lib/*.js; do node --check "$f"; done
       - name: Tests (parity with the desktop app, archive interop, privacy rules)
         run: npm test
 

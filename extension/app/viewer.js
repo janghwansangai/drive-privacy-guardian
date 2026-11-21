@@ -7,6 +7,8 @@
 import * as drive from "./lib/drive.js";
 import { openArchive, derivePassword, passwordFor, parseRecoveryKey, tagFromName, WrongPassword, ArchiveError } from "./lib/vault.js";
 import * as keyring from "./lib/keyring.js";
+import * as drivelock from "./lib/drivelock.js";
+import { resetAll } from "./lib/resetall.js";
 import { viewModel } from "./lib/view.js";
 import { renderModel } from "./lib/render.js";
 import { planMembers, reencrypt, ReencryptFailed } from "./lib/reencrypt.js";
@@ -354,8 +356,8 @@ async function select(file, li) {
     showFilePassword(ZIP_HINT);
   } else if (tag) {
     pendingOpen = file; // locked: ask for the personal password once, then open
-    message("🔒 복구 키가 잠겨 있습니다 — 위쪽 🔒 칸에 개인 비밀번호를 넣으면 바로 열립니다.");
-    $("vaultPw")?.focus();
+    message("🔒 높은 보안 7z 파일입니다 — 위쪽 🔒 칸에 개인 비밀번호를 넣으면 바로 열립니다.");
+    askUnlock();
   } else {
     showFilePassword(); // an old archive with its own password
   }
@@ -426,8 +428,12 @@ async function openWith(tries, { fallback = false } = {}) {
 
 // -- master key: set up once, unlock once, auto-lock (D-088) -----------------------------------
 const vaultMsg = (t) => { $("vaultMsg").textContent = t || ""; };
-const showVault = (id) => ["vaultIntro", "vaultSetup", "vaultUnlock", "vaultForgot", "vaultOpen"].forEach((x) => { $(x).hidden = x !== id; });
+const showVault = (id) => ["vaultIntro", "vaultSetup", "vaultLocked", "vaultUnlock", "vaultForgot", "vaultOpen"].forEach((x) => { $(x).hidden = x !== id; });
 let setupWanted = false; // D-107: setting up the recovery key is optional (only for 7z)
+let unlockWanted = false; // D-112: the password box only when a 7z needs it (else a one-line strip)
+/** Show the recovery-key password box (a 7z was opened or chosen while locked). */
+function askUnlock() { unlockWanted = true; refreshVault().then(() => $("vaultPw")?.focus()); }
+$("unlockShow").onclick = askUnlock;
 
 async function refreshVault() {
   const unlocked = (await keyring.isSetUp()) && !!(await keyring.currentKey({ touch: false }));
@@ -435,10 +441,12 @@ async function refreshVault() {
   if (!(await keyring.isSetUp())) { showVault(setupWanted ? "vaultSetup" : "vaultIntro"); return; }
   if (unlocked) {
     showVault("vaultOpen");
-    $("lockInfo").textContent = `· ${await keyring.lockMinutes()}분 후 자동 잠금`;
+    unlockWanted = false;
+    const m = await keyring.lockMinutes();
+    $("lockInfo").textContent = m ? `· ${m}분 동안 안 쓰면 잠금` : "· 브라우저를 닫을 때까지";
     if (pendingOpen) { const f = pendingOpen; pendingOpen = null; if (selected?.id === f.id) await select(f, document.querySelector(`#files li[data-id="${CSS.escape(f.id)}"]`)); }
   } else if ($("vaultForgot").hidden) {
-    showVault("vaultUnlock");
+    showVault(unlockWanted ? "vaultUnlock" : "vaultLocked");
   }
 }
 
@@ -489,7 +497,7 @@ $("vaultUnlock").onsubmit = async (ev) => {
   catch (e) { vaultMsg(e.message); }
 };
 $("forgotBtn").onclick = () => { vaultMsg(""); showVault("vaultForgot"); $("forgotKey").focus(); };
-$("forgotCancel").onclick = () => { vaultMsg(""); showVault("vaultUnlock"); };
+$("forgotCancel").onclick = () => { vaultMsg(""); unlockWanted = true; showVault("vaultUnlock"); };
 $("vaultForgot").onsubmit = async (ev) => {
   ev.preventDefault();
   vaultMsg("");
@@ -551,6 +559,149 @@ $("forgetKey").onclick = async () => {
   forget(); await keyring.forget();
 };
 refreshVault();
+
+// -- 드라이브 잠금 (D-112): 잠금 없음 (default) / 드라이브 전체 / 잠근 폴더만, 전체 비활성화 -------
+const LOCK_INFO = {
+  none: "드라이브를 열 때 비밀번호를 묻지 않습니다.",
+  all: "이 크롬에서 구글 드라이브(문서·시트 포함)를 열 때 잠금 비밀번호를 묻습니다. 한 번 열면 자동 잠금 시간까지 다시 묻지 않습니다.",
+  folders: "잠근 폴더와 그 안의 하위 폴더·파일을 열 때만 잠금 비밀번호를 묻습니다.",
+};
+const chosenLockMode = () => document.querySelector('input[name="lockMode"]:checked')?.value || "none";
+const folderNames = new Map(); // id → name, read from Drive while this view is open (not stored)
+
+async function drawLock() {
+  const l = await drivelock.getLock();
+  document.querySelectorAll('input[name="lockMode"]').forEach((r) => { r.checked = r.value === l.mode; });
+  $("lockPw2").hidden = l.hasPassword;
+  $("lockPw").placeholder = l.hasPassword ? "잠금 비밀번호" : "잠금 비밀번호 정하기 (4자 이상)";
+  $("lockOffAll").disabled = l.mode === "none" && !l.hasPassword;
+  $("resetLockPw").hidden = !l.hasPassword;
+  $("lockFolderBox").hidden = !l.folders.length;
+  const ul = $("lockFolders");
+  ul.replaceChildren();
+  for (const id of l.folders) {
+    if (!folderNames.has(id) && drive.signedIn()) {
+      drive.getFile(id).then((f) => { folderNames.set(id, f ? f.name : "(볼 수 없는 폴더)"); drawLock(); }).catch(() => {});
+      folderNames.set(id, "…");
+    }
+    const row = rowOf(sq("folder", "blue"), folderNames.get(id) || `폴더 ${id.slice(0, 6)}…`, l.mode === "folders" ? "잠김" : "잠김 (지금은 드라이브 전체 잠금)", [
+      iconBtn("unlock", "이 폴더 잠금 풀기", async () => {
+        try { await drivelock.removeFolder(id, $("lockPw").value); $("lockPw").value = ""; $("lockMsg").textContent = "이 폴더의 잠금을 풀었습니다"; }
+        catch (e) { $("lockMsg").textContent = e instanceof drivelock.LockPasswordError ? `${e.message} — 위 칸에 잠금 비밀번호를 넣고 다시 누르세요` : e.message; }
+        drawLock(); if (driveSel.length) showSelection(driveSel).catch(() => {});
+      }),
+    ]);
+    ul.append(row);
+  }
+  lockModeInfo();
+}
+function lockModeInfo() { $("lockMsg").textContent = LOCK_INFO[chosenLockMode()]; }
+document.querySelectorAll('input[name="lockMode"]').forEach((r) => { r.onchange = lockModeInfo; });
+
+$("lockSave").onclick = async () => {
+  const mode = chosenLockMode();
+  const msg = (t) => { $("lockMsg").textContent = t; };
+  const l = await drivelock.getLock();
+  if (mode === "folders" && !l.folders.length) {
+    msg("잠근 폴더가 아직 없습니다. 드라이브에서 폴더를 고른 뒤 패널의 「🔒 잠그기」를 누르세요.");
+    return;
+  }
+  msg("확인하는 중…");
+  try {
+    await drivelock.setLock({ mode, password: $("lockPw").value, again: $("lockPw2").value });
+    if (mode !== "none") await drivelock.relock(); // takes effect now (not after the browser restarts)
+    $("lockPw").value = ""; $("lockPw2").value = "";
+    await drawLock();
+    msg(mode === "none" ? "✓ 잠금 없음으로 바꿨습니다 (잠근 폴더 목록은 남겨 둠 — 「잠근 폴더만」을 다시 고르면 그대로 적용)" : `✓ 적용했습니다 — ${LOCK_INFO[mode]}`);
+  } catch (e) { msg(e.message); }
+};
+
+$("lockOffAll").onclick = async () => {
+  const msg = (t) => { $("lockOffMsg").textContent = t; };
+  if (!confirm("모든 드라이브 잠금을 풀까요?\n\n드라이브 전체 잠금과 잠근 폴더가 모두 없어지고, 잠금 비밀번호도 지워집니다. 파일은 바뀌지 않습니다 (ZIP 암호화 파일은 그대로 — 풀려면 아래 「초기화」).")) return;
+  try {
+    await drivelock.disableAll($("lockPw").value);
+    $("lockPw").value = "";
+    msg("✓ 모든 잠금을 풀었습니다 (잠금 없음)");
+    await drawLock();
+    if (driveSel.length) showSelection(driveSel).catch(() => {});
+  } catch (e) { msg(e instanceof drivelock.LockPasswordError ? `${e.message} — 위 「잠금 비밀번호」 칸에 넣고 다시 누르세요` : e.message); }
+};
+
+// The whole Drive locked → this panel asks too (it shows Drive's file names).
+async function checkPanelGate() {
+  if (OVERLAY) return; // the large view sits on a Drive page that is already open
+  const l = await drivelock.getLock();
+  const gated = l.mode === "all" && !(await drivelock.isOpen());
+  document.body.classList.toggle("gated", gated);
+  $("panelGate").hidden = !gated;
+  if (gated) { forget(); $("panelGatePw").focus(); }
+}
+$("panelGateForm").onsubmit = async (ev) => {
+  ev.preventDefault();
+  try { await drivelock.unlock($("panelGatePw").value); $("panelGatePw").value = ""; $("panelGateMsg").textContent = ""; await checkPanelGate(); }
+  catch (e) { $("panelGateMsg").textContent = e.message; $("panelGatePw").value = ""; }
+};
+chrome.storage.onChanged.addListener((changes, area) => {
+  if ((area === "local" && "driveLock" in changes) || (area === "session" && "driveLockOpen" in changes)) {
+    checkPanelGate().catch(() => {});
+    drawLock().catch(() => {});
+  }
+});
+setInterval(() => { checkPanelGate().catch(() => {}); }, 15000);
+["click", "keydown"].forEach((t) => document.addEventListener(t, () => { drivelock.touchOpen().catch(() => {}); }, { passive: true }));
+drawLock().catch(() => {});
+checkPanelGate().catch(() => {});
+
+// -- 초기화 (D-112): before removing the extension, every encrypted file back to normal files -------
+let resetting = null; // { stop }
+$("resetStop").onclick = () => { if (resetting) resetting.stop = true; };
+$("resetAllBtn").onclick = async () => {
+  const msg = (t) => { $("resetMsg").textContent = t; };
+  const list = $("resetList");
+  if (resetting || busy) return;
+  try {
+    if (!drive.signedIn() && !(await drive.restore())) { msg("먼저 위쪽 「로그인」으로 구글 로그인을 해 주세요."); return; }
+    await drive.requestFullAccess();
+    msg("암호화 파일을 찾는 중…");
+    const archives = await drive.listVaultFiles({});
+    const l = await drivelock.getLock();
+    if (!archives.length && l.mode === "none" && !l.hasPassword) { msg("풀 암호화 파일도, 드라이브 잠금도 없습니다. 바로 지워도 됩니다."); return; }
+    const typed = [$("resetPw").value, $("resetPw2").value].filter(Boolean);
+    const common = await keyring.currentCommon();
+    if (common) typed.push(common);
+    const raw = await keyring.currentKey();
+    if (archives.length && !typed.length && !raw) { msg("공통 비밀번호를 넣어 주세요 (ZIP을 잠글 때 쓴 비밀번호)."); return; }
+    if (l.hasPassword && !(await drivelock.isOpen()) && !(await drivelock.checkPassword($("resetLockPw").value))) {
+      msg("드라이브 잠금 비밀번호가 맞지 않습니다."); return;
+    }
+    if (!confirm(`초기화할까요?\n\n· 암호화 파일 ${archives.length}개를 같은 폴더에 원래 파일로 풉니다 (다시 받아 비교 → 맞을 때만 암호화 파일을 휴지통으로)\n· 비밀번호가 맞지 않거나 확인이 안 되는 파일은 그대로 둡니다\n· 드라이브 잠금을 모두 풉니다\n\n풀린 파일은 새 파일로 올라가므로 예전 공유 설정은 다시 확인하세요.`)) { msg(""); return; }
+    resetting = { stop: false };
+    busy = true;
+    $("resetAllBtn").disabled = true;
+    $("resetStop").hidden = false;
+    list.replaceChildren();
+    const results = await resetAll({ archives, typed, raw, drive, onStep: msg, stopped: () => resetting.stop });
+    if (l.hasPassword || l.mode !== "none") await drivelock.disableAll($("resetLockPw").value);
+    $("resetLockPw").value = "";
+    const okN = results.filter((x) => x.ok).length;
+    for (const x of results) {
+      const row = rowOf(sq(x.ok ? "check" : "lock", x.ok ? "green" : "red"), x.name, x.ok ? `✓ 풀었습니다 (${x.files}개, 확인 완료) · 암호화 파일은 휴지통으로` : `⚠ ${x.reason}`);
+      row.className = x.ok ? "ok" : "bad";
+      list.append(row);
+    }
+    msg(results.length === okN
+      ? `✓ 초기화 끝: 암호화 파일 ${okN}개를 모두 풀었고 드라이브 잠금도 풀었습니다. 이제 확장 프로그램을 지워도 됩니다.`
+      : `⚠ ${results.length}개 중 ${okN}개만 풀었습니다. 나머지는 그대로입니다 — 아래 이유를 보고 다른 비밀번호로 다시 눌러 주세요. 지우기 전에 남은 파일의 비밀번호를 꼭 적어 두세요.`);
+    if (drive.signedIn()) refresh().catch(() => {});
+  } catch (e) { msg(e.message || "실패했습니다."); }
+  finally {
+    $("resetPw").value = ""; $("resetPw2").value = "";
+    resetting = null; busy = false;
+    $("resetAllBtn").disabled = false;
+    $("resetStop").hidden = true;
+  }
+};
 
 /** Preview a file that is not encrypted (e.g. HWP, which Drive cannot show). Needs the full scope. */
 async function previewPlain(f) {
@@ -752,6 +903,7 @@ async function showSelection(ids) {
     list.replaceChildren(li("로그인하면 선택한 파일이 보입니다", "muted"));
     $("selEncrypt").hidden = true;
     $("selScan").hidden = true;
+    $("selLock").hidden = true; $("selChoice").hidden = true; $("selLockBox").hidden = true;
     return;
   }
   const metas = await Promise.all(ids.slice(0, 20).map((id) => drive.getFile(id).catch(() => null)));
@@ -760,6 +912,8 @@ async function showSelection(ids) {
   if (document.body.dataset.view === "pii") updatePiiHint();
   list.replaceChildren();
   let plain = ids.length - selFiles.length; // unknown ones (no permission yet) count as plain files
+  const lockNow = await drivelock.getLock();
+  const lockedSet = new Set(lockNow.folders);
   for (const f of selFiles) {
     const folder = f.mimeType === FOLDER;
     let row;
@@ -771,15 +925,59 @@ async function showSelection(ids) {
     } else {
       plain += 1; // files and folders can be encrypted
       const acts = !folder && VIEW_EXT.test(f.name) ? [iconBtn("eye", "미리보기", () => openLarge(f))] : [];
-      row = rowOf(sq(folder ? "folder" : "file"), f.name, folder ? "폴더" : "", acts);
+      row = rowOf(sq(folder ? "folder" : "file", folder && lockedSet.has(f.id) ? "blue" : ""), f.name, folder ? (lockedSet.has(f.id) ? "폴더 · 🔒 잠김" : "폴더") : "", acts);
     }
     list.append(row);
   }
   if (ids.length > selFiles.length) list.append(li(`이름을 모르는 항목 ${ids.length - selFiles.length}개 — 「암호화하기」를 누르면 보입니다`, "muted"));
   $("selScan").hidden = true; // 개인정보 점검 has its own tab (design A)
   $("selEncrypt").hidden = plain === 0;
-  label($("selEncrypt"), "lock", plain === 1 ? "암호화하기" : `암호화하기 (${plain}개를 한 파일로)`);
+  // D-112: a folder → choose: lock (access gate in this Chrome) or ZIP (the files encrypted)
+  selFolders = selFiles.filter((f) => f.mimeType === FOLDER && !drive.isVaultName(f.name));
+  const allLocked = selFolders.length > 0 && selFolders.every((f) => lockedSet.has(f.id));
+  $("selLock").hidden = !selFolders.length;
+  $("selChoice").hidden = !selFolders.length;
+  $("selLockBox").hidden = true;
+  $("selChoice").textContent = "폴더는 두 가지로 지킬 수 있습니다. 🔒 잠그기: 이 크롬에서 드라이브로 열 때 비밀번호를 묻습니다 (파일은 그대로, 확장 프로그램을 지우면 풀림). ZIP 암호화: 파일 자체를 암호화합니다 (확장 프로그램을 지워도 잠긴 채로 남고, 비밀번호만 있으면 어떤 압축 프로그램으로도 열림).";
+  label($("selLock"), allLocked ? "unlock" : "lock", allLocked ? "폴더 잠금 풀기" : selFolders.length === 1 ? "잠그기 (접속 차단)" : `잠그기 (폴더 ${selFolders.length}개 접속 차단)`);
+  $("selLock").dataset.unlock = allLocked ? "1" : "";
+  const zipText = selFolders.length ? "ZIP으로 암호화" : "암호화하기";
+  label($("selEncrypt"), "lock", plain === 1 ? zipText : `${zipText} (${plain}개를 한 파일로)`);
 }
+
+let selFolders = []; // folders in the Drive selection (for 🔒 잠그기)
+/** 🔒 잠그기 / 잠금 풀기 for the selected folders; asks the lock password only when needed. */
+async function lockSelected(password = "", again = "") {
+  const ids = selFolders.map((f) => f.id);
+  if (!ids.length) return;
+  const unlocking = $("selLock").dataset.unlock === "1";
+  const l = await drivelock.getLock();
+  if (!password && (!l.hasPassword || !(await drivelock.isOpen()))) {
+    // ask in the panel: a new lock password the first time, else the current one
+    $("selLockBox").hidden = false;
+    $("selLockPw2").hidden = l.hasPassword;
+    $("selLockPw").placeholder = l.hasPassword ? "잠금 비밀번호" : "잠금 비밀번호 정하기 (4자 이상)";
+    $("selLockMsg").textContent = l.hasPassword ? "잠금 비밀번호를 넣어 주세요." : "처음이라 잠금 비밀번호를 정합니다. 잊으면 「전체 비활성화」도 할 수 없으니 적어 두세요.";
+    $("selLockPw").focus();
+    return;
+  }
+  if (unlocking) for (const id of ids) await drivelock.removeFolder(id, password);
+  else { await drivelock.addFolders(ids, password, again); await drivelock.relock(); } // in effect right away
+  $("selLockBox").hidden = true;
+  $("selLockPw").value = ""; $("selLockPw2").value = "";
+  await showSelection(driveSel);
+  const now = await drivelock.getLock();
+  message(unlocking ? `✓ 폴더 ${ids.length}개의 잠금을 풀었습니다.`
+    : `✓ 폴더 ${ids.length}개를 잠갔습니다. 이제 드라이브에서 이 폴더(와 그 안)를 열면 잠금 비밀번호를 묻습니다${now.mode === "all" ? " (지금은 드라이브 전체 잠금이 켜져 있음)" : ""}. 풀려면 폴더를 고르고 「폴더 잠금 풀기」, 모두 풀려면 설정의 「전체 비활성화」.`, true);
+}
+$("selLock").onclick = () => lockSelected().catch((e) => { $("selLockBox").hidden = false; $("selLockMsg").textContent = e.message; });
+$("selLockBox").onsubmit = (ev) => {
+  ev.preventDefault();
+  const pw = $("selLockPw").value;
+  if (!pw) { $("selLockMsg").textContent = "잠금 비밀번호를 넣어 주세요."; return; }
+  lockSelected(pw, $("selLockPw2").hidden ? pw : $("selLockPw2").value).catch((e) => { $("selLockMsg").textContent = e.message; $("selLockPw").value = ""; });
+};
+$("selLockCancel").onclick = () => { $("selLockBox").hidden = true; $("selLockPw").value = ""; $("selLockPw2").value = ""; };
 
 /** "열기": large view over Drive when the Drive tab is next to us, else in this panel. */
 async function openLarge(f) {
@@ -1335,6 +1533,7 @@ async function showFormat() {
   if (!zip) {
     box.hidden = true;
     const ready = (await keyring.isSetUp()) && !!(await keyring.currentKey({ touch: false }));
+    if (!ready && (await keyring.isSetUp())) askUnlock();
     $("secretInfo").textContent = `${SEVEN_ZIP_NOTE}${ready ? "" : (await keyring.isSetUp()) ? " — 먼저 위쪽 🔒 칸에서 잠금을 풀어 주세요." : " — 먼저 위쪽에서 「복구 키 설정」을 해 주세요."}`;
     return;
   }
@@ -1391,11 +1590,28 @@ async function newSecret(format) {
   return { password, common: true };
 }
 
+/** D-112: before a new ZIP — it stays encrypted without this extension; the password is the only
+ *  way in; any unzip program opens it. The user must tick 「이해했습니다」 every time. */
+function confirmZip() {
+  const d = $("zipWarn");
+  $("zipWarnOk").checked = false;
+  $("zipWarnGo").disabled = true;
+  return new Promise((resolve) => {
+    const done = (v) => { d.close(); resolve(v); };
+    $("zipWarnOk").onchange = () => { $("zipWarnGo").disabled = !$("zipWarnOk").checked; };
+    $("zipWarnGo").onclick = () => done($("zipWarnOk").checked);
+    $("zipWarnCancel").onclick = () => done(false);
+    d.oncancel = () => resolve(false);
+    d.showModal();
+  });
+}
+
 $("reencGo").onclick = async () => {
   if (!reenc) return;
   const status = (t) => { $("reencStatus").textContent = t; };
   const format = chosenFormat();
   if (format === "7z" && !confirm(`높은 보안 7z로 잠글까요?\n\n${SEVEN_ZIP_NOTE}`)) return;
+  if (format === "zip" && reenc.mode !== "edit" && !(await confirmZip())) return;
   $("reencGo").disabled = true;
   busy = true;
   let fetched = [];
@@ -1405,6 +1621,7 @@ $("reencGo").onclick = async () => {
     let files;
     let parent = old?.parents?.[0] || null;
     let trashIds = old ? [old.id] : [];
+    let stillSame; // D-112: originals that changed while being encrypted are not trashed
     if (reenc.mode === "drive") {
       const chosen = reenc.driveFiles.filter((f) => !reenc.removed.has(f.id));
       if (!chosen.length) throw new ReencryptFailed("암호화할 파일을 하나 이상 남겨 주세요");
@@ -1412,6 +1629,9 @@ $("reencGo").onclick = async () => {
       // folders: everything inside, keeping the folder structure (`폴더/하위/파일`)
       const jobs = [];
       const skipped = [];
+      const toTrash = []; // a folder only if everything in it is in the archive, else its files
+      const snap = new Map(); // id → what it was when read: { version } or a folder's file list
+      const treeKey = (tree) => JSON.stringify([tree.files.map((t) => [t.id, t.version ?? null]).sort(), tree.skipped.slice().sort()]);
       for (const f of chosen) {
         if (f.mimeType === drive.FOLDER_MIME) {
           status(`「${f.name}」 폴더 안을 살펴보는 중…`);
@@ -1420,7 +1640,9 @@ $("reencGo").onclick = async () => {
           skipped.push(...tree.skipped.map((p) => `${top}/${p}`));
           for (const t of tree.files) jobs.push({ file: t, prefix: `${top}/${t.path.split("/").slice(0, -1).join("/")}`.replace(/\/$/, "") });
           if (!tree.files.length) skipped.push(`${top}/ (빈 폴더)`);
-        } else jobs.push({ file: f, prefix: "" });
+          if (tree.files.length && !tree.skipped.length) { toTrash.push(f.id); snap.set(f.id, { tree: treeKey(tree), folder: f }); }
+          else for (const t of tree.files) { toTrash.push(t.id); snap.set(t.id, { version: t.version ?? null }); }
+        } else { jobs.push({ file: f, prefix: "" }); toTrash.push(f.id); snap.set(f.id, { version: f.version ?? null }); }
       }
       if (!jobs.length) throw new ReencryptFailed("암호화할 파일이 없습니다 (빈 폴더)");
       for (const [i, { file: f, prefix }] of jobs.entries()) {
@@ -1434,7 +1656,24 @@ $("reencGo").onclick = async () => {
       }
       reenc.skipped = skipped;
       parent = chosen[0].parents?.[0] || null;
-      trashIds = chosen.map((f) => f.id); // a folder goes to the trash with what is inside
+      // a folder goes to the trash with what is inside — only when all of it is in the archive
+      // (shortcuts, forms or empty folders inside → the folder stays, its archived files go)
+      trashIds = toTrash;
+      stillSame = async (ids) => {
+        const ok = [];
+        for (const id of ids) {
+          const was = snap.get(id);
+          if (!was) continue;
+          if (was.folder) {
+            const now = await drive.listFolderTree(was.folder).catch(() => null);
+            if (now && treeKey(now) === was.tree) ok.push(id);
+          } else {
+            const now = await drive.getFile(id).catch(() => null);
+            if (now && (now.version ?? null) === was.version) ok.push(id);
+          }
+        }
+        return ok;
+      };
     } else {
       files = planMembers(reenc.existing, reenc.picked, reenc.removed).files;
     }
@@ -1442,19 +1681,23 @@ $("reencGo").onclick = async () => {
       files, secret, format, parent, trashIds,
       names: reenc.mode === "drive" ? reenc.driveFiles.filter((f) => !reenc.removed.has(f.id)).map((f) => f.name) : undefined,
       trashOld: reenc.mode !== "new" && $("trashOld").checked,
-      drive, onStep: status,
+      drive, onStep: status, ...(stillSame ? { stillSame } : {}),
     });
     const lines = [`✓ 완료: ${result.name} (풀어서 비교 확인됨)`];
     if (format === "zip") lines.push("🔑 이 파일은 윈도우·맥에서 두 번 누르고 공통 비밀번호만 넣으면 열립니다.");
-    lines.push(result.uploadVerified ? "✓ 올린 파일을 다시 받아 확인했습니다." : "⚠ 올린 파일 확인에 실패했습니다 — 예전 보관 파일은 지우지 않았습니다. 새 파일을 열어 확인해 보세요.");
+    lines.push(result.uploadVerified ? "✓ 올린 파일을 다시 받아 한 바이트씩 비교했습니다."
+      : result.rolledBack ? "⚠ 올린 파일을 다시 받아 비교했더니 맞지 않아, 올린 파일을 휴지통으로 되돌렸습니다. 원래 파일은 그대로입니다 — 다시 시도해 주세요."
+        : "⚠ 올린 파일 확인에 실패했습니다 — 원래 파일은 지우지 않았습니다. 드라이브에서 새 파일을 확인해 주세요.");
+    if (result.changedKept) lines.push(`⚠ 작업하는 사이 바뀐(또는 확인하지 못한) 원래 파일 ${result.changedKept}개는 휴지통으로 옮기지 않았습니다. 바뀐 내용이 ZIP에 없을 수 있으니 확인 후 다시 암호화하세요.`);
     if (result.parentFallback) lines.push("ℹ 원래 폴더에 올릴 권한이 없어 내 드라이브 맨 위에 올렸습니다.");
     if (old && $("trashOld").checked && result.trashedOld) lines.push("🗑 예전 보관 파일을 휴지통으로 옮겼습니다 (30일 안에 복원 가능).");
     if (reenc.mode === "drive" && $("trashOld").checked && result.uploadVerified) {
       lines.push(result.trashFailed
         ? `⚠ 원래 파일 ${result.trashFailed}개는 휴지통으로 옮기지 못했습니다 (소유자가 아니거나 권한 없음). 드라이브에서 확인하세요.`
-        : `🗑 원래 파일·폴더 ${trashIds.length}개를 휴지통으로 옮겼습니다 (30일 안에 복원 가능).`);
+        : result.changedKept ? `🗑 나머지 원래 파일·폴더 ${trashIds.length - result.changedKept}개는 휴지통으로 옮겼습니다 (30일 안에 복원 가능).`
+          : `🗑 원래 파일·폴더 ${trashIds.length}개를 휴지통으로 옮겼습니다 (30일 안에 복원 가능).`);
     }
-    if (reenc.skipped?.length) lines.push(`ℹ 넣지 못한 항목 ${reenc.skipped.length}개(바로가기·양식·빈 폴더 등): ${reenc.skipped.slice(0, 5).join(", ")}${reenc.skipped.length > 5 ? " …" : ""}`);
+    if (reenc.skipped?.length) lines.push(`ℹ 넣지 못한 항목 ${reenc.skipped.length}개(바로가기·양식·빈 폴더 등)는 드라이브에 그대로 두었습니다(그 폴더도 남김): ${reenc.skipped.slice(0, 5).join(", ")}${reenc.skipped.length > 5 ? " …" : ""}`);
     if (reenc.picked.length) lines.push("🧹 이 컴퓨터에서 고른 파일(암호 없음)은 다 썼으면 휴지통에 버리고 비우세요.");
     const keep = lines.join("\n");
     closeReenc();

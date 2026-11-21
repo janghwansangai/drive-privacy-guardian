@@ -68,11 +68,11 @@
 ## 저장소 메모 (확장 프로그램)
 - `extension/app`은 빌드 단계가 없다. 테스트: `cd extension/app && npm ci && npm test`. 뷰어 화면 확인은 `.claude/launch.json`의 `extension-harness`(저장소 루트를 서빙: `/extension/app/test/harness/index.html`, 가짜 chrome API·가짜 Drive·가짜 업로드/휴지통). `test/harness/serve.py`(캐시 끔)로 서빙하며 주소는 `http://127.0.0.1:8765/...`.
 - 확장 프로그램 코드는 `textContent`만 쓰고(innerHTML 금지), 접속은 googleapis.com만(예외: `lib/update.js`의 api.github.com 버전 확인, D-110), 저장소에는 클라이언트 ID만 — `test/security.test.mjs`가 검사한다.
-- 콘텐츠 스크립트는 `drive_watch.js` 하나(drive.google.com, 파일 ID만 전달, 페이지에는 크게 보기 iframe 하나만, 네트워크·저장 금지).
-- 새 보관 파일은 기본 ZIP(공통 비밀번호, D-107) 또는 고른 경우 7z(복구 키 파생, `lib/keyring.js`의 잠금 해제된 키). 저장소 허용 키: local `clientId`·`vaultWrap`(암호화)·`lockMinutes`·`commonCheck`(PBKDF2 오타 확인값), session `auth`·`vaultKey`·`commonPw`·`auditRun`·`piiRun`(점검 이어 하기, D-101). 공통 비밀번호는 local에 두지 마라. 전체 `drive` 범위는 `requestFullAccess()`(드라이브 파일 암호화)에서만.
+- 콘텐츠 스크립트는 `drive_watch.js`(drive.google.com, 파일 ID만 전달, 페이지에는 크게 보기 iframe 하나만, 네트워크·저장 금지)와 `drive_gate.js`(D-112 드라이브 잠금: drive·docs, 주소만 배경에 묻고 잠금 화면 iframe 하나만). 드라이브 잠금은 접속 차단일 뿐 암호화가 아니다 — 문구에서 섞지 마라.
+- 새 보관 파일은 기본 ZIP(공통 비밀번호, D-107) 또는 고른 경우 7z(복구 키 파생, `lib/keyring.js`의 잠금 해제된 키). 저장소 허용 키: local `clientId`·`vaultWrap`(암호화)·`lockMinutes`·`commonCheck`(PBKDF2 오타 확인값), session `auth`·`vaultKey`·`commonPw`·`auditRun`·`piiRun`(점검 이어 하기, D-101), D-112 local `driveLock`(방식·폴더 ID·PBKDF2 확인값만) · session `driveLockOpen`. 자동 잠금 기본은 0(잠그지 않음). 공통 비밀번호는 local에 두지 마라. 전체 `drive` 범위는 `requestFullAccess()`(드라이브 파일 암호화)에서만.
 - 파서를 바꾸면 `uv run python tools/make_ext_fixtures.py`로 기대값을 다시 만들고 데스크톱 앱과 같은 결과인지 확인한다.
 - 확장 프로그램의 7z·ZIP 쓰기를 바꾸면 `node test/make_interop.mjs`로 상호 호환 픽스처를 다시 만들고 `uv run pytest tests/unit/test_extension_interop.py`로 데스크톱 앱이 여는지 확인한다.
-- 드라이브 쓰기는 `lib/drive.js`의 `upload`·`trash`만(영구 삭제 없음). 예전 보관 파일 휴지통은 `lib/reencrypt.js`에서 두 번의 확인 뒤에만.
+- 드라이브 쓰기는 `lib/drive.js`의 `upload`·`trash`만(영구 삭제 없음). 예전 보관 파일 휴지통은 `lib/reencrypt.js`에서 두 번의 확인 뒤에만. 암호화·풀기·초기화는 전부 아니면 전무(D-112): 확인이 맞지 않으면 올린 사본을 휴지통으로 되돌리고 원본·암호화 파일은 그대로. ZIP 형식을 바꾸면 `test/otherzip.test.mjs`(다른 압축 프로그램)를 통과시킨다.
 - 확장 프로그램의 개인정보 규칙(`lib/detect.js`)은 데스크톱 `detect/rules.py`의 복사본이다. 한쪽을 바꾸면 다른 쪽도 바꾸고 `tools/make_ext_fixtures.py`로 기대값을 다시 만든 뒤 `test/detect.test.mjs`를 통과시킨다.
 
 ## 저장소 메모 (2026-10 안정성·보안 점검, D-103~D-105)

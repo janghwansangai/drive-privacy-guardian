@@ -49,7 +49,7 @@ test("recovery key: new archive gets its own tag and opens with the same key; ol
   assert.deepEqual(drive.calls.map((c) => c[0]), ["upload", "download", "trash"]);
   assert.equal(drive.calls[0][2], "folderA");
   assert.equal(drive.calls[0][3], "application/x-7z-compressed");
-  assert.equal(steps.length, 5);
+  assert.equal(steps.length, 6); // + "원래 파일이 그사이 바뀌지 않았는지 확인" (D-112)
   const up = drive.store.get(r.id);
   const back = await openArchive(up.bytes, await passwordFor(r.name, recoveryKey()));
   assert.equal(new TextDecoder().decode(back.get("메모.txt")), "edited");
@@ -62,7 +62,26 @@ test("upload check fails → the old archive is NOT trashed", async () => {
   const r = await reencrypt({ files: existing(), secret: { password: "Typed-pass-99" }, parent: "p", trashIds: ["OLD"], trashOld: true, drive });
   assert.equal(r.uploadVerified, false);
   assert.equal(r.trashedOld, false);
-  assert.ok(!drive.calls.some((c) => c[0] === "trash"));
+  // D-112: the unproven copy goes back to the trash; the old archive is never touched
+  assert.deepEqual(drive.calls.filter((c) => c[0] === "trash"), [["trash", "id0"]]);
+  assert.equal(r.rolledBack, true);
+});
+
+test("D-112: an original that changed while it was encrypted is kept, the others are trashed", async () => {
+  const drive = fakeDrive();
+  const r = await reencrypt({
+    files: existing(), secret: { password: "Typed-pass-99" }, parent: "p", trashIds: ["A", "B", "C"], trashOld: true, drive,
+    stillSame: async (ids) => ids.filter((id) => id !== "B"),
+  });
+  assert.deepEqual(drive.calls.filter((c) => c[0] === "trash").map((c) => c[1]), ["A", "C"]);
+  assert.equal(r.changedKept, 1);
+  assert.equal(r.trashFailed, 0);
+  assert.equal(r.trashedOld, false);
+  // the check itself failing (network) → nothing is trashed
+  const d2 = fakeDrive();
+  const r2 = await reencrypt({ files: existing(), secret: { password: "Typed-pass-99" }, trashIds: ["A"], trashOld: true, drive: d2, stillSame: async () => { throw new Error("offline"); } });
+  assert.ok(!d2.calls.some((c) => c[0] === "trash"));
+  assert.equal(r2.changedKept, 1);
 });
 
 test("typed password is reused; trash only when asked; folder refused → top of My Drive", async () => {

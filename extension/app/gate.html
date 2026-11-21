@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>드라이브 잠금</title>
+  <link rel="stylesheet" href="gate.css">
+</head>
+<body>
+  <main class="box">
+    <div class="lock" aria-hidden="true">🔒</div>
+    <h1 id="title">잠긴 드라이브입니다</h1>
+    <p id="why" class="cap"></p>
+    <form id="form" autocomplete="off">
+      <input id="pw" type="password" placeholder="잠금 비밀번호" autocomplete="off" autofocus>
+      <button type="submit">열기</button>
+    </form>
+    <p id="msg" class="msg" role="alert"></p>
+    <p class="cap small">개인정보 보안관 · 드라이브 잠금 — 한 번 열면 이 브라우저를 닫을 때까지(또는 설정한 자동 잠금 시간까지) 다시 묻지 않습니다.</p>
+  </main>
+  <script type="module" src="gate.js"></script>
+</body>
+</html>

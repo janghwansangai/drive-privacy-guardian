@@ -37,7 +37,9 @@ test("a failed check keeps the archive; trash only when asked; upload errors sto
   const bad = fakeDrive({ corrupt: true });
   const r = await restoreToDrive({ members: new Map([["a.txt", enc("a")]]), parent: "F", archiveId: "ARC", trashArchive: true, drive: bad });
   assert.equal(r.allVerified, false);
-  assert.ok(!bad.calls.some((c) => c[0] === "trash"));
+  // D-112: the bad copy goes back to the trash; the archive is never trashed
+  assert.deepEqual(bad.calls.filter((c) => c[0] === "trash"), [["trash", "id0"]]);
+  assert.equal(r.rolledBack, true);
   const keep = fakeDrive();
   await restoreToDrive({ members: new Map([["a.txt", enc("a")]]), parent: "F", archiveId: "ARC", trashArchive: false, drive: keep });
   assert.ok(!keep.calls.some((c) => c[0] === "trash"));
@@ -52,4 +54,16 @@ test("a folder archive comes back as the same folder tree", async () => {
   const r = await restoreToDrive({ members, parent: "F", archiveId: "ARC", trashArchive: true, drive });
   assert.deepEqual(drive.calls.filter((c) => c[0] === "folder"), [["folder", "학급자료", "F"], ["folder", "하위", "dir-학급자료"]]);
   assert.deepEqual(r.files.map((f) => f.name), ["학급자료/명단.csv", "학급자료/하위/메모.txt", "학급자료/하위/표.xlsx"]);
+});
+
+test("D-112: a failure half-way takes back every copy and folder made so far; the archive stays", async () => {
+  const drive = fakeDrive();
+  let n = 0;
+  const up = drive.upload.bind(drive);
+  drive.upload = async (...a) => { if (++n === 3) throw new Error("구글 드라이브 오류 (500)"); return up(...a); };
+  const members = new Map([["학급자료/명단.csv", enc("c")], ["학급자료/하위/메모.txt", enc("m")], ["학급자료/하위/표.xlsx", enc("x")]]);
+  await assert.rejects(restoreToDrive({ members, parent: "F", archiveId: "ARC", trashArchive: true, drive }), /휴지통으로 되돌렸습니다/);
+  const trashed = drive.calls.filter((c) => c[0] === "trash").map((c) => c[1]);
+  assert.deepEqual(trashed, ["id0", "id1", "dir-하위", "dir-학급자료"]);
+  assert.ok(!trashed.includes("ARC"));
 });
